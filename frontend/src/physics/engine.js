@@ -19,17 +19,22 @@ export class PhysicsEngine {
       this.worker.postMessage({
         type: 'init',
         dimensions: store.config.dimensions,
-        nodes: [...store.nodes.values()].map((n) => ({ id: n.id })),
+        nodes: [...store.nodes.values()]
+          .map((n) => ({ id: n.id, mass: Number(n.meta && n.meta.mass) })),
         links: [...store.edges.values()]
-          .map((e) => ({ source: e.source, target: e.target })),
+          .map((e) => ({ source: e.source, target: e.target,
+            weight: Number(e.meta && e.meta.weight) })),
       });
     } else if (event.kind === 'patch') {
       const p = event.patch;
       this.worker.postMessage({
         type: 'patch',
-        addNodes: p.add_nodes.map((n) => ({ id: n.id })),
+        addNodes: p.add_nodes.map(
+          (n) => ({ id: n.id, mass: Number(n.meta && n.meta.mass) })),
         removeNodes: p.remove_nodes,
-        addLinks: p.add_edges.map((e) => ({ source: e.source, target: e.target })),
+        addLinks: p.add_edges.map(
+          (e) => ({ source: e.source, target: e.target,
+            weight: Number(e.meta && e.meta.weight) })),
         removeLinks: p.remove_edges,
       });
     }

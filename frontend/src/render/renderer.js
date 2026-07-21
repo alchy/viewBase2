@@ -73,6 +73,9 @@ export class Renderer {
     this._pointer = new THREE.Vector2();
     this._tmpColor = new THREE.Color();
     this._bgColor = new THREE.Color();
+    this._edgeColor = new THREE.Color();          // pracovní barva hrany (per-edge jas)
+    this._edgeBase = new THREE.Color('#666666');  // ztlumená hrana; přepíše applyTheme
+    this._edgeGlow = new THREE.Color('#eaf2ff');  // plně rozsvícená hrana
     this.frameIndex = 0;        // memoizace computeBoundingSphere v pick()
     this._boundsStamp = -1;
 
@@ -106,7 +109,10 @@ export class Renderer {
     this.ambient.intensity = theme.lights.ambient.intensity;
     this.sun.color.set(theme.lights.directional.color);
     this.sun.intensity = theme.lights.directional.intensity;
-    this.edgeLines.material.color.set(theme.edge.color);
+    // hrany jedou na vertex-colors (per-edge jas); material.color zůstává bílá,
+    // odstín nese _edgeBase (ztlumená) ↔ _edgeGlow (rozsvícená), viz _syncEdges
+    this._edgeBase.set(theme.edge.color);
+    this._edgeGlow.set(theme.edge.glow ?? '#6fb8e8');  // střední cyan, ne bílá
     this.edgeLines.material.opacity = theme.edge.opacity;
     for (const mesh of this.meshes.values()) {
       mesh.material.emissive.set(theme.node.emissive);
@@ -257,10 +263,12 @@ export class Renderer {
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position',
       new THREE.BufferAttribute(new Float32Array(capacity * 3), 3));
+    geometry.setAttribute('color',                        // per-vertex barva = jas hrany
+      new THREE.BufferAttribute(new Float32Array(capacity * 3), 3));
     geometry.setDrawRange(0, 0);
     this.edgeLines = new THREE.LineSegments(geometry,
       new THREE.LineBasicMaterial({
-        color: this.theme.edge.color,
+        vertexColors: true,          // barvu nese geometrie (per-edge), ne materiál
         transparent: true,
         opacity: this.theme.edge.opacity,
       }));
@@ -380,24 +388,42 @@ export class Renderer {
     const perEdge = spline ? EDGE_SEGMENTS * 2 : 2;   // vrcholů na hranu
     this._ensureEdgeCapacity(edges.size * perEdge);
     const attr = this.edgeLines.geometry.getAttribute('position');
+    const colorAttr = this.edgeLines.geometry.getAttribute('color');
     let v = 0;                                        // index vrcholu
     for (const edge of edges.values()) {
       const a = this.display.get(edge.source);
       const b = this.display.get(edge.target);
       if (!a || !b) continue;
+      // per-edge JAS: meta.color přímo, jinak meta.brightness (0..1) lerpne
+      // _edgeBase (ztlumená) → _edgeGlow (rozsvícená); bez meta = základ tématu
+      const col = this._edgeColor;
+      const bright = edge.meta ? Number(edge.meta.brightness) : NaN;
+      if (edge.meta && edge.meta.color) {
+        col.set(edge.meta.color);
+      } else if (Number.isFinite(bright)) {
+        col.copy(this._edgeBase).lerp(this._edgeGlow,
+          Math.max(0, Math.min(1, bright)));
+      } else {
+        col.copy(this._edgeBase);
+      }
       if (spline) {
         const pts = bezierEdgePoints(a, b, this.edgeElasticity, EDGE_SEGMENTS);
         for (let i = 0; i < pts.length - 1; i += 1) {
-          attr.setXYZ(v, pts[i].x, pts[i].y, pts[i].z); v += 1;
-          attr.setXYZ(v, pts[i + 1].x, pts[i + 1].y, pts[i + 1].z); v += 1;
+          attr.setXYZ(v, pts[i].x, pts[i].y, pts[i].z);
+          colorAttr.setXYZ(v, col.r, col.g, col.b); v += 1;
+          attr.setXYZ(v, pts[i + 1].x, pts[i + 1].y, pts[i + 1].z);
+          colorAttr.setXYZ(v, col.r, col.g, col.b); v += 1;
         }
       } else {
-        attr.setXYZ(v, a.x, a.y, a.z); v += 1;
-        attr.setXYZ(v, b.x, b.y, b.z); v += 1;
+        attr.setXYZ(v, a.x, a.y, a.z);
+        colorAttr.setXYZ(v, col.r, col.g, col.b); v += 1;
+        attr.setXYZ(v, b.x, b.y, b.z);
+        colorAttr.setXYZ(v, col.r, col.g, col.b); v += 1;
       }
     }
     this.edgeLines.geometry.setDrawRange(0, v);
     attr.needsUpdate = true;
+    colorAttr.needsUpdate = true;
   }
 
   /** Počet vykreslených instancí napříč všemi typy (testy, E2E). */
