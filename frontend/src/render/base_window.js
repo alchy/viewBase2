@@ -28,7 +28,7 @@ const POS_PREFIX = 'vb-pos:';   // localStorage klíč perzistence pozic/velikos
 
 export const MIN_WINDOW_W = 180;   // px – pod tím už je okno nepoužitelné
 export const MIN_WINDOW_H = 90;
-const GRIP_PX = 14;                // strana úchytu v rohu
+const GRIP_PX = 28;                // strana úchytu v rohu (ať se dobře chytá)
 const GRIP_OPACITY = '0.35';       // „mírně transluentní" čtvereček
 
 /** Klíč perzistence pozice: id okna; bez id poslouží název okna
