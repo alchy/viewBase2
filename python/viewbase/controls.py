@@ -34,6 +34,8 @@ class ControlWindow:
 
     def integer(self, key: str, label: str, *, min: int, max: int,
                 value: int, step: int = 1) -> "ControlWindow":
+        """Celočíselné pole renderované jako slider (např. počet uzlů).
+        Vrací self – pole jde řetězit."""
         if min > max:
             raise ValueError("integer: min nesmí být větší než max")
         self._fields.append({
@@ -69,6 +71,7 @@ class ControlWindow:
 
     def string(self, key: str, label: str, *, maxlength: int,
                value: str = "") -> "ControlWindow":
+        """Textové pole; delší vstup z klienta se ořízne na `maxlength`."""
         if maxlength <= 0:
             raise ValueError("string: maxlength musí být kladné")
         self._fields.append({
@@ -79,6 +82,8 @@ class ControlWindow:
 
     def enum(self, key: str, label: str, *, options: list,
              value: Any) -> "ControlWindow":
+        """Výběr z možností (rozbalovací seznam). `options` je seznam dvojic
+        (hodnota, popisek), nebo holých hodnot; `value` musí být jedna z nich."""
         norm = _normalize_options(options)
         if not norm:
             raise ValueError("enum: options nesmí být prázdné")
@@ -91,6 +96,8 @@ class ControlWindow:
         return self
 
     def spec(self) -> dict[str, Any]:
+        """Popis okna pro frontend (akce open_window i init). Kopie polí –
+        mutace návratu stav okna neovlivní."""
         return {
             "window_id": self.window_id,
             "title": self.title,
@@ -134,6 +141,8 @@ class TerminalWindow:
         self.input = bool(input)        # False = jen výstup (živý panel bez promptu)
 
     def spec(self) -> dict[str, Any]:
+        """Popis okna pro frontend; `kind:"terminal"` ho odliší od
+        formulářového ControlWindow."""
         return {
             "window_id": self.window_id,
             "title": self.title,

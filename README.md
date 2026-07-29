@@ -110,7 +110,11 @@ canvas = vb.Canvas(title="Infrastruktura", dimensions=3, theme="cyber",
 canvas.add_node("srv-1", type="server", name="Web 01", ip="10.0.0.5")
 canvas.add_edge("srv-1", "db-1")
 canvas.update_node("srv-1", status="down")     # popisek se přepočte
+canvas.update_node("srv-1", color="#ff2a6d")   # živá barva jednoho uzlu
+canvas.update_node("srv-1", type="db")         # živá změna typu (barva/tvar/velikost)
 canvas.ensure_node("srv-1", status="up")       # upsert: založ, nebo slouč meta
+canvas.remove_edge("srv-1", "db-1")            # mazání za běhu
+canvas.remove_node("srv-1")                    # uzel + jeho hrany (kaskáda)
 with canvas.batch():                            # hromadné delty = jedna zpráva
     ...
 
@@ -126,18 +130,34 @@ def tick():
 
 - **Typy uzlů a témata** — `define_type` (tvary `sphere`/`box`/`octahedron`/
   `tetrahedron`); vestavěná témata `modern`/`cyber` nebo vlastní dict.
+- **Živá změna vzhledu uzlu** (uzel se kvůli ní neodebírá ani nezakládá – drží
+  si pozici i hrany): priorita **meta > typ > téma**.
+  `update_node(id, color="#ff2a6d")` přebarví jeden uzel (`size=` totéž),
+  `color=None` ho vrátí na typ/téma; `update_node(id, type="db")` přepne typ
+  (barva, tvar i velikost), `type=None` typ zruší, nezadaný `type` ho nechá být;
+  `define_type("db", color="#ffd166", …)` za běhu přebarví **všechny** uzly
+  toho typu (styl se nahrazuje celý).
 - **Eventy** (prohlížeč → Python) — `@canvas.on_click` / `on_hover` /
-  `on_background_click` / `on_view_change`; běží v thread-poolu.
+  `on_background_click` / `on_view_change`; běží v thread-poolu. Vlastní event
+  registruje `canvas.on("jmeno", handler)` a poslat ho jde i zvenčí přes REST
+  `POST /api/event` (`{"event": …, "payload": {…}}`) — most pro cron, jiný
+  proces nebo `curl`.
 - **Akce** (Python → prohlížeč) — `focus`, `highlight`, `show_detail`,
   `set_theme`, `set_edge_style("line"|"spline", elasticity=…)`.
 - **Detailní okno** — `detail_window(rows=…)`; klik na uzel otevře tažitelné
   okno s metadaty (styl Amiga Workbench, dok, z-order).
 - **Toky** — `define_flow_type` + `flow(src, dst | path=[…], type=…)`: světelné
-  částice po hranách (pakety, zprávy, provoz); `count=None` je trvalý tok.
+  částice po hranách (pakety, zprávy, provoz); `count=None` je trvalý tok
+  (vrací `flow_id`, zastaví ho `stop_flow(flow_id)`; smazání hrany na cestě
+  ho zruší samo).
 - **Control okna** — `ControlWindow` (pole `integer`/`number`/`string`/`enum`/
   `boolean`) + `open_window(win, on_submit=…, live=…)`: backendem řízený
   parametrický dialog; `live=True` posílá hodnoty při každé změně (slider bez
-  tlačítka *Použít*).
+  tlačítka *Použít*). Zavírá `close_window(window_id)`.
+- **Terminálová okna** — `TerminalWindow` + `open_terminal(win, on_input=…)`:
+  konzole v prohlížeči, kterou obsluhuje Python. Řádek od uživatele přijde do
+  handleru jako `event.line`, server píše zpátky `terminal_write(window_id,
+  text)`; `TerminalWindow(…, input=False)` je jen výstupní panel (živý log).
 - **Idempotentní zápis a čtení** — `ensure_node`/`ensure_edge` (upsert pro živé
   zdroje dat), `has_node`/`has_edge`, `node()`/`edge()`, `canvas.nodes`/`edges`.
 - **Import grafů** — `Canvas.from_networkx(G)` / `canvas.add_graph(G,
@@ -159,7 +179,8 @@ Detaily API a chování viz návrhové dokumenty a příklady níže.
 | `examples/quickstart.py` | minimální živý graf (3D) |
 | `examples/quickstart2d.py` | 2D ortografický režim |
 | `examples/interactive.py` | klik → rozbalení sousedů (eventy/akce) |
-| `examples/showcase.py` | téma cyber, typy uzlů, živé barvy, toky, **control okno** (čáry/splajny) |
+| `examples/showcase.py` | téma cyber, typy uzlů, **živá změna barvy/typu za běhu**, toky, **control okno** (čáry/splajny) |
+| `examples/terminal.py` | **konzole v prohlížeči**: `TerminalWindow`, `on_input`, `terminal_write`, výstupní panel a REST push (`/api/event`) |
 | `examples/words.py` | mapa slov z Wikipedie (crawl odkazů) |
 | `examples/stress.py` | zátěžový test (tisíce uzlů) |
 | [`examples/wireshark/`](examples/wireshark/README.md) | **síťové toky**: přehrání pcap, živý odposlech a cesta paketu (traceroute) |
@@ -220,6 +241,8 @@ koncový uživatel npm nepotřebuje.
 
 Funkční jádro: živý 2D/3D graf, typy uzlů, témata (modern/cyber), SDF popisky,
 bloom, quality=auto, eventy/akce, zvýraznění sousedů, detailní okno, toky a typy
-toků, wireshark příklady (pcap, živý odposlech, traceroute), **control okna
-(parametrické GUI) a křivkové hrany (čáry/splajny + elasticita)**. Plánováno
+toků, wireshark příklady (pcap, živý odposlech, traceroute), control okna
+(parametrické GUI), terminálová okna (konzole + REST push) a křivkové hrany
+(čáry/splajny + elasticita), **živá změna vzhledu uzlu za běhu (barva/velikost
+přes meta, přepnutí typu, redefinice typu)**. Plánováno
 dále: GLB modely uzlů, distribuce přes wheel + CI, IPv6 v živém odposlechu.

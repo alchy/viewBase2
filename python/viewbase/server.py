@@ -58,6 +58,9 @@ async def _broadcast_loop(canvas: Canvas, clients: set[WebSocket],
 
 
 def create_app(canvas: Canvas) -> FastAPI:
+    """Sestav FastAPI aplikaci nad canvasem: statické assety, `/ws`
+    (init + delty + akce), `/api/event` (REST vstřik události). Běžný uživatel
+    volá `serve()`; tohle je pro testy a vlastní hostování (uvicorn, mount)."""
     clients: set[WebSocket] = set()
     state_lock = asyncio.Lock()
 
