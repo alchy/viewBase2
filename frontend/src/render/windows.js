@@ -2,11 +2,13 @@
  *  base_window.js; tady je tělo detailu + WindowManager (detail i control).
  *  Čisté funkce buildRows/windowsToRefresh jsou tu, clampToCanvas/dockLayout
  *  se re-exportují z base_window.js (zpětná kompatibilita testů). */
-import { BaseWindow, clampToCanvas, dockLayout } from './base_window.js';
+import {
+  BaseWindow, clampToCanvas, dockLayout, resizeGeometry,
+} from './base_window.js';
 import { ControlWindow } from './control_window.js';
 import { TerminalWindow } from './terminal_window.js';
 
-export { clampToCanvas, dockLayout };
+export { clampToCanvas, dockLayout, resizeGeometry };
 
 const CONTROL_WIDTH_CHARS = 30;
 

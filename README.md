@@ -146,6 +146,11 @@ def tick():
   `set_theme`, `set_edge_style("line"|"spline", elasticity=…)`.
 - **Detailní okno** — `detail_window(rows=…)`; klik na uzel otevře tažitelné
   okno s metadaty (styl Amiga Workbench, dok, z-order).
+- **Okna se dají zvětšovat** — každé okno (detail, control i terminál) má
+  úchyt v pravém a levém dolním rohu: najetím myší se objeví mírně průhledný
+  čtvereček, tažením za něj se okno zvětší nebo zmenší (levý roh hýbe levou
+  hranou, pravá stojí). Pozice **i velikost** oken se pamatují v prohlížeči
+  (localStorage, klíč `vb-pos:<window_id>`), takže přežijí obnovení stránky.
 - **Toky** — `define_flow_type` + `flow(src, dst | path=[…], type=…)`: světelné
   částice po hranách (pakety, zprávy, provoz); `count=None` je trvalý tok
   (vrací `flow_id`, zastaví ho `stop_flow(flow_id)`; smazání hrany na cestě

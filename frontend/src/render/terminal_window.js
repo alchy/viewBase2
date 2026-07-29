@@ -41,7 +41,10 @@ export class TerminalWindow extends BaseWindow {
     const output = document.createElement('div');
     output.dataset.role = 'terminal-output';
     output.style.cssText = [
-      `height:${OUTPUT_HEIGHT_PX}px`, 'overflow-y:auto', 'white-space:pre-wrap',
+      // výchozí výška; po ruční změně velikosti okna výstup dorovná zbytek
+      // těla (flex), takže konzole roste s oknem
+      `height:${OUTPUT_HEIGHT_PX}px`, 'flex:1 1 auto', 'min-height:0',
+      'overflow-y:auto', 'white-space:pre-wrap',
       'word-break:break-word',
       'background:var(--vb-window-output-bg, rgba(0,0,0,0.06))',
       'border-radius:4px', 'padding:6px 8px',
