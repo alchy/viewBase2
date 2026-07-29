@@ -129,6 +129,7 @@ function bootstrap() {
     close_window: (msg) => windowManager.closeControl(msg.window_id),
     terminal_append: (msg) => windowManager.terminalAppend(msg.window_id, msg.text),
     set_edge_style: (msg) => renderer.setEdgeStyle(msg),
+    define_type: (msg) => store.applyNodeType(msg.name, msg.style),
   };
 
   const wsScheme = location.protocol === 'https:' ? 'wss' : 'ws';

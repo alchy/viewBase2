@@ -1,5 +1,6 @@
 """Showcase estetiky a toků: téma cyber, typy uzlů s tvary a barvami,
-živé update_node color, highlight_neighbors=2, typy toků a:
+živá změna vzhledu za běhu (update_node color/type, define_type),
+highlight_neighbors=2, typy toků a:
  - trvalý tok na pozadí (klient → server),
  - fire-and-forget tok při kliku na uzel (uzel → DB, cíl z meta uzlu),
  - live control okno (hrany čára/splajn + elasticita bez tlačítka Použít).
@@ -49,12 +50,28 @@ _busy: list[str] = []
 
 @canvas.every(1.5)
 def provoz() -> None:
-    """Náhodný klient se rozsvítí dožluta, další tik ho zhasne – živá data."""
+    """Náhodný klient se rozsvítí dožluta, další tik ho zhasne – živá data.
+    Barva jde přes meta (meta > typ > téma); `color=None` ji zase sundá,
+    takže uzel spadne zpátky na barvu svého typu."""
     while _busy:
-        canvas.update_node(_busy.pop(), color="#05ffa1", status="idle")
+        canvas.update_node(_busy.pop(), color=None, status="idle")
     cl = f"cl-{random.randrange(12)}"
     canvas.update_node(cl, color="#ffd166", status="busy")
     _busy.append(cl)
+
+
+_zaloha = [False]
+
+
+@canvas.every(6.0)
+def prepni_zalohu() -> None:
+    """Živá změna vzhledu bez odebírání uzlů:
+     - `update_node(type=...)` přepne jeden uzel na jiný typ (tvar i barva),
+     - `define_type` za běhu přebarví rovnou celý typ (tady všechny servery)."""
+    _zaloha[0] = not _zaloha[0]
+    canvas.update_node("srv-2", type="db" if _zaloha[0] else "server")
+    canvas.define_type("server", shape="box", size=1.4,
+                       color="#ff9f1c" if _zaloha[0] else "#28d7fe")
 
 
 # control okno: styl hran (čára/splajn) + elasticita; live = změny se

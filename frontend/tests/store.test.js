@@ -70,6 +70,25 @@ describe('GraphStore', () => {
     expect(events).toEqual(['init', 'patch']);
   });
 
+  it('applyNodeType přidá i přepíše typ (živá změna barvy celého typu)', () => {
+    const store = new GraphStore();
+    store.applyInit(initMsg({ node_types: { server: { color: '#28d7fe' } } }));
+    store.applyNodeType('server', { color: '#ff2a6d', shape: 'box' });
+    store.applyNodeType('db', undefined);
+    expect(store.nodeTypes.server).toEqual({ color: '#ff2a6d', shape: 'box' });
+    expect(store.nodeTypes.db).toEqual({});     // typ bez stylu = styl tématu
+  });
+
+  it('patch s jiným typem uzlu přepíše celý záznam uzlu', () => {
+    const store = new GraphStore();
+    store.applyInit(initMsg());
+    store.applyPatch(patchMsg(1, {
+      update_nodes: [{ id: 'a', type: 'db', label: 'a', meta: { color: '#f00' } }],
+    }));
+    expect(store.nodes.get('a').type).toBe('db');
+    expect(store.nodes.get('a').meta.color).toBe('#f00');
+  });
+
   it('add_edge s chybějícím koncem se přeskočí s console.warn', () => {
     const store = new GraphStore();
     store.applyInit(initMsg());

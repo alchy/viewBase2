@@ -18,23 +18,32 @@ def test_ensure_node_creates_then_upserts_meta():
                                                  "ip": "1.2.3.4"}
 
 
-def test_ensure_node_same_type_ok_conflict_raises():
+def test_ensure_node_switches_type():
     c = Canvas()
     c.define_type("server")
     c.define_type("db")
     c.ensure_node("a", type="server")
+    c.drain()
     c.ensure_node("a", type="server")            # shodný typ = idempotentní
     c.ensure_node("a")                           # nezadaný typ = no-op
+    assert c.drain() is None
+    c.ensure_node("a", type="db")                # změna typu = patch
+    seq, deltas = c.drain()
+    assert deltas["update_nodes"][0]["type"] == "db"
     with pytest.raises(ValueError):
-        c.ensure_node("a", type="db")            # změna typu → Plán 2b
+        c.ensure_node("a", type="ghost")         # nedefinovaný typ
+    assert c.node("a")["type"] == "db"
 
 
-def test_ensure_node_label_conflict_raises():
+def test_ensure_node_switches_label_template():
     c = Canvas()
+    c.ensure_node("a", label="{x}", x="X", y="Y")
+    c.drain()
     c.ensure_node("a", label="{x}")
-    c.ensure_node("a", label="{x}")
-    with pytest.raises(ValueError):
-        c.ensure_node("a", label="{y}")
+    assert c.drain() is None
+    c.ensure_node("a", label="{y}")
+    seq, deltas = c.drain()
+    assert deltas["update_nodes"][0]["label"] == "Y"
 
 
 def test_ensure_edge_creates_then_merges_meta():

@@ -107,13 +107,78 @@ def test_snapshot_is_isolated_from_internal_state():
     assert c.snapshot()["config"]["title"] == "viewbase"
 
 
-def test_update_node_rejects_label_and_type_keys():
+def test_update_node_changes_color_via_meta():
+    c = Canvas()
+    c.add_node("a", color="#111111")
+    c.drain()
+    c.update_node("a", color="#ff2a6d")
+    seq, deltas = c.drain()
+    assert deltas["update_nodes"][0]["meta"]["color"] == "#ff2a6d"
+    c.update_node("a", color=None)              # zpět na typ/téma (klient: ??)
+    seq, deltas = c.drain()
+    assert deltas["update_nodes"][0]["meta"]["color"] is None
+
+
+def test_update_node_switches_type_and_label():
+    c = Canvas()
+    c.define_type("server", color="#28d7fe")
+    c.define_type("db", color="#ff2a6d")
+    c.add_node("a", type="server", name="Alfa")
+    c.drain()
+    c.update_node("a", type="db", label="{name}")
+    seq, deltas = c.drain()
+    assert deltas["update_nodes"] == [
+        {"id": "a", "type": "db", "label": "Alfa", "meta": {"name": "Alfa"}}]
+    c.update_node("a", type=None, label=None)   # zruš typ i šablonu popisku
+    seq, deltas = c.drain()
+    assert deltas["update_nodes"][0]["type"] is None
+    assert deltas["update_nodes"][0]["label"] == "a"
+
+
+def test_update_node_keeps_type_when_not_given():
+    c = Canvas()
+    c.define_type("server")
+    c.add_node("a", type="server", label="{name}", name="Alfa")
+    c.drain()
+    c.update_node("a", name="Beta")
+    seq, deltas = c.drain()
+    assert deltas["update_nodes"] == [
+        {"id": "a", "type": "server", "label": "Beta", "meta": {"name": "Beta"}}]
+
+
+def test_update_node_rejects_unknown_type():
     c = Canvas()
     c.add_node("a")
+    with pytest.raises(ValueError, match="Neznámý typ"):
+        c.update_node("a", type="ghost")
+    assert c.node("a")["type"] is None
     with pytest.raises(ValueError, match="label"):
-        c.update_node("a", label="X")
-    with pytest.raises(ValueError, match="type"):
-        c.update_node("a", type="server")
+        c.update_node("a", label=42)
+
+
+def test_update_node_before_first_drain_stays_in_add_nodes():
+    """Uzel čekající na založení nesmí odejít jako update – klient ho nezná."""
+    c = Canvas()
+    c.define_type("db", color="#ff2a6d")
+    c.add_node("a")
+    c.update_node("a", type="db", color="#00ff00")
+    seq, deltas = c.drain()
+    assert deltas["update_nodes"] == []
+    assert deltas["add_nodes"] == [
+        {"id": "a", "type": "db", "label": "a", "meta": {"color": "#00ff00"}}]
+
+
+def test_define_type_at_runtime_queues_action():
+    c = Canvas()
+    c.define_type("server", color="#28d7fe", shape="box")
+    assert c.drain_actions() == [
+        {"action": "define_type", "name": "server",
+         "style": {"color": "#28d7fe", "shape": "box"}}]
+    c.define_type("server", color="#ff2a6d", shape="box")   # přebarvi celý typ
+    assert c.drain_actions() == [
+        {"action": "define_type", "name": "server",
+         "style": {"color": "#ff2a6d", "shape": "box"}}]
+    assert c.snapshot()["node_types"]["server"]["color"] == "#ff2a6d"
 
 
 def test_detail_window_default_present_in_snapshot():

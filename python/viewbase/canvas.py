@@ -20,6 +20,10 @@ _LABEL_KEY = re.compile(r"\{([^{}]+)\}")
 BUILTIN_THEMES = ("modern", "cyber")
 QUALITIES = ("low", "high", "auto")
 
+# Sentinel „argument nezadán" – odlišuje `update_node(a)` (typ/label nech být)
+# od `update_node(a, type=None)` (typ zruš, uzel spadne na styl tématu).
+_KEEP: Any = object()
+
 
 def _validated_theme(theme: Any) -> Any:
     """Název vestavěného tématu, nebo dict (klient ho merguje přes modern)."""
@@ -139,9 +143,16 @@ class Canvas:
             self._node_label_template = template
 
     def define_type(self, name: str, **style: Any) -> None:
-        """Definuj typ uzlu. V Plánu 1 se propaguje jen přes init (volat před serve)."""
+        """Definuj (i předefinuj) typ uzlu – ``color``/``shape``/``size``.
+
+        Volání za běhu propaguje styl klientům akcí ``define_type``: všechny
+        uzly toho typu se hned přebarví/přetvarují (hromadná změna barvy).
+        Styl se **nahrazuje celý**, nesloučí se s předchozím. Nově připojený
+        klient dostane typy v ``init``."""
         with self._lock:
             self._node_types[name] = dict(style)
+            self._actions.append({"action": "define_type", "name": name,
+                                  "style": dict(style)})
 
     def define_flow_type(self, name: str, *, color: str | None = None,
                          size: float = 1.0, speed: float = 1.0) -> None:
@@ -353,6 +364,11 @@ class Canvas:
 
     def add_node(self, node_id: str, *, type: str | None = None,
                  label: str | None = None, **meta: Any) -> None:
+        """Založ uzel. `type` musí být předem definovaný (`define_type`),
+        `label` je per-node šablona popisku (`"{name} [{ip}]"`), zbytek kwargs
+        jsou volná metadata – čtou se v handlerech, v detailním okně i v
+        šabloně popisku. Meta klíče `color`/`size` přebijí styl typu.
+        Existující id je chyba (idempotentní zápis viz `ensure_node`)."""
         self._add_node(node_id, type, label, meta)
 
     def _add_node(self, node_id: str, type: str | None, label: str | None,
@@ -373,9 +389,9 @@ class Canvas:
     def ensure_node(self, node_id: str, *, type: str | None = None,
                     label: str | None = None, **meta: Any) -> None:
         """Idempotentní add_node: neexistující uzel založí, existujícímu
-        sloučí meta (patch odejde jen při reálné změně). type/label
-        existujícího uzlu měnit neumí (viz update_node / Plán 2b) –
-        odlišná hodnota je chyba, shodná nebo nezadaná je no-op."""
+        sloučí meta a případně přepne typ/šablonu popisku (patch odejde jen
+        při reálné změně). ``type=None``/``label=None`` znamená „nezadáno" =
+        nech beze změny; zrušit typ jde přes ``update_node(id, type=None)``."""
         self._ensure_node(node_id, type, label, meta)
 
     def _ensure_node(self, node_id: str, type: str | None, label: str | None,
@@ -385,43 +401,70 @@ class Canvas:
             if node is None:
                 self._add_node(node_id, type, label, meta)
                 return
+            changed = False
             if type is not None and type != node["type"]:
-                raise ValueError(
-                    f"ensure_node: uzel '{node_id}' má typ {node['type']!r},"
-                    f" změna na {type!r} přijde až v Plánu 2b")
+                self._set_node_type_locked(node, type)
+                changed = True
             if label is not None and label != node["label_template"]:
-                raise ValueError(
-                    f"ensure_node: uzel '{node_id}' má jinou label šablonu –"
-                    " změna přijde až v Plánu 2b")
+                node["label_template"] = label
+                changed = True
             merged = {**node["meta"], **meta}
-            if merged == node["meta"]:
+            if merged != node["meta"]:
+                node["meta"] = merged
+                changed = True
+            if not changed:
                 return
-            node["meta"] = merged
-            payload = self._public_node(node)
-            if node_id in self._pending["add_nodes"]:
-                self._pending["add_nodes"][node_id] = payload
-            else:
-                self._pending["update_nodes"][node_id] = payload
+            self._queue_node_payload_locked(node)
 
-    def update_node(self, node_id: str, **meta: Any) -> None:
+    def update_node(self, node_id: str, *, type: Any = _KEEP,
+                    label: Any = _KEEP, **meta: Any) -> None:
+        """Změň existující uzel za běhu – metadata, typ i šablonu popisku.
+
+        Barva jednoho uzlu jde přes meta (priorita meta > typ > téma)::
+
+            canvas.update_node("srv-1", color="#ff2a6d")   # přebarvi
+            canvas.update_node("srv-1", color=None)        # zpět na typ/téma
+
+        ``type="db"`` přepne uzel na jiný typ (barva, tvar i velikost se
+        překreslí), ``type=None`` typ zruší, nezadaný ``type`` ho nechá být;
+        stejně se chová ``label``. Hromadnou změnu barvy celého typu udělá
+        ``define_type``. Odebírat a znovu zakládat uzel kvůli vzhledu není
+        potřeba – uzel si drží pozici i hrany."""
         with self._lock:
             if node_id not in self._nodes:
                 raise ValueError(f"Uzel '{node_id}' neexistuje")
-            for reserved in ("label", "type"):
-                if reserved in meta:
-                    raise ValueError(
-                        f"update_node neumí měnit '{reserved}' – label šablona"
-                        " a typ se zadávají v add_node (změna za běhu přijde"
-                        " v Plánu 2b)")
             node = self._nodes[node_id]
+            if type is not _KEEP:
+                self._set_node_type_locked(node, type)
+            if label is not _KEEP:
+                if label is not None and not isinstance(label, str):
+                    raise ValueError("label musí být řetězec nebo None")
+                node["label_template"] = label
             node["meta"].update(meta)
-            payload = self._public_node(node)
-            if node_id in self._pending["add_nodes"]:
-                self._pending["add_nodes"][node_id] = payload
-            else:
-                self._pending["update_nodes"][node_id] = payload
+            self._queue_node_payload_locked(node)
+
+    def _set_node_type_locked(self, node: dict[str, Any],
+                              node_type: str | None) -> None:
+        """Přepni typ uzlu (None = bez typu); typ musí být definovaný."""
+        if node_type is not None and node_type not in self._node_types:
+            raise ValueError(
+                f"Neznámý typ uzlu '{node_type}' – nejdřív zavolej define_type")
+        node["type"] = node_type
+
+    def _queue_node_payload_locked(self, node: dict[str, Any]) -> None:
+        """Zařaď stav uzlu do delt – do add_nodes, dokud tam čeká založení
+        (klient by jinak dostal update na uzel, který ještě nezná)."""
+        node_id = node["id"]
+        payload = self._public_node(node)
+        if node_id in self._pending["add_nodes"]:
+            self._pending["add_nodes"][node_id] = payload
+        else:
+            self._pending["update_nodes"][node_id] = payload
 
     def remove_node(self, node_id: str) -> None:
+        """Odeber uzel i všechny jeho hrany (kaskáda) a zruš trvalé toky, které
+        přes něj vedly. Kvůli změně vzhledu uzel odebírat nemusíš – barvu, typ
+        i popisek mění `update_node` za běhu."""
         with self._lock:
             if node_id not in self._nodes:
                 raise ValueError(f"Uzel '{node_id}' neexistuje")
@@ -435,6 +478,10 @@ class Canvas:
     # ---- hrany ---------------------------------------------------------
 
     def add_edge(self, source: str, target: str, **meta: Any) -> None:
+        """Spoj dva existující uzly neorientovanou hranou (pořadí konců je
+        jedno, `a–b` == `b–a`). Kwargs jsou metadata hrany; `color` obarví
+        hranu napřímo, `brightness` (0..1) řídí její jas mezi barvou tématu
+        a rozsvícenou. Duplicitní hrana i smyčka do sebe jsou chyba."""
         self._add_edge(source, target, meta)
 
     def _add_edge(self, source: str, target: str,
@@ -473,6 +520,8 @@ class Canvas:
             self._pending["add_edges"][key] = self._public_edge(edge)
 
     def remove_edge(self, source: str, target: str) -> None:
+        """Odeber hranu (neorientovaně) a zruš trvalé toky, které přes ni
+        vedly. Neexistující hrana je chyba."""
         with self._lock:
             key = _edge_key(source, target)
             if key not in self._edges:
@@ -542,10 +591,12 @@ class Canvas:
     # ---- čtení ---------------------------------------------------------
 
     def has_node(self, node_id: str) -> bool:
+        """Existuje uzel? (Bezpečné i z handlerů a every() úloh.)"""
         with self._lock:
             return node_id in self._nodes
 
     def has_edge(self, source: str, target: str) -> bool:
+        """Existuje hrana mezi uzly? Neorientovaně – pořadí konců je jedno."""
         with self._lock:
             return _edge_key(source, target) in self._edges
 
@@ -713,17 +764,23 @@ class Canvas:
         return self._register(event, func)
 
     def on_click(self, func: Callable[[Any], None]) -> Callable[[Any], None]:
+        """Dekorátor: klik na uzel. Event nese `.node_id` a `.client_id`;
+        handler běží v thread-poolu, takže smí blokovat i mutovat canvas."""
         return self._register("node_click", func)
 
     def on_hover(self, func: Callable[[Any], None]) -> Callable[[Any], None]:
+        """Dekorátor: najetí myší na uzel (`.node_id`, throttlováno klientem)."""
         return self._register("node_hover", func)
 
     def on_background_click(
             self, func: Callable[[Any], None]) -> Callable[[Any], None]:
+        """Dekorátor: klik mimo uzly – typicky zrušení výběru/zvýraznění."""
         return self._register("background_click", func)
 
     def on_view_change(
             self, func: Callable[[Any], None]) -> Callable[[Any], None]:
+        """Dekorátor: pohyb kamery. Event nese `.position`, `.target`, `.zoom`
+        (klient posílá throttlovaně, ~10×/s)."""
         return self._register("view_change", func)
 
     def _register(self, event: str,

@@ -43,6 +43,13 @@ export class GraphStore {
     this._emit({ kind: 'init' });
   }
 
+  /** Definice/redefinice typu uzlu za běhu (akce define_type). Renderer
+   *  i labely čtou nodeTypes každý snímek, takže se uzly toho typu
+   *  přebarví/přetvarují bez rebuildu; style nahrazuje celý dosavadní. */
+  applyNodeType(name, style) {
+    this.nodeTypes[name] = style ?? {};
+  }
+
   /** Aplikuje patch; false = mezera v seq (volající si vyžádá čerstvý init).
    *  Pevné pořadí: remove_edges, remove_nodes, add_nodes, update_nodes,
    *  add_edges. Adds/updates jsou upserty, remove neznámého je no-op. */
