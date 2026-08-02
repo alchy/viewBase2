@@ -145,11 +145,10 @@ Nejjednodušší okno vůbec — jen se umístí, obsah teče sám:
 ```python
 project = vb.Project(port=8080)
 screen = vb.Screen(title="Log základ")
-graph = vb.GraphWindow(screen=screen)   # v1: screen potřebuje i grafové okno
-vb.LogWindow(screen=screen)             # explicitní umístění systémového okna
-
-vb.log("služba startuje", level="info")  # objeví se v okně s timestampem
+vb.LogWindow(screen=screen)     # grafové okno NENÍ potřeba – screen je plocha
 project.serve(screen)
+# kdykoli za běhu (event handlery, every() úlohy, REST):
+#   vb.log("zpráva", level="info")   → objeví se v okně s timestampem
 ```
 
 Řádky se tisknou dolů s autoscrollem (`tail -f`, styl AmigaShell), okno

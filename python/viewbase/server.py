@@ -302,21 +302,27 @@ class Project:
 
     def serve(self, *surfaces, open_browser: bool = False,
               block: bool = True) -> "ServerHandle | None":
-        """Spusť službu nad screeny (nebo přímo grafovými okny). Screen bez
-        grafového okna zatím servírovat nejde – frontend materializuje
-        screen přes init jeho grafu (známé omezení v1)."""
+        """Spusť službu nad screeny (nebo přímo grafovými okny). Grafové
+        okno je na screenu VOLITELNÉ – screen jen s log/jinými okny se na
+        drátě nese přes skrytého hostitele (interní GraphWindow s
+        `config["graph_window"] = False`; frontend pro něj grafové okno
+        ani pipeline vůbec nevytvoří)."""
         windows = []
         for surface in surfaces:
-            graph = getattr(surface, "graph", None)
-            if graph is not None:            # Screen se svým grafovým oknem
-                windows.append(graph)
-            elif hasattr(surface, "snapshot"):   # přímo GraphWindow
+            if hasattr(surface, "snapshot"):     # přímo GraphWindow
                 windows.append(surface)
-            else:
-                raise ValueError(
-                    "Project.serve() bere Screen (s grafovým oknem) nebo "
-                    "GraphWindow; screen bez grafového okna zatím servírovat "
-                    "nejde")
+                continue
+            graph = getattr(surface, "graph", None)
+            if graph is None:
+                if not hasattr(surface, "id"):
+                    raise ValueError(
+                        "Project.serve() bere Screen nebo GraphWindow")
+                # screen bez grafu: skrytý hostitel ponese titulek, téma a
+                # okna screenu (např. log_window flag) v init snapshotu
+                graph = GraphWindow(screen=surface, title=surface.title,
+                                    theme=surface.theme)
+                graph.config["graph_window"] = False
+            windows.append(graph)
         handle = serve(*windows, host=self.host, port=self.port,
                        open_browser=open_browser, block=block)
         self._handle = handle

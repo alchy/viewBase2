@@ -49,10 +49,26 @@ def test_screen_graph_property():
     assert screen.graph is graph
 
 
-def test_project_serve_rejects_screen_without_graph():
+def test_screen_without_graph_gets_hidden_host():
+    """Graf je na screenu VOLITELNÝ: screen jen s log oknem se nese přes
+    skrytého hostitele (config.graph_window=False) – frontend pro něj
+    grafové okno nevytvoří."""
+    screen = vb.Screen(title="Jen log")
+    vb.LogWindow(screen=screen)
+    with vb.Project(port=0) as project:
+        handle = project.serve(screen, block=False)
+        assert handle.port > 0
+    host = screen.graph                     # založil ho Project.serve
+    snapshot = host.snapshot()
+    assert snapshot["config"]["graph_window"] is False
+    assert snapshot["config"]["log_window"] is True
+    assert snapshot["config"]["title"] == "Jen log"
+
+
+def test_project_serve_rejects_non_screen():
     project = vb.Project(port=0)
     with pytest.raises(ValueError):
-        project.serve(vb.Screen(title="prázdný"))
+        project.serve("ne-screen")
 
 
 def test_project_serves_screen_and_closes_port_like_a_file():

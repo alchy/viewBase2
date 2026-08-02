@@ -197,6 +197,7 @@ export function createGraphPlugin(ctx) {
     /** Po `init` ze serveru (volá desktop po svém core zpracování – téma a
      *  CSS proměnné už jsou aplikované). */
     onInit() {
+      renderer.ensureCamera();   // plugin mohl vzniknout až během initu
       graphWindow.setTitle(store.config.title || 'Graf');
       renderer.flowController.replayInit(store.flows ?? []);
       renderer.setEdgeStyle(store.config.edge_style ?? { style: 'line', elasticity: 0 });

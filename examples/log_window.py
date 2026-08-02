@@ -5,17 +5,17 @@ Cokoli program zaloguje přes vb.log(), přiteče do něj s timestampem;
 v Options (lišta screenu, když je log okno aktivní) jde filtrovat podle
 úrovně i zdroje.
 
-Pozn.: screen v1 potřebuje i grafové okno (frontend přes něj screen
-materializuje) – tady je záměrně prázdné, hraje jen roli plochy."""
+Grafové okno screen NEPOTŘEBUJE (plocha je plocha) – tady je jen jako
+zdroj demo logů (@graph.every ticker); čistě logový screen viz README."""
 import itertools
 
 import viewbase as vb
 
 project = vb.Project(port=8080)          # 1. služba (fopen)
 screen = vb.Screen(title="Log základ")   # 2. plocha
-graph = vb.GraphWindow(screen=screen, title="Plocha",   # 3. okna…
-                       theme="workbench-amiga")   # modrý WB 1.3 vzhled
-vb.LogWindow(screen=screen)              #    …explicitní systémové log okno
+graph = vb.GraphWindow(screen=screen, title="Ticker",   # 3. okna (graf jen
+                       theme="workbench-amiga")   #    jako zdroj demo logů)
+vb.LogWindow(screen=screen)              #    explicitní systémové log okno
 
 _tik = itertools.count(1)
 

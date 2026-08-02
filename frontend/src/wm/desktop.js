@@ -64,15 +64,37 @@ export function createDesktop({ container, screenId, connection }) {
   };
 
   const plugins = [
-    createGraphPlugin(ctx),
     createLogPlugin(ctx),
     createDetailPlugin(ctx),
     createControlPlugin(ctx),
     createTerminalPlugin(ctx),
   ];
 
+  // GRAF JE NA SCREENU VOLITELNÝ (uživatelská revize: „screen potřebuje i
+  // grafové okno?" – nepotřebuje). Jestli screen graf má, říká až init
+  // snapshot (`config.graph_window === false` = skrytý hostitel screenu
+  // bez grafu, viz Project.serve) – proto se graf plugin zakládá LAZY při
+  // prvním initu, ne při stavbě desktopu. Bez grafu nevzniká ani WebGL
+  // pipeline, ani physics worker, ani grafové okno.
+  let graphPlugin = null;
+  let isActive = true;      // poslední setActive/setFullyHidden – lazy
+  let isFullyHidden = false; // vytvořený graf je musí dostat dodatečně
+  function ensureGraphPlugin() {
+    if (graphPlugin || store.config.graph_window === false) return;
+    // Renderer měří kontejner synchronně v konstruktoru – screen hlouběji
+    // v z-stacku už může být display:none, na chvíli ho zviditelni.
+    const wasHidden = container.style.display === 'none';
+    if (wasHidden) container.style.display = 'block';
+    graphPlugin = createGraphPlugin(ctx);
+    if (wasHidden) container.style.display = 'none';
+    plugins.push(graphPlugin);
+    graphPlugin.setVisible?.(isActive);
+    graphPlugin.setResourcesPaused?.(isFullyHidden);
+  }
+
   // Akce jádra: okna z protokolu (open_window routuje podle `kind` přes
-  // registr typů) a ScreenMenu. Všechno ostatní dodávají pluginy.
+  // registr typů) a ScreenMenu. Všechno ostatní dodávají pluginy –
+  // vyhledává se dynamicky (graf plugin může přibýt až s initem).
   const coreActions = {
     open_window: (msg) => windowManager.open(
       msg.kind === 'terminal' ? 'terminal' : 'control', msg),
@@ -82,11 +104,18 @@ export function createDesktop({ container, screenId, connection }) {
       bar.setSpec(store.menu);
     },
   };
-  const actions = Object.assign({}, coreActions,
-    ...plugins.map((plugin) => plugin.actions ?? {}));
+  function findAction(name) {
+    if (coreActions[name]) return coreActions[name];
+    for (const plugin of plugins) {
+      const handler = plugin.actions?.[name];
+      if (handler) return handler;
+    }
+    return null;
+  }
 
   store.subscribe((event) => {
     if (event.kind !== 'init') return;
+    ensureGraphPlugin();              // před applyTheme – renderer chce téma
     applyTheme(store.config.theme);   // téma (i CSS proměnné oken) nastav dřív
     bar.setSpec(store.menu);          // připnuté ScreenMenu přežívá reconnect (§8)
     for (const spec of store.windows ?? []) {
@@ -110,7 +139,7 @@ export function createDesktop({ container, screenId, connection }) {
     windowManager,
 
     handleAction(msg) {
-      const handler = actions[msg.action];
+      const handler = findAction(msg.action);
       if (handler) handler(msg);
       else console.warn('viewbase: neznámá akce', msg.action);
     },
@@ -124,6 +153,7 @@ export function createDesktop({ container, screenId, connection }) {
      *  → schovaný. Z-order/transform řeší ScreenManager, tady jen
      *  show/hide + delegace pluginům (graf pauzuje vykreslování). */
     setActive(active) {
+      isActive = active;
       container.style.display = active ? 'block' : 'none';
       for (const plugin of plugins) plugin.setVisible?.(active);
     },
@@ -131,6 +161,7 @@ export function createDesktop({ container, screenId, connection }) {
     /** Screen úplně zakrytý (3.+ pozice) – zdroje jdou na screen vepředu:
      *  pluginy pauzují, co žere výkon (graf fyziku). */
     setFullyHidden(hidden) {
+      isFullyHidden = hidden;
       for (const plugin of plugins) plugin.setResourcesPaused?.(hidden);
     },
 

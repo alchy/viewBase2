@@ -277,6 +277,15 @@ export class Renderer {
    *  jehož resize event window nevyvolá. */
   resize() { this._onResize(); }
 
+  /** Kamera z aktuálního configu, pokud ještě nevznikla. Renderer si na
+   *  `init` event subscribuje sám, ale graf plugin může vzniknout LAZY až
+   *  BĚHEM dispatch initu (screen bez grafu / config až s initem, viz
+   *  desktop.js) – tenhle idempotentní hook volá plugin v onInit, ať
+   *  kamera nikdy nezávisí na sémantice iterace subscriberů. */
+  ensureCamera() {
+    if (!this.camera) this._initCamera(this.store.config.dimensions ?? 3);
+  }
+
   _onResize() {
     // updateStyle=false: CSS drží canvas na 100 % hostitele (viz konstruktor)
     this.webgl.setSize(this.container.clientWidth, this.container.clientHeight, false);
