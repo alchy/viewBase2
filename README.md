@@ -1,14 +1,21 @@
 # viewbase
 
-**Živá 2D/3D force-graph vizualizace ovládaná z Pythonu.**
+**Pracovní prostředí ve stylu Amiga Workbench v prohlížeči, ovládané
+z Pythonu — screeny, okna a živá 2D/3D vizualizace grafů.**
 
-Knihovna, kterou i junior v Pythonu postaví interaktivní vizualizaci vztahů
-(graf) v ploše nebo prostoru — bez psaní JavaScriptu, bez npm, bez znalosti
-Three.js. Python je zdroj pravdy pro *data, vzhled a chování*; prohlížeč počítá
-*rozmístění* (fyzika běží lokálně) a vykresluje. Díky tomu je obraz plynulý a
-knihovna zvládá tisíce až desítky tisíc uzlů.
+Knihovna, kterou i junior v Pythonu postaví celé interaktivní prostředí:
+**screeny** (plochy, mezi kterými se přepíná a které jdou po amigovsku
+stáhnout a odkrýt ten pod nimi) a na nich **okna** — živý graf vztahů,
+log konzole (`tail -f` ve stylu AmigaShell), formulářové dialogy,
+terminály, detailní okna nad uzly. Bez psaní JavaScriptu, bez npm, bez
+znalosti Three.js. Python je zdroj pravdy pro *data, vzhled a chování*.
 
-![viewbase – 3D force-graph, téma cyber](docs/images/hero.png)
+Frontend je architektonicky **window manager, jehož schopnosti jsou
+pluginy** — a zobrazení grafu je ta nejsilnější z nich: prohlížeč počítá
+*rozmístění* lokálně (fyzika ve Web Workeru) a vykresluje instancovaně,
+takže obraz je plynulý a zvládá tisíce až desítky tisíc uzlů.
+
+![viewbase – okno grafu a control okno na screenu, téma cyber](docs/images/hero.png)
 
 ```python
 import viewbase as vb
@@ -174,11 +181,11 @@ def tick():
 
 Detaily API a chování viz návrhové dokumenty a příklady níže.
 
-### 🚧 Ve vývoji: multi-screen Workbench
+### Multi-screen Workbench
 
-Připravuje se Amiga-style **`Screen`** — kontejner nad `Canvas` (víc živých
-grafů najednou, hloubkový stack, drag-reveal, vestavěné log okno,
-Options menu řízené divákem). Backend už to reálně umí:
+Nosná část knihovny: Amiga-style **`Screen`** — kontejner nad `Canvas`
+(víc živých grafů najednou, hloubkový stack, drag-reveal, vestavěné log
+okno, Options menu řízené divákem):
 
 ```python
 screen_a = vb.Screen(title="Síť")       # id se přidělí samo (1, 2, …)
@@ -269,12 +276,12 @@ screeny, drag-reveal, `destroy()` přes REST): `examples/multiscreen.py`.
 (`title=` je zatím potřeba nastavit na obou — `Screen.title` je titulek
 lišty screenu, `Canvas.title` titulek okna grafu.)
 
-Dnešní jednoscreenové použití (`vb.Canvas(dimensions=…)`,
-`vb.serve(canvas)`, bez `screen=`) funguje beze změny a je to, co používají
-všechny ostatní příklady v tabulce níže. Zbytek `workbench` chrome přijde
-v dalších fázích — viz
-[design](docs/superpowers/specs/2026-08-02-multi-screen-workbench-design.md)
-a [implementační plán](docs/superpowers/plans/2026-08-02-multi-screen-workbench-plan.md).
+Jednoscreenové použití (`vb.Canvas(dimensions=…)`, `vb.serve(canvas)`,
+bez `screen=`) funguje beze změny — dostane implicitní screen — a je to,
+co používají příklady v tabulce níže. Návrhové dokumenty:
+[design](docs/superpowers/specs/2026-08-02-multi-screen-workbench-design.md),
+[implementační plán](docs/superpowers/plans/2026-08-02-multi-screen-workbench-plan.md)
+a [architektura WM + pluginy](docs/superpowers/specs/2026-08-02-wm-plugin-architecture.md).
 
 ---
 
