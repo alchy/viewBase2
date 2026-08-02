@@ -1,19 +1,7 @@
 import { THEMES } from './themes.js';
+import { deepMerge, isPlainObject } from './merge.js';
 
-function isPlainObject(value) {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
-/** Rekurzivní merge: objekty se slévají, pole a skaláry přepisují celé. */
-export function deepMerge(base, override) {
-  const out = { ...base };
-  for (const [key, value] of Object.entries(override)) {
-    out[key] = (isPlainObject(out[key]) && isPlainObject(value))
-      ? deepMerge(out[key], value)
-      : value;
-  }
-  return out;
-}
+export { deepMerge };
 
 /** Název vestavěného tématu, nebo dict (deep merge přes `modern`).
  *  Neznámé jméno → console.error + fallback na modern (klient nesmí
@@ -47,9 +35,16 @@ export function applyCssVars(theme, root = document.documentElement) {
       '--vb-window-key': w.key,
       '--vb-window-dock-bg': w.dockBg,
       '--vb-window-shadow': w.shadow,
+      '--vb-window-border': w.border,
     };
     for (const [name, value] of Object.entries(map)) {
       if (value != null) root.style.setProperty(name, value);
     }
+    // Pruhovaný titulek (§2 designu reference – AmigaDOS okno) – jen když
+    // ho téma explicitně chce (`headerStripe: true`), jinak zpátky na
+    // 'none' (jiná témata nesmí zdědit pruh od dřívějšího workbench tématu).
+    root.style.setProperty('--vb-window-header-pattern', w.headerStripe
+      ? `repeating-linear-gradient(0deg, ${w.headerFg}22 0px, ${w.headerFg}22 1px, transparent 1px, transparent 4px)`
+      : 'none');
   }
 }

@@ -1,0 +1,49 @@
+/** Options (§8a designu): view-only volby diváka (fyzika běží, čára/splajn) –
+ *  čistě klientský stav, žádný round-trip na server. Persistuje se do
+ *  localStorage klíčované podle `title` screenu (slug), ne podle číselného
+ *  id – id se přiděluje znovu od 1 při každém běhu skriptu, takže by
+ *  „Screen 1" včerejšího a dnešního běhu nechtěně sdílely nastavení. */
+
+export const DEFAULT_OPTIONS = Object.freeze({
+  physicsRunning: true,
+  edgeStyle: 'line',        // 'line' | 'spline'
+  edgeElasticity: 0.3,
+  dimensions: 3,            // 2 | 3
+});
+
+/** Titulek screenu → stabilní klíč pro localStorage (lowercase, jen
+ *  alfanumerika a pomlčky, bez opakovaných/okrajových pomlček). */
+export function slugTitle(title) {
+  const slug = String(title ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug || 'viewbase';
+}
+
+export function optionsKey(title) {
+  return `vb-options:${slugTitle(title)}`;
+}
+
+/** Načti Options pro daný titulek; chybějící/vadný záznam → `defaults`
+ *  (DEFAULT_OPTIONS, nebo zavolatelem dodané – např. main.js seeduje
+ *  edgeStyle/edgeElasticity z aktuálního `store.config.edge_style`, aby
+ *  Options na úplně prvním připojení nepřebily to, co poslal Python).
+ *  `storage` je injektovatelné (localStorage v prohlížeči, fake Map v testu). */
+export function loadOptions(title, storage = globalThis.localStorage,
+                            defaults = DEFAULT_OPTIONS) {
+  if (!storage) return { ...defaults };
+  try {
+    const raw = storage.getItem(optionsKey(title));
+    if (!raw) return { ...defaults };
+    const parsed = JSON.parse(raw);
+    return { ...defaults, ...parsed };
+  } catch {
+    return { ...defaults };
+  }
+}
+
+export function saveOptions(title, options, storage = globalThis.localStorage) {
+  if (!storage) return;
+  storage.setItem(optionsKey(title), JSON.stringify(options));
+}

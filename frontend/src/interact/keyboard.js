@@ -20,21 +20,30 @@ const MIN_POLAR = 0.05;     // rad – nepřeklápět kameru přes póly
  *  Ve 2D režimu WASD = pan, Q/E = zoom (ortografická kamera). */
 export class KeyboardControls {
   constructor(camera, controls, { is2d = false, target = window } = {}) {
-    this.camera = camera;
-    this.controls = controls;
-    this.is2d = is2d;
     this._spherical = new THREE.Spherical();
     this._offset = new THREE.Vector3();
-    this.home = {                       // výchozí stav pro reset mezerníkem
-      position: camera.position.clone(),
-      target: controls.target.clone(),
-      zoom: camera.zoom,
-    };
+    this.setCameraControls(camera, controls, is2d);
     target.addEventListener('keydown', (e) => {
       // píše-li uživatel do inputu (ovládací okno), klávesy nepatří kameře
       if (isEditableFocused()) return;
       if (this.handleKey(e.code)) e.preventDefault();
     });
+  }
+
+  /** Options „2D/3D" (§8a designu): živé přepnutí kamery/controls BEZ
+   *  znovu-registrace `keydown` listeneru na `target` – ten dispose nemá
+   *  (posluchač na `window` napořád), takže reinit celé instance by na
+   *  každé přepnutí přidal další, natrvalo. Renderer.setDimensions volá
+   *  tohle místo `new KeyboardControls(...)`. */
+  setCameraControls(camera, controls, is2d = false) {
+    this.camera = camera;
+    this.controls = controls;
+    this.is2d = is2d;
+    this.home = {                       // výchozí stav pro reset mezerníkem
+      position: camera.position.clone(),
+      target: controls.target.clone(),
+      zoom: camera.zoom,
+    };
   }
 
   /** Vrací true, když byla klávesa obsloužená. */

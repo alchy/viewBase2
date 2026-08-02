@@ -86,6 +86,27 @@ describe('Connection', () => {
     expect(scheduled).toHaveLength(0);            // žádný reconnect
   });
 
+  it('hlásí connect_failed, když spojení nikdy nenavázalo (ws.open() se nestihlo)', () => {
+    const statuses = [];
+    const conn = new Connection('ws://x/ws', store,
+      { WebSocketImpl: FakeWebSocket, schedule, onStatus: (s) => statuses.push(s) });
+    conn.connect();
+    const ws = FakeWebSocket.instances.at(-1);
+    ws.close();                                   // zavře se BEZ open() – první pokus selhal
+    expect(statuses).toEqual(['connect_failed']);
+  });
+
+  it('hlásí close (ne connect_failed) když spojení bylo živé a pak spadlo', () => {
+    const statuses = [];
+    const conn = new Connection('ws://x/ws', store,
+      { WebSocketImpl: FakeWebSocket, schedule, onStatus: (s) => statuses.push(s) });
+    conn.connect();
+    const ws = FakeWebSocket.instances.at(-1);
+    ws.open();
+    ws.close();
+    expect(statuses).toEqual(['close']);
+  });
+
   it('hlásí close při výpadku a init po obnově', () => {
     const statuses = [];
     const conn = new Connection('ws://x/ws', store,
@@ -112,5 +133,47 @@ describe('Connection', () => {
     ws.message(initMsg);
     ws.message({ type: 'action', action: 'focus', node_id: 'a' });
     expect(actionsSeen).toEqual([{ type: 'action', action: 'focus', node_id: 'a' }]);
+  });
+
+  it('log záznam ze serveru jde do onLog (Screen 0, §3a designu)', () => {
+    const logsSeen = [];
+    const conn = new Connection('ws://x/ws', store,
+      { WebSocketImpl: FakeWebSocket, schedule, onLog: (r) => logsSeen.push(r) });
+    conn.connect();
+    const ws = FakeWebSocket.instances.at(-1);
+    ws.open();
+    ws.message(initMsg);
+    ws.message({ type: 'log', level: 'warning', source: 'backend_program',
+      message: 'reconnect klienta', component: 'server' });
+    expect(logsSeen).toEqual([{ type: 'log', level: 'warning',
+      source: 'backend_program', message: 'reconnect klienta',
+      component: 'server' }]);
+  });
+
+  it('resolveStore routuje init/patch podle screen_id (multi-screen)', () => {
+    const storeA = new GraphStore();
+    const storeB = new GraphStore();
+    const stores = { 1: storeA, 2: storeB };
+    const conn = new Connection('ws://x/ws', store, {
+      WebSocketImpl: FakeWebSocket, schedule,
+      resolveStore: (screenId) => stores[screenId],
+    });
+    conn.connect();
+    const ws = FakeWebSocket.instances.at(-1);
+    ws.open();
+    ws.message({ ...initMsg, screen_id: 1,
+      nodes: [{ id: 'a1', label: 'a1', meta: {} }] });
+    ws.message({ ...initMsg, screen_id: 2,
+      nodes: [{ id: 'b1', label: 'b1', meta: {} }] });
+    expect(storeA.nodes.has('a1')).toBe(true);
+    expect(storeB.nodes.has('b1')).toBe(true);
+    expect(store.nodes.size).toBe(0);   // konstruktorový store se nepoužil
+  });
+
+  it('bez resolveStore (legacy) se pořád použije konstruktorový store', () => {
+    const [, ws] = connect();
+    ws.open();
+    ws.message({ ...initMsg, screen_id: null });
+    expect(store.nodes.has('a')).toBe(true);
   });
 });

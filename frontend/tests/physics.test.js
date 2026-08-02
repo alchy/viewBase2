@@ -64,6 +64,38 @@ describe('PhysicsCore', () => {
     expect(core.links).toHaveLength(1);
   });
 
+  it('setDimensions 2D->3D zachová uzly/hrany a rozjede z', () => {
+    const core = new PhysicsCore({ dimensions: 2 });
+    core.applyInit({
+      nodes: [{ id: 'a' }, { id: 'b' }],
+      links: [{ source: 'a', target: 'b' }],
+    });
+    core.tick();
+    expect(core.ids()).toEqual(['a', 'b']);
+    core.setDimensions(3);
+    expect(core.dimensions).toBe(3);
+    expect(core.ids()).toEqual(['a', 'b']);      // uzly přežily přestavbu simulace
+    expect(core.links).toHaveLength(1);          // hrany taky
+    const buf = core.tick();
+    expect(buf).not.toBeNull();                  // ohřátá, není vychladlá
+  });
+
+  it('setDimensions 3D->2D nutí výstupní z = 0', () => {
+    const core = new PhysicsCore({ dimensions: 3 });
+    core.applyInit({ nodes: [{ id: 'a' }], links: [] });
+    core.setDimensions(2);
+    const buf = core.tick();
+    expect(buf[2]).toBe(0);
+  });
+
+  it('setDimensions na stejnou hodnotu je no-op (nepřestaví sim zbytečně)', () => {
+    const core = new PhysicsCore({ dimensions: 3 });
+    core.applyInit({ nodes: [{ id: 'a' }], links: [] });
+    const simBefore = core.sim;
+    core.setDimensions(3);
+    expect(core.sim).toBe(simBefore);
+  });
+
   it('linkKey nekoliduje pro id s mezerami', () => {
     const core = new PhysicsCore({ dimensions: 3 });
     core.applyInit({

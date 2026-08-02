@@ -24,6 +24,14 @@ describe('GraphStore', () => {
     expect(store.edges.size).toBe(1);
     expect(store.seq).toBe(0);
     expect(store.config.dimensions).toBe(3);
+    expect(store.menu).toBeNull();
+  });
+
+  it('applyInit uloží menu spec (§8 designu), pokud je připnuté', () => {
+    const store = new GraphStore();
+    const menu = { groups: [{ name: 'Graf', items: [{ id: 'item-0', label: 'A' }] }] };
+    store.applyInit(initMsg({ menu }));
+    expect(store.menu).toEqual(menu);
   });
 
   it('patch přidá uzel s hranou a odebere uzel kaskádově', () => {

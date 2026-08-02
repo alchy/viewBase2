@@ -17,7 +17,9 @@ function makeWindow(id, { closable } = {}) {
   Object.defineProperty(container, 'clientWidth', { value: 1600 });
   Object.defineProperty(container, 'clientHeight', { value: 900 });
   document.body.appendChild(container);
-  const manager = { windows: new Map(), _nextZ: () => 1000 };
+  // stub WindowManager kontraktu: _setActive hlásí aktivaci okna
+  // (bringToFront) pro Options na screen baru – tady stačí no-op
+  const manager = { windows: new Map(), _nextZ: () => 1000, _setActive: () => {} };
   const win = new BaseWindow({
     id, title: 'Aktivační okno', widthChars: 40,
     container, manager, kind: 'control', closable,
@@ -165,5 +167,32 @@ describe('BaseWindow — closable', () => {
   it('výchozí okno gadget [x] má', () => {
     const win = makeWindow('detail');
     expect(win.el.querySelector('[data-gadget="close"]')).not.toBeNull();
+  });
+});
+
+describe('BaseWindow — maximalizace dvojklikem na lištu', () => {
+  beforeEach(() => {
+    store.clear();
+    vi.stubGlobal('localStorage', fakeStorage);
+  });
+
+  it('dvojklik maximalizuje pod screen bar, další dvojklik vrátí geometrii', () => {
+    const win = makeWindow('max-okno');
+    win._applySize(300, 200);
+    win._place(50, 60);
+    win.bar.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    expect(win.size).toEqual({ w: 1600, h: 900 - 26 });   // 26 = screen bar
+    expect([win.x, win.y]).toEqual([0, 26]);
+    win.bar.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    expect(win.size).toEqual({ w: 300, h: 200 });
+    expect([win.x, win.y]).toEqual([50, 60]);
+  });
+
+  it('dvojklik na gadget okno nemaximalizuje', () => {
+    const win = makeWindow('max-gadget');
+    win._applySize(300, 200);
+    win.minGadget.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    expect(win.size).toEqual({ w: 300, h: 200 });
+    expect(win.maximizedFrom).toBeNull();
   });
 });

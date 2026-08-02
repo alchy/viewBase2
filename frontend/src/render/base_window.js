@@ -6,6 +6,15 @@
  *  svá pole, pak zavolá this._buildBody() a this._mount(). Čisté funkce
  *  clampToCanvas/dockLayout/resizeGeometry jsou tu; windows.js je
  *  re-exportuje. */
+// Bitmapové gadgety (§3a handoveru: „bitmapy pro okna si vezmi z obrázků
+// přidaných do repa") – výřezy z docs/images/workbench-ref/, Vite je
+// zabalí do bundlu. Mapování na naši funkcionalitu: zavřít = obrysový
+// čtverec (vlevo na referenční liště), minimalizovat = zoom gadget
+// (čtverec s menším obdélníkem), obnovit = depth gadget (dva překryté
+// obdélníky – „vytáhni okno zpátky nahoru").
+import closeIcon from '../assets/gadgets/close.png';
+import depthIcon from '../assets/gadgets/depth.png';
+import zoomIcon from '../assets/gadgets/zoom.png';
 
 export function clampToCanvas(x, y, w, h, bounds) {
   const maxX = Math.max(0, bounds.width - w);
@@ -25,6 +34,11 @@ const DOCK_GAP = 8;
 const DOCK_SLOT_HEIGHT = 28;
 
 const POS_PREFIX = 'vb-pos:';   // localStorage klíč perzistence pozic/velikostí
+
+// Výška screen baru (screen_menu.js, height:26px) – maximalizované okno
+// začíná POD ním, jinak by lišta okna zajela pod lištu screenu (ta má vyšší
+// z-index) a nešla by chytit.
+const SCREEN_BAR_H = 26;
 
 export const MIN_WINDOW_W = 180;   // px – pod tím už je okno nepoužitelné
 export const MIN_WINDOW_H = 90;
@@ -58,16 +72,18 @@ export function resizeGeometry(start, corner, dx, dy, min, bounds) {
 
 export class BaseWindow {
   constructor({ id, title, widthChars, container, manager, kind,
-    closable = true }) {
+    closable = true, optionsProvider = null }) {
     this.id = id;
     this.title = title;
     this.widthChars = widthChars;
     this.container = container;
     this.manager = manager;
-    this.kind = kind;            // 'detail' | 'control'
+    this.kind = kind;            // 'detail' | 'control' | 'terminal' | 'log' | 'graph'
     this.closable = closable !== false;  // false = bez gadgetu [x]
+    this.optionsProvider = optionsProvider;  // () => items | null (viz getOptionsItems)
     this.isMinimized = false;
     this.saved = null;
+    this.maximizedFrom = null;   // != null = maximalizováno; nese předchozí geometrii
     this.dragOffset = null;
     this.resizeState = null;     // != null během tažení za úchyt
     this.size = null;            // {w, h} po ruční změně velikosti; null = auto
@@ -82,6 +98,10 @@ export class BaseWindow {
       'background:var(--vb-window-body-bg, rgba(255,255,255,0.97))',
       'color:var(--vb-window-body-fg, #1f2430)',
       'box-shadow:var(--vb-window-shadow, 0 6px 20px rgba(0,0,0,0.22))',
+      // rám po CELÉM obvodu (uživatelská oprava: workbench stín kreslí jen
+      // spodní hranu, kraje okna nebyly vidět) – barvu dodá téma, témata
+      // bez `window.border` mají transparent a vizuálně se nemění
+      'border:1px solid var(--vb-window-border, transparent)',
       'border-radius:6px', 'overflow:hidden', 'user-select:none',
       'font:13px/1.5 system-ui,sans-serif', 'z-index:900',
     ].join(';');
@@ -161,6 +181,7 @@ export class BaseWindow {
       'display:flex', 'align-items:center', 'gap:6px',
       'padding:4px 6px', 'cursor:move',
       'background:var(--vb-window-header-bg, #d8dde6)',
+      'background-image:var(--vb-window-header-pattern, none)',
       'color:var(--vb-window-header-fg, #1f2430)',
     ].join(';');
 
@@ -168,7 +189,7 @@ export class BaseWindow {
     // (programové close() zůstává, řeší náhradu okna se stejným id)
     this.closeGadget = null;
     if (this.closable) {
-      this.closeGadget = this._gadget('close', '×');
+      this.closeGadget = this._gadget('close', closeIcon);
       this.closeGadget.addEventListener('click', (e) => {
         e.stopPropagation();
         this.close();
@@ -182,13 +203,13 @@ export class BaseWindow {
       'white-space:nowrap', 'overflow:hidden', 'text-overflow:ellipsis',
     ].join(';');
 
-    this.minGadget = this._gadget('minimize', '–');
+    this.minGadget = this._gadget('minimize', zoomIcon);
     this.minGadget.addEventListener('click', (e) => {
       e.stopPropagation();
       this.minimize();
     });
 
-    this.restoreGadget = this._gadget('restore', '▢');
+    this.restoreGadget = this._gadget('restore', depthIcon);
     this.restoreGadget.addEventListener('click', (e) => {
       e.stopPropagation();
       this.restore();
@@ -198,19 +219,30 @@ export class BaseWindow {
     if (this.closeGadget) bar.append(this.closeGadget);
     bar.append(this.titleEl, this.minGadget, this.restoreGadget);
     this._dragFromHeader(bar);
+    // dvojklik na lištu = maximalizace / návrat předchozí velikosti
+    // (uživatelský požadavek: „stejně jako u některých OS")
+    bar.addEventListener('dblclick', (e) => {
+      if (e.target.dataset.gadget) return;
+      this.toggleMaximize();
+    });
     this.bar = bar;
     this.el.appendChild(bar);
   }
 
-  _gadget(name, glyph) {
+  /** Gadget = BINÁRNÍ bitmapa z referenčních obrázků (viz importy nahoře)
+   *  použitá jako CSS maska – barvu dodává `--vb-window-gadget` z palety
+   *  tématu (uživatelská oprava: surový barevný výřez vypadal na jinak
+   *  barevné liště jako cizí cutout; binární maska se přebarví sama a
+   *  díky per-screen CSS proměnným i per screen). */
+  _gadget(name, icon) {
     const g = document.createElement('button');
     g.dataset.gadget = name;
-    g.textContent = glyph;
     g.style.cssText = [
-      'flex:0 0 auto', 'width:18px', 'height:18px', 'line-height:16px',
-      'padding:0', 'border:1px solid var(--vb-window-gadget, #8a93a3)',
-      'border-radius:3px', 'background:transparent', 'cursor:pointer',
-      'color:var(--vb-window-gadget, #5a6573)', 'font-size:13px',
+      'flex:0 0 auto', 'width:18px', 'height:18px', 'padding:0',
+      'border:none', 'cursor:pointer',
+      'background:var(--vb-window-gadget, #5a6573)',
+      `-webkit-mask:url("${icon}") center/100% 100% no-repeat`,
+      `mask:url("${icon}") center/100% 100% no-repeat`,
     ].join(';');
     return g;
   }
@@ -336,6 +368,30 @@ export class BaseWindow {
     this.el.style.top = `${y}px`;
   }
 
+  /** Dvojklik na lištu: maximalizace přes celý screen (pod screen barem),
+   *  další dvojklik vrátí geometrii, jakou okno mělo před maximalizací.
+   *  Ruční resize za roh maximalizaci neruší – příští dvojklik pořád vrací
+   *  zapamatovanou geometrii (stejně se chová většina OS). */
+  toggleMaximize() {
+    if (this.isMinimized) return;
+    const bounds = this._bounds();
+    if (!this.maximizedFrom) {
+      const rect = this.el.getBoundingClientRect();
+      this.maximizedFrom = {
+        x: this.x, y: this.y,
+        w: rect.width || this._boxW(), h: rect.height || this._boxH(),
+      };
+      this._place(0, SCREEN_BAR_H);
+      this._applySize(bounds.width, bounds.height - SCREEN_BAR_H);
+    } else {
+      const prev = this.maximizedFrom;
+      this.maximizedFrom = null;
+      this._applySize(prev.w, prev.h);
+      this._place(prev.x, prev.y);
+    }
+    this._savePos();   // i maximalizovaný stav přežije reload
+  }
+
   minimize() {
     if (this.isMinimized) return;
     this.isMinimized = true;
@@ -375,7 +431,24 @@ export class BaseWindow {
     this.bringToFront();
   }
 
-  bringToFront() { this.setZ(this.manager._nextZ()); }
+  /** Options aktivního okna pro screen bar (macOS menu bar model, §3a
+   *  handoveru): pole položek ve tvaru pro `ScreenMenuBar.setOptionsGroup`,
+   *  nebo `null` = tenhle typ okna žádné Options nedefinuje (detail/control/
+   *  terminal) a aktivace NEMÁ přepnout skupinu na liště. Podtřída buď
+   *  přepíše metodu (LogWindow), nebo dodá `optionsProvider` v konstruktoru
+   *  (GraphWindow – položky staví closure ve screen_instance, které má
+   *  přístup k engine/renderer/store). Jedno sdílené rozhraní, žádné
+   *  kopírování render-options kódu do každého typu okna (DRY). */
+  getOptionsItems() {
+    return this.optionsProvider ? this.optionsProvider() : null;
+  }
+
+  /** Klik kamkoli do okna (pointerdown v _mount) = přenes dopředu A aktivuj
+   *  (aktivní okno řídí Options skupinu na screen baru, viz getOptionsItems). */
+  bringToFront() {
+    this.setZ(this.manager._nextZ());
+    this.manager._setActive(this);
+  }
 
   setZ(z) { this.el.style.zIndex = String(z); }
 

@@ -6,6 +6,7 @@ export class GraphStore {
     this.flowTypes = {};
     this.flows = [];
     this.windows = [];
+    this.menu = null;         // ScreenMenu spec (§8 designu) nebo null
     this.nodes = new Map();   // id -> {id, type, label, meta}
     this.edges = new Map();   // edgeKey -> {source, target, meta}
     this.seq = -1;
@@ -33,6 +34,7 @@ export class GraphStore {
     this.flowTypes = msg.flow_types ?? {};
     this.flows = msg.flows ?? [];
     this.windows = msg.windows ?? [];
+    this.menu = msg.menu ?? null;
     this.nodes.clear();
     this.edges.clear();
     for (const node of msg.nodes) this.nodes.set(node.id, node);

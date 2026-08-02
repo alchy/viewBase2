@@ -43,8 +43,14 @@ export class Renderer {
     this.controls = null;
 
     this.webgl = new THREE.WebGLRenderer({ antialias: true });
-    this.webgl.setSize(container.clientWidth, container.clientHeight);
+    // Styl canvasu drží CSS (100 % hostitele, block) a setSize(..., false)
+    // mění jen interní rozlišení – kdyby styl počítal setSize v px, každé
+    // zaokrouhlení layoutu nechá mezi canvasem a rámem okna prosvítat
+    // 1-2px pruh pozadí (uživatelský bug: „dvojitá čára" na pravé hraně
+    // grafového okna – černý rám + modrá bodyBg spára).
+    this.webgl.setSize(container.clientWidth, container.clientHeight, false);
     this.webgl.setPixelRatio(window.devicePixelRatio);
+    this.webgl.domElement.style.cssText = 'display:block;width:100%;height:100%';
     container.appendChild(this.webgl.domElement);
 
     this.ambient = new THREE.AmbientLight();
@@ -95,7 +101,37 @@ export class Renderer {
       }
     });
 
-    window.addEventListener('resize', () => this._onResize());
+    this._onResizeBound = () => this._onResize();
+    window.addEventListener('resize', this._onResizeBound);
+  }
+
+  /** Uvolní WebGL kontext a všechny GPU zdroje (geometrie/materiály/
+   *  instance, labely, tok částic, bloom/composer) a odhlásí resize
+   *  listener. Volá ScreenManager při odebrání screenu (destroy) – bez
+   *  tohohle by opakované create/destroy vyčerpalo limit souběžných WebGL
+   *  kontextů prohlížeče. Po zavolání je instance nepoužitelná. */
+  dispose() {
+    this.webgl.setAnimationLoop(null);
+    window.removeEventListener('resize', this._onResizeBound);
+    for (const mesh of this.meshes.values()) {
+      mesh.geometry.dispose();
+      mesh.material.dispose();
+    }
+    if (this.edgeLines) {
+      this.edgeLines.geometry.dispose();
+      this.edgeLines.material.dispose();
+    }
+    if (this.flows?.mesh) {
+      this.flows.mesh.geometry.dispose();
+      this.flows.mesh.material.dispose();
+    }
+    for (const text of [...this.labels.active.values(), ...this.labels.pool]) {
+      text.dispose();
+    }
+    this.bloomPass?.dispose();
+    this.composer?.dispose();
+    this.webgl.dispose();
+    this.webgl.domElement.remove();
   }
 
   /** Přepne aktivní téma za běhu: pozadí, světla, hrany, materiály uzlů.
@@ -172,10 +208,10 @@ export class Renderer {
     this.composer?.setPixelRatio(ratio);
   }
 
-  /** Kamera + controls podle config.dimensions. Volá se jen jednou – změna
-   *  dimenzí za běhu serveru vyžaduje obnovení stránky. */
-  _initCamera(dimensions) {
-    if (this.camera) return;   // idempotence – reconnect nesmí duplikovat controls/listenery
+  /** Postaví kameru + controls podle dimenzí – sdíleno mezi prvním initem
+   *  a živým přepnutím (`setDimensions`). Nezavolá `onCameraReady` ani
+   *  nezruší starý `controls` – to řeší volající, různě podle situace. */
+  _buildCamera(dimensions) {
     const aspect = this.container.clientWidth / this.container.clientHeight;
     if (dimensions === 2) {
       this.camera = new THREE.OrthographicCamera(
@@ -200,11 +236,50 @@ export class Renderer {
       this.controls.minDistance = 20;
       this.controls.maxDistance = 20000;   // bezpečně před far plane (50000)
     }
+  }
+
+  /** Kamera + controls podle config.dimensions – jen PRVNÍ init (idempotence
+   *  brání reconnectu duplikovat controls/listenery). Živé přepnutí za běhu
+   *  jde přes `setDimensions`. */
+  _initCamera(dimensions) {
+    if (this.camera) return;
+    this._buildCamera(dimensions);
     this.onCameraReady();
   }
 
+  /** Options „2D/3D" (§8a designu): živá výměna kamery/controls za běhu.
+   *  Starý `OrbitControls.dispose()` (vlastní DOM listenery) PŘED sestavením
+   *  nového – jinak by staré i nové controls poslouchaly na stejném canvasu
+   *  napořád. `onCameraReady` se volá znovu – volající (screen_instance.js)
+   *  musí sám nekumulovat Picker (canvas-vázaný, čte `this.camera` vždy
+   *  živě, netřeba znovu stavět), jen aktualizovat KeyboardControls a
+   *  přehodit `change` listener na nové controls. */
+  setDimensions(dimensions) {
+    if (this.camera && (this.camera.isOrthographicCamera ? 2 : 3) === dimensions) return;
+    this.controls?.dispose();
+    // RenderPass(scene, camera) uvnitř composeru drží starou kameru za
+    // referenci a _syncBloom ho jinak přestaví jen když se bloom zapíná/
+    // vypíná – bez tohohle by bloomované téma po přepnutí dál renderovalo
+    // (compositovalo) přes zahozenou kameru navždy. Příští _frame ho
+    // znovu postaví (_syncBloom se volá každý snímek) svázaný na novou.
+    if (this.composer) {
+      this.bloomPass?.dispose();
+      this.composer.dispose();
+      this.composer = null;
+      this.bloomPass = null;
+    }
+    this._buildCamera(dimensions);
+    this.onCameraReady();
+  }
+
+  /** Veřejné přepočítání velikosti: volá GraphWindow po každé změně
+   *  rozměrů svého těla (roh/restore) – hostitelem canvasu je tělo okna,
+   *  jehož resize event window nevyvolá. */
+  resize() { this._onResize(); }
+
   _onResize() {
-    this.webgl.setSize(this.container.clientWidth, this.container.clientHeight);
+    // updateStyle=false: CSS drží canvas na 100 % hostitele (viz konstruktor)
+    this.webgl.setSize(this.container.clientWidth, this.container.clientHeight, false);
     if (!this.camera) return;
     const aspect = this.container.clientWidth / this.container.clientHeight;
     if (this.camera.isOrthographicCamera) {

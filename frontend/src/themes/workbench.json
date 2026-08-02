@@ -1,0 +1,26 @@
+{
+  "background": "#dadada",
+  "screenBar": {
+    "bg": "#cfe1fb",
+    "fg": "#000000",
+    "menuAttach": true
+  },
+  "window": {
+    "headerBg": "#ffffff",
+    "headerBgActive": "#ffffff",
+    "headerFg": "#000000",
+    "headerFgActive": "#000000",
+    "headerStripe": true,
+    "gadget": "#000000",
+    "border": "#000000",
+    "bevel": "hard",
+    "bodyBg": "#0055aa",
+    "bodyFg": "#ffffff",
+    "key": "#ff8800",
+    "dockBg": "#b8c6e8",
+    "shadow": "0 2px 0 rgba(0,0,0,0.35)",
+    "backdropPattern": "flat",
+    "iconSet": "workbench-classic",
+    "font": "topaz-8"
+  }
+}

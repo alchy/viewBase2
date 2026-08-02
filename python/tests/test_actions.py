@@ -65,8 +65,8 @@ def test_action_is_delivered_over_ws():
                 msg = protocol.decode(ws.receive_text())
                 if msg["type"] == "action":
                     break
-            assert msg == {"type": "action", "action": "show_detail",
-                           "node_id": "a"}
+            assert msg == {"type": "action", "screen_id": None,
+                           "action": "show_detail", "node_id": "a"}
 
 
 def test_patch_arrives_before_action_from_same_window():
@@ -82,5 +82,5 @@ def test_patch_arrives_before_action_from_same_window():
             second = protocol.decode(ws.receive_text())
             assert first["type"] == "patch"
             assert [n["id"] for n in first["add_nodes"]] == ["b"]
-            assert second == {"type": "action", "action": "show_detail",
-                              "node_id": "b"}
+            assert second == {"type": "action", "screen_id": None,
+                              "action": "show_detail", "node_id": "b"}

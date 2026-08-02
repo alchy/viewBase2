@@ -12,6 +12,7 @@ def test_neznamy_nazev_tematu_pada():
 def test_vestavena_jmena_prochazi():
     assert vb.Canvas(theme="modern").config["theme"] == "modern"
     assert vb.Canvas(theme="cyber").config["theme"] == "cyber"
+    assert vb.Canvas(theme="workbench").config["theme"] == "workbench"
 
 
 def test_dict_tema_prochazi_beze_zmeny():

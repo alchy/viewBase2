@@ -38,4 +38,21 @@ describe('resolveTheme', () => {
     expect(theme.bloom.enabled).toBe(true);
     expect(theme.palette.length).toBeGreaterThanOrEqual(8);
   });
+
+  it('workbench je vestavěné: chrome z JSON, graf zděděný z modern', () => {
+    const theme = resolveTheme('workbench');
+    expect(theme.window.bodyBg).toBe('#0055aa');
+    expect(theme.window.headerStripe).toBe(true);
+    expect(theme.screenBar.bg).toBe('#cfe1fb');
+    // graf (node/edge/label/bloom) NENÍ ve workbench.json definovaný –
+    // zůstává zděděný z modern (design §7: paleta grafu řídí vývojář)
+    expect(theme.node).toEqual(THEMES.modern.node);
+    expect(theme.edge).toEqual(THEMES.modern.edge);
+    expect(theme.bloom).toEqual(THEMES.modern.bloom);
+  });
+
+  it('workbench merge nemutuje modern', () => {
+    resolveTheme('workbench');
+    expect(THEMES.modern.window.headerBg).toBe('#d8dde6');
+  });
 });

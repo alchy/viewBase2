@@ -11,7 +11,28 @@ export class PhysicsEngine {
       if (data.type === 'index') this.ids = data.ids;
       else if (data.type === 'tick') this.positions = data.positions;
     };
-    store.subscribe((event) => this._onStoreEvent(store, event));
+    this._unsubscribe = store.subscribe((event) => this._onStoreEvent(store, event));
+  }
+
+  /** Options „Fyzika běží" (§8a designu) – pauza/obnova tikání ve workeru,
+   *  poslední pozice v `this.positions` zůstávají (render dál kreslí, jen
+   *  zamrzlý stav). */
+  setPaused(paused) {
+    this.worker.postMessage({ type: paused ? 'pause' : 'resume' });
+  }
+
+  /** Options „2D/3D" (§8a designu): worker přestaví celou simulaci (viz
+   *  `PhysicsCore.setDimensions` – d3-force-3d peče dimenzionalitu do sim
+   *  při konstrukci), pozice uzlů/hran se zachovají. */
+  setDimensions(dimensions) {
+    this.worker.postMessage({ type: 'set_dimensions', dimensions });
+  }
+
+  /** Ukonči worker a odhlas se ze store (screen destroy – viz manager.js).
+   *  Po zavolání je instance nepoužitelná. */
+  terminate() {
+    this._unsubscribe();
+    this.worker.terminate();
   }
 
   _onStoreEvent(store, event) {

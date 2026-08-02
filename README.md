@@ -129,7 +129,8 @@ def tick():
 ```
 
 - **Typy uzlů a témata** — `define_type` (tvary `sphere`/`box`/`octahedron`/
-  `tetrahedron`); vestavěná témata `modern`/`cyber` nebo vlastní dict.
+  `tetrahedron`); vestavěná témata `modern`/`cyber`/`workbench` (viz sekce
+  „Ve vývoji" níže) nebo vlastní dict.
 - **Živá změna vzhledu uzlu** (uzel se kvůli ní neodebírá ani nezakládá – drží
   si pozici i hrany): priorita **meta > typ > téma**.
   `update_node(id, color="#ff2a6d")` přebarví jeden uzel (`size=` totéž),
@@ -173,6 +174,94 @@ def tick():
 
 Detaily API a chování viz návrhové dokumenty a příklady níže.
 
+### 🚧 Ve vývoji: multi-screen Workbench
+
+Připravuje se Amiga-style **`Screen`** — kontejner nad `Canvas` (víc živých
+grafů najednou, hloubkový stack, drag-reveal, vestavěné log okno,
+Options menu řízené divákem). Backend už to reálně umí:
+
+```python
+screen_a = vb.Screen(title="Síť")       # id se přidělí samo (1, 2, …)
+canvas_a = vb.Canvas(screen=screen_a)
+screen_b = vb.Screen(title="Infra")
+canvas_b = vb.Canvas(screen=screen_b)
+vb.serve(canvas_a, canvas_b, open_browser=True)   # jeden server, dva canvasy
+```
+
+Server multiplexuje `init`/patch/akce podle `screen_id` na jednom WS
+spojení a `vb.log(message, level=…)` teče do prohlížeče jako zpráva `log`.
+
+Frontend je **window-first**: screen je prázdný desktop a všechno na něm
+jsou okna. **Graf žije v okně** (velké, s odsazením od krajů; jde přesouvat,
+zmenšovat za rohové úchyty i minimalizovat do doku — geometrie se pamatuje v
+`localStorage`) a **log je taky okno**: na první `log` zprávu se samo otevře
+okno **„Log"** na předním screenu — `tail -f` v okně ve stylu AmigaShell
+(nové řádky dolů, autoscroll na poslední, každý řádek s timestampem). Jako
+AmigaShell nemá zavírací gadget (`closable: false`) — jde jen minimalizovat
+do doku, takže se divákovi nikdy neztratí.
+
+Na liště každého screenu je vestavěná skupina **„Options"** (view-only,
+žádné Python volání ji nezakládá; je vždy první skupina, `ScreenMenu`
+skupiny za ní) a její obsah řídí **aktivní okno** — stejný model jako macOS
+menu bar, kde menu patří aktivní aplikaci: klik na okno grafu → „Fyzika
+běží", „Křivkové hrany (splajn)", **„3D pohled"** (živé přepnutí kamery i
+fyzikální simulace 2D/3D za běhu; volba se pamatuje v `localStorage` napříč
+reconnecty); klik na okno logu → filtry úrovní (debug/info/warning/error)
+a zdrojů. Okna bez vlastních Options (detail, control, terminál) skupinu
+nemění. A pokud něco na frontendu spadne (neodchycená
+JS chyba), spojení vypadne, nebo backend zaloguje `level="error"`, objeví
+se **Guru Meditation** — věrná homage na Amiga crash obrazovku (červeně
+orámovaný blikající box, `#AAAAAAAA.BBBBBBBB` kód, zavírá se libovolným
+tlačítkem myši nebo Esc — ne jen levým, na Macu nedává smysl), ne tichý
+`console.error`.
+
+Nové je i vestavěné téma **`"workbench"`** (`Canvas(theme="workbench")`)
+— přebarví okna do Amiga/AmigaDOS palety: bílá titulková lišta s jemným
+vodorovným pruhováním, syté modré tělo okna s bílým monospace textem,
+oranžové akcenty (chrome only; barvy uzlů/hran zůstávají `modern`, to řídí
+vývojář přes `define_type`, ne téma). Gadgety oken (zavřít/minimalizovat/
+obnovit) i přepínač screenů na liště jsou **bitmapy vyříznuté z originálních
+Workbench screenshotů** (`docs/images/workbench-ref/`), ne unicode glyfy.
+Témata jsou per-screen (CSS proměnné na kontejneru screenu, ne globální) —
+dva screeny s různými tématy si okna nepřebarvují navzájem.
+
+A taky vestavěné **`ScreenMenu`** (§8 designu) — pull-down menu, co si
+vývojář sám naplní. `Screen.pin_menu(menu)` funguje nezávisle na tom, jestli
+`Canvas` už existuje — Screen a Canvas jsou explicitně nezávislé, atomické
+objekty, ne implicitně provázaná dvojice. V prohlížeči se objeví lišta se
+skupinami nahoře v canvasu (`Options` je na ní vždy poslední skupina); klik
+na skupinu rozbalí dropdown (světle šedý, tvrdý okraj — podle Workbench
+reference), klik na položku zavolá `on_select` na serveru a menu přežije
+reconnect. Kompletní příklad (menu naplněné před vznikem Canvasu):
+`examples/screen_menu.py`.
+
+Frontend teď víc `Canvas` instancí (`screen=` na obou) i **vizuálně**
+zvládá — každý screen má **právě jednu lištu** od kraje ke kraji (Options +
+`ScreenMenu` skupiny vlevo, vystředěný titulek s živými metrikami „N uzlů ·
+M fps", vpravo jediný depth gadget, přesně podle Workbench reference) a
+vlastní graf, téma i okna. Depth gadget prohodí přední/zadní screen; navíc
+jde přední screen **tahem myší za lištu** stáhnout dolů a odkrýt ten pod
+ním — přesně jako na Amize (mapování bitmapa→scanline: celý screen se
+posouvá jako jeden blok, obsah se nemění). Tažení je perzistentní jako u
+oken: kam lištu dotáhneš, tam předěl zůstane (žádný snap-back), druhé
+tažení navazuje, gadget vrací čistý stav. Každý screen má vlastní trvalý
+offset. Screeny mimo první dvě pozice v hloubkovém pořadí se úplně
+pozastaví — **nejen vykreslování, i fyzika** — aby nežraly prostředky na
+pozadí. `Screen.destroy()` je explicitní protějšek k vytvoření — zavře
+přidružený `Canvas` a frontend uklidí kompletně (WebGL kontext, physics
+worker, DOM), žádné přízraky po smazaném screenu. Kompletní příklad (dva
+screeny, drag-reveal, `destroy()` přes REST): `examples/multiscreen.py`.
+
+(`title=` je zatím potřeba nastavit na obou — `Screen.title` je titulek
+lišty screenu, `Canvas.title` titulek okna grafu.)
+
+Dnešní jednoscreenové použití (`vb.Canvas(dimensions=…)`,
+`vb.serve(canvas)`, bez `screen=`) funguje beze změny a je to, co používají
+všechny ostatní příklady v tabulce níže. Zbytek `workbench` chrome přijde
+v dalších fázích — viz
+[design](docs/superpowers/specs/2026-08-02-multi-screen-workbench-design.md)
+a [implementační plán](docs/superpowers/plans/2026-08-02-multi-screen-workbench-plan.md).
+
 ---
 
 ## Dokumentace
@@ -184,10 +273,14 @@ Detaily API a chování viz návrhové dokumenty a příklady níže.
 | `examples/quickstart.py` | minimální živý graf (3D) |
 | `examples/quickstart2d.py` | 2D ortografický režim |
 | `examples/interactive.py` | klik → rozbalení sousedů (eventy/akce) |
+| `examples/prototype.py` | `ControlWindow` jako **formulářový dialog** (přidání uzlu podle zadaných polí), `TerminalWindow` jako log |
 | `examples/showcase.py` | téma cyber, typy uzlů, **živá změna barvy/typu za běhu**, toky, **control okno** (čáry/splajny) |
 | `examples/terminal.py` | **konzole v prohlížeči**: `TerminalWindow`, `on_input`, `terminal_write`, výstupní panel a REST push (`/api/event`) |
 | `examples/words.py` | mapa slov z Wikipedie (crawl odkazů) |
 | `examples/stress.py` | zátěžový test (tisíce uzlů) |
+| `examples/log_demo.py` | **multi-screen Workbench**: `vb.log()` → vestavěné okno „Log" (`tail -f` styl AmigaShell, timestampy), Options aktivního okna na liště (graf: fyzika/splajn/3D; log: filtry úrovní a zdrojů) |
+| `examples/screen_menu.py` | **multi-screen Workbench**: `ScreenMenu` (autorské pull-down menu), `Screen.pin_menu()` volané před vznikem Canvasu |
+| `examples/multiscreen.py` | **multi-screen Workbench**: dva `Screen`/`Canvas` s tab přepínačem a drag-reveal, explicitní `Screen.destroy()` přes REST |
 | [`examples/wireshark/`](examples/wireshark/README.md) | **síťové toky**: přehrání pcap, živý odposlech a cesta paketu (traceroute) |
 
 **Návrhové dokumenty** (`docs/superpowers/specs/`) — architektura a rozhodnutí:
@@ -196,6 +289,7 @@ Detaily API a chování viz návrhové dokumenty a příklady níže.
 - [Detailní okno](docs/superpowers/specs/2026-06-14-detail-window-design.md)
 - [Traceroute toky (routery jako uzly, multi-hop)](docs/superpowers/specs/2026-06-16-traceroute-toky-design.md)
 - [Control okna (parametrické GUI) + křivkové hrany](docs/superpowers/specs/2026-06-17-control-okna-design.md)
+- [Multi-screen Workbench (Amiga-style, ve vývoji)](docs/superpowers/specs/2026-08-02-multi-screen-workbench-design.md)
 
 Implementační plány (krok za krokem) jsou v
 [`docs/superpowers/plans/`](docs/superpowers/plans/).
@@ -249,5 +343,9 @@ bloom, quality=auto, eventy/akce, zvýraznění sousedů, detailní okno, toky a
 toků, wireshark příklady (pcap, živý odposlech, traceroute), control okna
 (parametrické GUI), terminálová okna (konzole + REST push) a křivkové hrany
 (čáry/splajny + elasticita), **živá změna vzhledu uzlu za běhu (barva/velikost
-přes meta, přepnutí typu, redefinice typu)**. Plánováno
-dále: GLB modely uzlů, distribuce přes wheel + CI, IPv6 v živém odposlechu.
+přes meta, přepnutí typu, redefinice typu)**. Rozpracováno: multi-screen
+Workbench — backend (`Screen`, `vb.log`, multi-canvas `serve()`/protokol
+routing podle `screen_id`) hotový a otestovaný, frontend (vizuální
+přepínač, compositor, `workbench` chrome) zatím ne — viz sekce výše.
+Plánováno dále: GLB modely uzlů, distribuce přes wheel + CI, IPv6 v živém
+odposlechu.

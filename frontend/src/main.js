@@ -1,17 +1,20 @@
 import { Connection } from './core/connection.js';
-import { GraphStore } from './core/store.js';
+import { GuruMeditation } from './core/guru_meditation.js';
 import { StatusOverlay } from './core/status.js';
-import { WindowManager } from './render/windows.js';
-import { neighborhood } from './interact/highlight.js';
-import { KeyboardControls } from './interact/keyboard.js';
-import { Picker, buildEvent } from './interact/picking.js';
-import { throttle } from './interact/throttle.js';
-import { PhysicsEngine } from './physics/engine.js';
-import { FpsWatchdog } from './render/quality.js';
-import { Renderer } from './render/renderer.js';
-import { applyCssVars, resolveTheme } from './themes/manager.js';
+import { formatLogLine } from './screens/log_panel.js';
+import { ScreenManager } from './screens/manager.js';
 
 const status = new StatusOverlay();
+const guru = new GuruMeditation();
+
+// Neodchycená chyba/rejection na frontendu = "systém spadl" (uživatelský
+// požadavek) – ne jen tiché console.error, které si nikdo nevšimne.
+window.addEventListener('error', (e) => {
+  guru.show('frontend_error', `${e.message}\n${e.filename}:${e.lineno}:${e.colno}`);
+});
+window.addEventListener('unhandledrejection', (e) => {
+  guru.show('frontend_error', String(e.reason?.stack ?? e.reason));
+});
 
 function webglAvailable() {
   try {
@@ -24,138 +27,61 @@ function webglAvailable() {
 }
 
 function bootstrap() {
-  const store = new GraphStore();
-  const engine = new PhysicsEngine(store);
-  let activeTheme = null;            // poslední rozpuštěné téma (pro WindowManager)
-  const windowManager = new WindowManager(
-    document.getElementById('app'), store, () => activeTheme);
+  const root = document.getElementById('app');
 
-  function applyHighlight(nodeId, depth) {
-    const levels = depth ?? store.config.highlight_neighbors ?? 1;
-    const ids = neighborhood(store, nodeId, levels);
-    // Neznámý uzel = prázdná množina: radši nic nezvýraznit než ztlumit vše
-    renderer.setHighlight(ids.size > 0 ? ids : null);
-  }
-
-  const renderer = new Renderer(document.getElementById('app'), store, engine, {
-    onCameraReady: () => {
-      new Picker(renderer.webgl.domElement,
-        (x, y) => renderer.pick(x, y),
-        (message) => connection.send(message), {
-          onNodeClick: (id) => {              // okamžitá lokální odezva
-            const levels = store.config.highlight_neighbors ?? 1;
-            if (levels > 0) applyHighlight(id, levels);
-            renderer.focusOn(id);
-            if (store.config.detail_window?.open_on_click) {
-              windowManager.openFor(id);
-            }
-          },
-          onBackgroundClick: () => {
-            renderer.setHighlight(null);
-          },
-        });
-      new KeyboardControls(renderer.camera, renderer.controls,
-        { is2d: store.config.dimensions === 2 });
-      const sendViewChange = throttle(() => {
-        const state = renderer.viewState();
-        if (state) connection.send(buildEvent('view_change', state));
-      }, 100);
-      renderer.controls.addEventListener('change', sendViewChange);
-    },
-  });
-
-  function applyTheme(nameOrDict) {
-    const theme = resolveTheme(nameOrDict);
-    activeTheme = theme;
-    renderer.applyTheme(theme);
-    applyCssVars(theme);
-    windowManager.applyTheme();
-  }
-
-  const degrade = (step) => {
-    if (step === 1) renderer.disableBloom();
-    if (step === 2) renderer.setPixelRatio(1);
-  };
-  const watchdog = new FpsWatchdog(degrade);
-
-  store.subscribe((event) => {
-    if (event.kind !== 'patch') return;
-    windowManager.onPatch(event.patch);
-  });
-
-  store.subscribe((event) => {
-    if (event.kind !== 'init') return;
-    renderer.flowController.replayInit(store.flows ?? []);
-    applyTheme(store.config.theme);   // téma (i CSS proměnné oken) nastav dřív
-    renderer.setEdgeStyle(store.config.edge_style ?? { style: 'line', elasticity: 0 });
-    for (const spec of store.windows ?? []) {
-      if (spec.kind === 'terminal') windowManager.openTerminal(spec, submitTerminal);
-      else windowManager.openControl(spec, submitWindow);
-    }
-    if (store.config.title) {
-      document.title = `${store.config.title} – viewbase`;
-    }
-    const quality = store.config.quality ?? 'auto';
-    if (quality === 'low') {
-      degrade(1);                                  // hned a natrvalo
-      degrade(2);
-    } else if (quality === 'auto') {
-      renderer.onFrame = (dt) => watchdog.frame(dt);
-    }
-    // 'high': žádný watchdog, nikdy nedegradovat
-  });
-
-  function submitWindow(payload) {
-    connection.send(buildEvent('window_submit', payload));
-  }
-
-  function submitTerminal(payload) {
-    connection.send(buildEvent('terminal_input', payload));
-  }
-
-  const actions = {
-    show_detail: (msg) => windowManager.openFor(msg.node_id),
-    focus: (msg) => renderer.focusOn(msg.node_id),
-    highlight: (msg) => applyHighlight(msg.node_id, msg.depth),
-    flow: (msg) => renderer.flowController.applyFlow(msg),
-    stop_flow: (msg) => renderer.flowController.stopFlow(msg.flow_id),
-    set_theme: (msg) => {
-      store.config.theme = msg.theme;     // reconnect → init už ponese nové téma
-      applyTheme(msg.theme);
-    },
-    open_window: (msg) => (msg.kind === 'terminal'
-      ? windowManager.openTerminal(msg, submitTerminal)
-      : windowManager.openControl(msg, submitWindow)),
-    close_window: (msg) => windowManager.closeControl(msg.window_id),
-    terminal_append: (msg) => windowManager.terminalAppend(msg.window_id, msg.text),
-    set_edge_style: (msg) => renderer.setEdgeStyle(msg),
-    define_type: (msg) => store.applyNodeType(msg.name, msg.style),
-  };
-
+  // screenManager/connection na sobě závisí navzájem (ScreenInstance eventy
+  // jdou přes connection.send, connection routuje init/patch/action přes
+  // screenManager) – `let` + přiřazení až po obou konstruktorech, closure
+  // (resolveStore/onAction) čte proměnnou až při první zprávě ze serveru,
+  // tou dobou je `screenManager` už přiřazený.
+  let screenManager;
   const wsScheme = location.protocol === 'https:' ? 'wss' : 'ws';
-  const connection = new Connection(`${wsScheme}://${location.host}/ws`, store, {
+  const connection = new Connection(`${wsScheme}://${location.host}/ws`, null, {
+    resolveStore: (screenId) => screenManager.resolveStore(screenId),
     onStatus: (state) => {
       if (state === 'init') {
         status.hide();
+        // Jen ztráta spojení se dá "sama spravit" (reconnect proběhl) –
+        // JS/backend chybu musí odkliknout uživatel, přesně jako originál.
+        guru.dismissIfConnectionRecovered();
       } else if (state === 'close') {
-        status.show('Spojení se serverem vypadlo – zkouším se znovu připojit…');
+        guru.show('connection_lost',
+          'Spojení se serverem vypadlo – zkouším se znovu připojit…');
+      } else if (state === 'connect_failed') {
+        guru.show('connection_lost',
+          'Spojení se serverem se nezdařilo – zkouším se znovu připojit…');
       } else if (state === 'protocol_mismatch') {
-        status.show('Server běží s jinou verzí protokolu – obnovte stránku (F5).');
+        guru.show('connection_lost',
+          'Server běží s jinou verzí protokolu – obnovte stránku (F5).');
       }
     },
     onAction: (msg) => {
-      const handler = actions[msg.action];
-      if (handler) handler(msg);
-      else console.warn('viewbase: neznámá akce', msg.action);
+      // screen_remove (create/destroy jsou explicitní páry, Canvas.close()
+      // v Pythonu) boří celou ScreenInstance – řeší ScreenManager sám,
+      // ne přeposílat konkrétní instanci (ta zrovna zaniká).
+      if (msg.action === 'screen_remove') screenManager.remove(msg.screen_id);
+      else screenManager.routeAction(msg);
+    },
+    onLog: (record) => {
+      // „Log má vždy timestamp" (uživatelský požadavek): razítkuje se čas
+      // PŘÍJMU na frontendu – jednotné hodiny pro všechny zdroje, backend
+      // žádný čas neposílá. Musí proběhnout před append() i guru.show(),
+      // ať oba výstupy nesou stejný čas.
+      record.timestamp = new Date();
+      // Log je OKNO na screenu (window-first model, §3a handoveru), žádný
+      // speciální Screen 0 – ScreenManager ho auto-otevře na předním
+      // screenu při prvním záznamu a routuje do všech otevřených log oken
+      // (filtry si drží každé okno samo).
+      screenManager.appendLog(record);
+      // error z backendu (výjimka v @canvas.on_click/@canvas.every apod.,
+      // nebo explicitní vb.log(level="error")) je taky "systém spadl" –
+      // log samotný zůstává navíc v log okně.
+      if (record.level === 'error') guru.show('backend_error', formatLogLine(record));
     },
   });
-
+  screenManager = new ScreenManager(root, connection);
   connection.connect();
-  renderer.start();
-  window.__viewbase = {
-    store, engine, renderer, connection, watchdog, windowManager,
-    flowController: renderer.flowController, flowLayer: renderer.flows,
-  };
+  window.__viewbase = { screenManager, connection };
 }
 
 if (webglAvailable()) {

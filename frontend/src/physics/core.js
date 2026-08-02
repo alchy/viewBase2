@@ -66,6 +66,40 @@ export class PhysicsCore {
     this.sim.stop();
   }
 
+  /** Živá 2D/3D změna (Options §8a): d3-force-3d peče dimenzionalitu do
+   *  simulace při konstrukci (`forceSimulation(nodes, dimensions)`), proto
+   *  se přestavuje celý `sim` – ne jen přidání/odebrání `gz` síly, to by
+   *  charge/link síly dál počítaly ve staré dimenzi. Uzly/hrany (a jejich
+   *  x/y/z) se zachovají – `forceSimulation(this.nodes, …)` je převezme,
+   *  jen nové/chybějící z (2D→3D) dostane náhodný rozptyl (jinak by na
+   *  z=0 zůstaly navždy – symetrická odpudivá síla je v ose Z nulová). */
+  setDimensions(dimensions) {
+    if (this.dimensions === dimensions) return;
+    this.dimensions = dimensions;
+    if (dimensions === 3) {
+      for (const n of this.nodes) {
+        if (!Number.isFinite(n.z) || n.z === 0) {
+          n.z = (Math.random() - 0.5) * 2 * SPAWN_JITTER;
+        }
+      }
+    }
+    this.sim = forceSimulation(this.nodes, dimensions)
+      .force('link', forceLink(this.links).id((d) => d.id)
+        .distance(linkDistance).strength(linkStrength))
+      .force('charge', forceManyBody()
+        .strength((d) => CHARGE_BASE * (1 + CHARGE_MASS * nodeMass(d))).theta(0.9))
+      .force('center', forceCenter())
+      .force('gx', forceX(0).strength(gravityStrength))
+      .force('gy', forceY(0).strength(gravityStrength));
+    if (dimensions === 3) {
+      this.sim.force('gz', forceZ(0).strength(gravityStrength));
+    }
+    // stejně jako v konstruktoru: bez stop() by nová forceSimulation spustila
+    // svůj vlastní d3-timer navíc k ručnímu tick() z workeru (dvojité tikání).
+    this.sim.stop();
+    this.sim.alpha(1);
+  }
+
   applyInit({ nodes, links }) {
     this.nodes = nodes.map((n) => ({ id: n.id, mass: n.mass }));
     this.byId = new Map(this.nodes.map((n) => [n.id, n]));

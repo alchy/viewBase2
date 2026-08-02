@@ -9,15 +9,19 @@ import uuid
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from typing import Any, Callable, Iterator
+from typing import TYPE_CHECKING, Any, Callable, Iterator
 
 from .controls import ControlWindow, TerminalWindow, validate_values
+from .menu import ScreenMenu
+
+if TYPE_CHECKING:
+    from .screen import Screen
 
 logger = logging.getLogger("viewbase")
 
 _LABEL_KEY = re.compile(r"\{([^{}]+)\}")
 
-BUILTIN_THEMES = ("modern", "cyber")
+BUILTIN_THEMES = ("modern", "cyber", "workbench")
 QUALITIES = ("low", "high", "auto")
 
 # Sentinel „argument nezadán" – odlišuje `update_node(a)` (typ/label nech být)
@@ -48,11 +52,15 @@ class Canvas:
 
     def __init__(self, *, title: str = "viewbase", dimensions: int = 3,
                  theme: Any = "modern", highlight_neighbors: int = 1,
-                 quality: str = "auto"):
+                 quality: str = "auto", screen: "Screen | None" = None):
         if dimensions not in (2, 3):
             raise ValueError("dimensions musí být 2 nebo 3")
         if quality not in QUALITIES:
             raise ValueError(f"quality musí být jedno z {QUALITIES}")
+        if screen is not None and not hasattr(screen, "id"):
+            raise ValueError("screen musí být instance vb.Screen")
+        self.screen = screen
+        self.screen_id: int | None = screen.id if screen is not None else None
         self.config = {
             "title": title,
             "dimensions": dimensions,
@@ -74,6 +82,7 @@ class Canvas:
         self._window_live: dict[str, bool] = {}   # window_id -> live režim
         self._terminals: dict[str, TerminalWindow] = {}
         self._terminal_callbacks: dict[str, Any] = {}   # window_id -> on_input
+        self._menu: ScreenMenu | None = None   # připnuté ScreenMenu (§8 designu)
         self._seq = 0
         self._batch_depth = 0
         self._pending = self._empty_pending()
@@ -87,6 +96,26 @@ class Canvas:
         self._tasks_stop: threading.Event | None = None   # None = neběží
         self._register("window_submit", self._on_window_submit)
         self._register("terminal_input", self._on_terminal_input)
+        self._register("menu_select", self._on_menu_select)
+        if screen is not None:
+            self._adopt_screen(screen)
+
+    def _adopt_screen(self, screen: "Screen") -> None:
+        """Explicitně převezme stav nahromaděný na Screenu PŘED tím, než k
+        němu byl přiřazený Canvas – vytvoření Screenu a přiřazení grafu
+        jsou nezávislé atomární operace (jen pořadí je volné, vazba je pak
+        trvalá 1:1, viz screen.py). Duck-typed vůči Screenu (žádný
+        cyklický import, stejně jako type hint `screen` výše).
+
+        Přenese `_menu` PŘÍMO (ne přes `self.pin_menu` – to by zdvojilo
+        akci, protože `screen.drain_actions()` níž vrací tutéž `open_menu`
+        akci, kterou `Screen.pin_menu` zařadil, když ještě neměl Canvas)."""
+        screen._canvas = self
+        with self._lock:
+            if screen._menu is not None:
+                self._menu = screen._menu
+            for action in screen.drain_actions():
+                self._actions.append(action)
 
     @staticmethod
     def _empty_pending() -> dict[str, dict]:
@@ -329,6 +358,26 @@ class Canvas:
             callback = self._terminal_callbacks.get(window_id)
         if callback is not None:
             callback(event)
+
+    def pin_menu(self, menu: ScreenMenu) -> None:
+        """Připni ScreenMenu na screen bar (§8 designu) – uloží se do stavu
+        (init replay, přežije reconnect) a zařadí akci open_menu. Nahrazení
+        dosud připnutého menu zruší staré on_select handlery (patří k
+        nahrazenému objektu)."""
+        with self._lock:
+            self._menu = menu
+            self._actions.append({"action": "open_menu", **menu.spec()})
+
+    def _on_menu_select(self, event) -> None:
+        """Interní handler eventu menu_select: najdi položku podle item_id
+        v aktuálně připnutém menu a zavolej její on_select."""
+        item_id = getattr(event, "item_id", None)
+        if not isinstance(item_id, str):
+            return
+        with self._lock:
+            menu = self._menu
+        if menu is not None:
+            menu.dispatch(item_id, event)
 
     def set_edge_style(self, style: str, elasticity: float = 0.0) -> None:
         """Nastav vykreslení hran: 'line' nebo 'spline', elasticity 0..1.
@@ -673,6 +722,7 @@ class Canvas:
                     {**w.spec(), "live": self._window_live.get(wid, False)}
                     for wid, w in self._windows.items()]
                 + [t.spec() for t in self._terminals.values()],
+                "menu": self._menu.spec() if self._menu is not None else None,
             }
 
     # ---- delty ---------------------------------------------------------
@@ -813,11 +863,17 @@ class Canvas:
     def close(self) -> None:
         """Ukonči thread-pool handlerů i every() úlohy. Idempotentní; další
         dispatch_event je no-op. Nečeká na běžící handlery (wait=False)
-        a zruší zařazené čekající úlohy (cancel_futures=True)."""
+        a zruší zařazené čekající úlohy (cancel_futures=True). Má-li canvas
+        přiřazený Screen (`screen_id`), zařadí akci `screen_remove`, ať
+        frontend zboří ScreenInstance a uvolní WebGL/fyzikální zdroje
+        (create/destroy jsou explicitní páry, viz screen.py)."""
         with self._lock:
             if self._closed:
                 return
             self._closed = True
+            if self.screen_id is not None:
+                self._actions.append(
+                    {"action": "screen_remove", "screen_id": self.screen_id})
             if self._tasks_stop is not None:
                 self._tasks_stop.set()
         self._executor.shutdown(wait=False, cancel_futures=True)

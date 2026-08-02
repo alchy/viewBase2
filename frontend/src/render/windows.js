@@ -6,6 +6,8 @@ import {
   BaseWindow, clampToCanvas, dockLayout, resizeGeometry,
 } from './base_window.js';
 import { ControlWindow } from './control_window.js';
+import { GraphWindow } from './graph_window.js';
+import { LogWindow } from './log_window.js';
 import { TerminalWindow } from './terminal_window.js';
 
 export { clampToCanvas, dockLayout, resizeGeometry };
@@ -131,13 +133,32 @@ export class DetailWindow extends BaseWindow {
 /** Spravuje detailní i control okna nad app kontejnerem: otevírání, z-order,
  *  dok, živé patche (jen detailní okna). */
 export class WindowManager {
-  constructor(container, store, getTheme = () => null) {
+  constructor(container, store, getTheme = () => null, onOptionsChange = () => {}) {
     this.container = container;
     this.store = store;
     this.getTheme = getTheme;
+    this.onOptionsChange = onOptionsChange;  // items|null → ScreenMenuBar.setOptionsGroup
     this.windows = new Map();        // id -> BaseWindow (nodeId | window_id)
+    this.optionsSource = null;       // poslední AKTIVNÍ okno, co definuje Options
     this.z = 900;
     this.dockSlots = [];
+  }
+
+  /** Aktivace okna (klik/bringToFront, viz BaseWindow): okno S vlastními
+   *  Options se stává zdrojem skupiny na screen baru; okno BEZ nich
+   *  (detail/control/terminal) skupinu NEMĚNÍ – chová se jako další okno
+   *  téže „aplikace", přesně jako na macOS menu pořád patří aplikaci
+   *  (rozhodnutí uživatele: nemění se + skrýt na prázdném screenu). */
+  _setActive(win) {
+    if (win.getOptionsItems() != null) this.optionsSource = win;
+    this.refreshOptions();
+  }
+
+  /** Přerenderuj Options skupinu podle aktuálního zdroje – volají to i
+   *  onToggle handlery položek (checkbox po kliku musí ukázat nový stav;
+   *  jedna sdílená cesta místo per-okno kopií renderOptionsGroup smyčky). */
+  refreshOptions() {
+    this.onOptionsChange(this.optionsSource?.getOptionsItems() ?? null);
   }
 
   _config() {
@@ -215,6 +236,44 @@ export class WindowManager {
     if (win && win.kind === 'terminal') win.append(text);
   }
 
+  /** Grafové okno (window-first model §3a handoveru): jedno na screen,
+   *  zakládá ho createScreenInstance PŘED stavbou Rendereru (ten čte
+   *  rozměry z `win.body` synchronně v konstruktoru). Žádný bringToFront –
+   *  graf startuje vzadu (základ desktopu), ostatní okna se otevírají
+   *  nad ním. */
+  openGraph({ screenId, optionsProvider, onResize }) {
+    const win = new GraphWindow({
+      screenId, container: this.container, manager: this, optionsProvider, onResize,
+    });
+    this.windows.set(win.id, win);
+    return win;
+  }
+
+  /** Log okno (window-first model §3a handoveru: „existuje okno s
+   *  funkcionalitou log", žádný speciální screen). Jedno na screen
+   *  (pevné id), otevírá ho ScreenManager.appendLog při prvním log
+   *  záznamu – ne Python API, ne eager bootstrap. */
+  openLog() {
+    const existing = this.windows.get(LogWindow.ID);
+    if (existing) {
+      if (existing.isMinimized) existing.restore();
+      return existing;
+    }
+    const win = new LogWindow({ container: this.container, manager: this });
+    this.windows.set(LogWindow.ID, win);
+    // ŽÁDNÝ bringToFront: auto-open je pasivní událost (přišel log záznam),
+    // ne záměr diváka – nesmí ukrást aktivaci/Options oknu, se kterým se
+    // právě pracuje. Nad grafem se objeví i tak (pozdější v DOM, stejný
+    // výchozí z-index); aktivním se stane až klikem.
+    return win;
+  }
+
+  /** Otevřené log okno tohohle screenu (nebo null) – ScreenManager přes
+   *  něj routuje příchozí log záznamy do všech log oken napříč screeny. */
+  logWindow() {
+    return this.windows.get(LogWindow.ID) ?? null;
+  }
+
   onPatch(patch) {
     const detailIds = new Set();
     for (const [id, win] of this.windows) {
@@ -261,6 +320,19 @@ export class WindowManager {
   }
 
   _forget(id) {
+    const win = this.windows.get(id);
     this.windows.delete(id);
+    if (win !== this.optionsSource) return;
+    // Zdroj Options zmizel – převezme ho nejvrchnější zbylé okno, co nějaké
+    // Options definuje; bez takového se skupina schová (setOptionsGroup(null)).
+    let next = null;
+    for (const candidate of this.windows.values()) {
+      if (candidate.getOptionsItems() == null) continue;
+      if (!next || Number(candidate.el.style.zIndex) > Number(next.el.style.zIndex)) {
+        next = candidate;
+      }
+    }
+    this.optionsSource = next;
+    this.refreshOptions();
   }
 }
