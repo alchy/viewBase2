@@ -1,5 +1,6 @@
 import { deepMerge } from './merge.js';
-import workbenchChrome from './workbench.json';
+import workbenchAmigaChrome from './workbench_amiga.json';
+import workbenchGrayChrome from './workbench_gray.json';
 
 /** Vestavěná témata. Téma je čistě deklarativní objekt – žádná logika.
  *  Klíče v `detailBox` jsou CSS custom properties pro HTML overlaye
@@ -66,18 +67,25 @@ export const cyber = {
   flow: { size: 3.0, baseSpeed: 260, color: '#28d7fe', opacity: 1.0 },
 };
 
-/** Workbench (docs/superpowers/specs/2026-08-02-multi-screen-workbench-
- *  design.md §7): jediné vestavěné téma definované jako JSON
- *  (`workbench.json`), ne JS literál – merge přes `modern` už tady při
- *  registraci (workbench.json sám nedefinuje node/edge/label/bloom, takže
- *  graf pod ním zůstává `modern` – barvy grafu řídí vývojář, ne chrome
- *  téma, viz spec). `applyCssVars` (manager.js) dnes umí jen `window.
- *  {headerBg,headerFg,gadget,bodyBg,bodyFg,key,dockBg,shadow}` – ty se
- *  reálně projeví hned. `screenBar`, `window.headerBgActive/
- *  headerFgActive` (chybí koncept aktivního/neaktivního okna),
+/** Workbench témata (docs/superpowers/specs/2026-08-02-multi-screen-
+ *  workbench-design.md §7): definovaná jako JSON, merge přes `modern` už
+ *  tady při registraci (JSONy nedefinují node/edge/label/bloom, takže graf
+ *  pod nimi zůstává `modern` – barvy grafu řídí vývojář, ne chrome téma).
+ *  Dvě varianty (rozhodnutí uživatele):
+ *  - `workbench-gray`  – šedý Workbench 3.x vzhled (světlá plocha),
+ *  - `workbench-amiga` – modrý Workbench 1.3: plocha #0057af, bílé lišty
+ *    s modrým pruhováním a textem, bílé rámy oken, oranžové akcenty –
+ *    barvy vzorkované přímo z reference
+ *    (docs/images/workbench-ref/workbench13-desktop-toastytech.png).
+ *  `window.headerBgActive/headerFgActive` (chybí koncept aktivního okna),
  *  `backdropPattern`, `iconSet` a `font` jsou zatím jen data bez
- *  spotřebitele – čekají na screen bar / ScreenMenu / bitmapové ikony a
- *  font (Fáze 5 pokračování, viz implementační plán). */
-export const workbench = deepMerge(modern, workbenchChrome);
+ *  spotřebitele. */
+export const workbenchGray = deepMerge(modern, workbenchGrayChrome);
+export const workbenchAmiga = deepMerge(modern, workbenchAmigaChrome);
 
-export const THEMES = { modern, cyber, workbench };
+export const THEMES = {
+  modern,
+  cyber,
+  'workbench-gray': workbenchGray,
+  'workbench-amiga': workbenchAmiga,
+};

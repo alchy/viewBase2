@@ -1,11 +1,11 @@
 import pytest
 
 import viewbase as vb
-from viewbase import Canvas
+from viewbase import GraphWindow
 
 
 def test_add_node_and_edge_snapshot():
-    c = Canvas()
+    c = GraphWindow()
     c.add_node("a", name="Alfa")
     c.add_node("b")
     c.add_edge("a", "b", weight=2)
@@ -15,7 +15,7 @@ def test_add_node_and_edge_snapshot():
 
 
 def test_config_in_snapshot():
-    c = Canvas(title="T", dimensions=2, theme="cyber", highlight_neighbors=2)
+    c = GraphWindow(title="T", dimensions=2, theme="cyber", highlight_neighbors=2)
     cfg = c.snapshot()["config"]
     assert cfg == {"title": "T", "dimensions": 2, "theme": "cyber",
                    "highlight_neighbors": 2, "quality": "auto",
@@ -26,18 +26,18 @@ def test_config_in_snapshot():
 
 def test_invalid_dimensions_raises():
     with pytest.raises(ValueError):
-        Canvas(dimensions=4)
+        GraphWindow(dimensions=4)
 
 
 def test_duplicate_node_raises():
-    c = Canvas()
+    c = GraphWindow()
     c.add_node("a")
     with pytest.raises(ValueError):
         c.add_node("a")
 
 
 def test_edge_requires_existing_nodes_and_no_duplicates():
-    c = Canvas()
+    c = GraphWindow()
     c.add_node("a")
     with pytest.raises(ValueError):
         c.add_edge("a", "missing")
@@ -50,7 +50,7 @@ def test_edge_requires_existing_nodes_and_no_duplicates():
 
 
 def test_unknown_node_type_raises():
-    c = Canvas()
+    c = GraphWindow()
     with pytest.raises(ValueError):
         c.add_node("a", type="server")
     c.define_type("server", shape="box")
@@ -59,7 +59,7 @@ def test_unknown_node_type_raises():
 
 
 def test_remove_node_cascades_edges():
-    c = Canvas()
+    c = GraphWindow()
     c.add_node("a")
     c.add_node("b")
     c.add_edge("a", "b")
@@ -70,7 +70,7 @@ def test_remove_node_cascades_edges():
 
 
 def test_update_and_remove_missing_raises():
-    c = Canvas()
+    c = GraphWindow()
     with pytest.raises(ValueError):
         c.update_node("ghost", x=1)
     with pytest.raises(ValueError):
@@ -81,7 +81,7 @@ def test_update_and_remove_missing_raises():
 
 
 def test_label_template_and_missing_key(caplog):
-    c = Canvas()
+    c = GraphWindow()
     with caplog.at_level("WARNING", logger="viewbase"):
         c.add_node("a", label="{name} ({ip})", name="Web")
     node = c.snapshot()["nodes"][0]
@@ -90,13 +90,13 @@ def test_label_template_and_missing_key(caplog):
 
 
 def test_label_defaults_to_id():
-    c = Canvas()
+    c = GraphWindow()
     c.add_node("a")
     assert c.snapshot()["nodes"][0]["label"] == "a"
 
 
 def test_snapshot_is_isolated_from_internal_state():
-    c = Canvas()
+    c = GraphWindow()
     c.add_node("a", tags={"env": "prod"})
     c.add_node("b")
     c.add_edge("a", "b", weight=1)
@@ -108,7 +108,7 @@ def test_snapshot_is_isolated_from_internal_state():
 
 
 def test_update_node_changes_color_via_meta():
-    c = Canvas()
+    c = GraphWindow()
     c.add_node("a", color="#111111")
     c.drain()
     c.update_node("a", color="#ff2a6d")
@@ -120,7 +120,7 @@ def test_update_node_changes_color_via_meta():
 
 
 def test_update_node_switches_type_and_label():
-    c = Canvas()
+    c = GraphWindow()
     c.define_type("server", color="#28d7fe")
     c.define_type("db", color="#ff2a6d")
     c.add_node("a", type="server", name="Alfa")
@@ -136,7 +136,7 @@ def test_update_node_switches_type_and_label():
 
 
 def test_update_node_keeps_type_when_not_given():
-    c = Canvas()
+    c = GraphWindow()
     c.define_type("server")
     c.add_node("a", type="server", label="{name}", name="Alfa")
     c.drain()
@@ -147,7 +147,7 @@ def test_update_node_keeps_type_when_not_given():
 
 
 def test_update_node_rejects_unknown_type():
-    c = Canvas()
+    c = GraphWindow()
     c.add_node("a")
     with pytest.raises(ValueError, match="Neznámý typ"):
         c.update_node("a", type="ghost")
@@ -158,7 +158,7 @@ def test_update_node_rejects_unknown_type():
 
 def test_update_node_before_first_drain_stays_in_add_nodes():
     """Uzel čekající na založení nesmí odejít jako update – klient ho nezná."""
-    c = Canvas()
+    c = GraphWindow()
     c.define_type("db", color="#ff2a6d")
     c.add_node("a")
     c.update_node("a", type="db", color="#00ff00")
@@ -169,7 +169,7 @@ def test_update_node_before_first_drain_stays_in_add_nodes():
 
 
 def test_define_type_at_runtime_queues_action():
-    c = Canvas()
+    c = GraphWindow()
     c.define_type("server", color="#28d7fe", shape="box")
     assert c.drain_actions() == [
         {"action": "define_type", "name": "server",
@@ -182,13 +182,13 @@ def test_define_type_at_runtime_queues_action():
 
 
 def test_detail_window_default_present_in_snapshot():
-    canvas = vb.Canvas()
+    canvas = vb.GraphWindow()
     dw = canvas.snapshot()["config"]["detail_window"]
     assert dw == {"rows": None, "width_chars": 42, "open_on_click": True}
 
 
 def test_detail_window_sets_config():
-    canvas = vb.Canvas()
+    canvas = vb.GraphWindow()
     canvas.detail_window(rows=[("FQDN", "fqdn"), ("IP", "ip")], width_chars=64,
                          open_on_click=False)
     dw = canvas.config["detail_window"]
@@ -200,13 +200,13 @@ def test_detail_window_sets_config():
 
 
 def test_detail_window_rows_none_keeps_none():
-    canvas = vb.Canvas()
+    canvas = vb.GraphWindow()
     canvas.detail_window(rows=None, width_chars=128)
     assert canvas.config["detail_window"]["rows"] is None
 
 
 def test_detail_window_rejects_nonpositive_width():
-    canvas = vb.Canvas()
+    canvas = vb.GraphWindow()
     with pytest.raises(ValueError, match="width_chars"):
         canvas.detail_window(width_chars=0)
     with pytest.raises(ValueError, match="width_chars"):
@@ -216,7 +216,7 @@ def test_detail_window_rejects_nonpositive_width():
 
 
 def test_detail_window_rejects_bad_rows_shape():
-    canvas = vb.Canvas()
+    canvas = vb.GraphWindow()
     with pytest.raises(ValueError, match="rows"):
         canvas.detail_window(rows=["FQDN", "fqdn"])          # ne seznam dvojic
     with pytest.raises(ValueError, match="rows"):
@@ -226,27 +226,27 @@ def test_detail_window_rejects_bad_rows_shape():
 
 
 def test_detail_window_rejects_nonbool_open_on_click():
-    canvas = vb.Canvas()
+    canvas = vb.GraphWindow()
     with pytest.raises(ValueError, match="open_on_click"):
         canvas.detail_window(open_on_click="yes")
 
 
 def test_node_label_applies_without_explicit_label():
-    c = Canvas()
+    c = GraphWindow()
     c.node_label("{fqdn} [{ip}]")
     c.add_node("n", fqdn="dns.google", ip="8.8.8.8")
     assert c.snapshot()["nodes"][0]["label"] == "dns.google [8.8.8.8]"
 
 
 def test_explicit_label_overrides_canvas_node_label():
-    c = Canvas()
+    c = GraphWindow()
     c.node_label("{fqdn} [{ip}]")
     c.add_node("n", label="{ip}", fqdn="dns.google", ip="8.8.8.8")
     assert c.snapshot()["nodes"][0]["label"] == "8.8.8.8"
 
 
 def test_node_label_reassembles_on_update():
-    c = Canvas()
+    c = GraphWindow()
     c.node_label("{fqdn} [{ip}]")
     c.add_node("n", fqdn="", ip="8.8.8.8")
     assert c.snapshot()["nodes"][0]["label"] == " [8.8.8.8]"
@@ -255,12 +255,12 @@ def test_node_label_reassembles_on_update():
 
 
 def test_node_label_none_falls_back_to_id():
-    c = Canvas()
+    c = GraphWindow()
     c.add_node("n", fqdn="x")
     assert c.snapshot()["nodes"][0]["label"] == "n"
 
 
 def test_node_label_rejects_non_string():
-    c = Canvas()
+    c = GraphWindow()
     with pytest.raises(ValueError, match="node_label"):
         c.node_label(123)

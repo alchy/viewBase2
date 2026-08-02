@@ -1,11 +1,11 @@
 """ensure_node/ensure_edge (idempotentní zápis) a čtecí API canvasu."""
 import pytest
 
-from viewbase import Canvas
+from viewbase import GraphWindow
 
 
 def test_ensure_node_creates_then_upserts_meta():
-    c = Canvas()
+    c = GraphWindow()
     c.ensure_node("a", status="new")
     assert c.has_node("a")
     seq, deltas = c.drain()
@@ -19,7 +19,7 @@ def test_ensure_node_creates_then_upserts_meta():
 
 
 def test_ensure_node_switches_type():
-    c = Canvas()
+    c = GraphWindow()
     c.define_type("server")
     c.define_type("db")
     c.ensure_node("a", type="server")
@@ -36,7 +36,7 @@ def test_ensure_node_switches_type():
 
 
 def test_ensure_node_switches_label_template():
-    c = Canvas()
+    c = GraphWindow()
     c.ensure_node("a", label="{x}", x="X", y="Y")
     c.drain()
     c.ensure_node("a", label="{x}")
@@ -47,7 +47,7 @@ def test_ensure_node_switches_label_template():
 
 
 def test_ensure_edge_creates_then_merges_meta():
-    c = Canvas()
+    c = GraphWindow()
     c.ensure_node("a")
     c.ensure_node("b")
     c.ensure_edge("a", "b", kind="lan")
@@ -61,13 +61,13 @@ def test_ensure_edge_creates_then_merges_meta():
 
 
 def test_ensure_edge_requires_nodes():
-    c = Canvas()
+    c = GraphWindow()
     with pytest.raises(ValueError):
         c.ensure_edge("x", "y")
 
 
 def test_node_and_edge_read_return_copies():
-    c = Canvas()
+    c = GraphWindow()
     c.add_node("a", label="{name}", name="Alfa")
     c.add_node("b")
     c.add_edge("a", "b", w=1)
@@ -85,7 +85,7 @@ def test_node_and_edge_read_return_copies():
 
 
 def test_nodes_edges_listing():
-    c = Canvas()
+    c = GraphWindow()
     c.add_node("a")
     c.add_node("b")
     c.add_edge("a", "b")

@@ -3,7 +3,7 @@ import threading
 import pytest
 from fastapi.testclient import TestClient
 
-from viewbase import Canvas, ControlWindow, create_app, protocol
+from viewbase import GraphWindow, ControlWindow, create_app, protocol
 
 
 def _win():
@@ -15,7 +15,7 @@ def _win():
 
 
 def test_open_window_queues_action_and_snapshot():
-    c = Canvas()
+    c = GraphWindow()
     c.open_window(_win())
     (a,) = c.drain_actions()
     assert a["action"] == "open_window"
@@ -25,14 +25,14 @@ def test_open_window_queues_action_and_snapshot():
 
 
 def test_open_window_replace_same_id():
-    c = Canvas()
+    c = GraphWindow()
     c.open_window(_win())
     c.open_window(_win())
     assert len(c.snapshot()["windows"]) == 1
 
 
 def test_replace_without_on_submit_clears_callback():
-    c = Canvas()
+    c = GraphWindow()
     fired = threading.Event()
     c.open_window(_win(), on_submit=lambda e: fired.set())
     c.open_window(_win())          # nahrazení bez on_submit → callback zrušen
@@ -47,7 +47,7 @@ def test_replace_without_on_submit_clears_callback():
 
 
 def test_close_window_removes_and_queues():
-    c = Canvas()
+    c = GraphWindow()
     c.open_window(_win())
     c.drain_actions()
     c.close_window("render")
@@ -58,15 +58,15 @@ def test_close_window_removes_and_queues():
 
 def test_close_unknown_raises():
     with pytest.raises(ValueError):
-        Canvas().close_window("ghost")
+        GraphWindow().close_window("ghost")
 
 
 def test_default_edge_style_is_line():
-    assert Canvas().config["edge_style"] == {"style": "line", "elasticity": 0.0}
+    assert GraphWindow().config["edge_style"] == {"style": "line", "elasticity": 0.0}
 
 
 def test_set_edge_style_updates_config_and_action():
-    c = Canvas()
+    c = GraphWindow()
     c.set_edge_style("spline", elasticity=0.6)
     assert c.config["edge_style"] == {"style": "spline", "elasticity": 0.6}
     (a,) = c.drain_actions()
@@ -75,18 +75,18 @@ def test_set_edge_style_updates_config_and_action():
 
 
 def test_set_edge_style_clamps_elasticity():
-    c = Canvas()
+    c = GraphWindow()
     c.set_edge_style("spline", elasticity=5.0)
     assert c.config["edge_style"]["elasticity"] == 1.0
 
 
 def test_set_edge_style_invalid_raises():
     with pytest.raises(ValueError):
-        Canvas().set_edge_style("zigzag")
+        GraphWindow().set_edge_style("zigzag")
 
 
 def test_window_submit_validates_and_calls_callback():
-    c = Canvas()
+    c = GraphWindow()
     done = threading.Event()
     got = {}
 
@@ -111,7 +111,7 @@ def test_window_submit_validates_and_calls_callback():
 
 
 def test_window_submit_unknown_window_does_not_raise():
-    c = Canvas()
+    c = GraphWindow()
     c.dispatch_event("window_submit",
                      {"window_id": "ghost", "values": {}, "client_id": "x"})
     c.close()
@@ -125,7 +125,7 @@ def test_init_message_includes_windows_key():
 
 
 def test_init_carries_windows_and_edge_style():
-    c = Canvas()
+    c = GraphWindow()
     c.open_window(_win())
     c.set_edge_style("spline", 0.5)
     with TestClient(create_app(c)) as client:

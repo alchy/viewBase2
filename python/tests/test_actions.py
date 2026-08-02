@@ -1,11 +1,11 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from viewbase import Canvas, create_app, protocol
+from viewbase import GraphWindow, create_app, protocol
 
 
 def test_actions_queue_and_drain():
-    c = Canvas()
+    c = GraphWindow()
     c.add_node("a")
     c.show_detail("a")
     c.focus("a")
@@ -21,7 +21,7 @@ def test_actions_queue_and_drain():
 
 
 def test_highlight_default_depth_is_none():
-    c = Canvas()
+    c = GraphWindow()
     c.add_node("a")
     c.highlight("a")
     assert c.drain_actions() == [
@@ -29,7 +29,7 @@ def test_highlight_default_depth_is_none():
 
 
 def test_action_on_missing_node_raises():
-    c = Canvas()
+    c = GraphWindow()
     with pytest.raises(ValueError):
         c.show_detail("ghost")
     with pytest.raises(ValueError):
@@ -40,7 +40,7 @@ def test_action_on_missing_node_raises():
 
 
 def test_set_theme_updates_config():
-    c = Canvas()
+    c = GraphWindow()
     c.set_theme("cyber")
     assert c.snapshot()["config"]["theme"] == "cyber"
 
@@ -51,7 +51,7 @@ def make_ws(canvas):
 
 
 def test_action_is_delivered_over_ws():
-    canvas = Canvas()
+    canvas = GraphWindow()
     canvas.add_node("a")
     with make_ws(canvas) as client:
         with client.websocket_connect("/ws") as ws:
@@ -70,7 +70,7 @@ def test_action_is_delivered_over_ws():
 
 
 def test_patch_arrives_before_action_from_same_window():
-    canvas = Canvas()
+    canvas = GraphWindow()
     with make_ws(canvas) as client:
         with client.websocket_connect("/ws") as ws:
             ws.send_text(protocol.encode(

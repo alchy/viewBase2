@@ -1,11 +1,11 @@
 import pytest
 
-from viewbase import Canvas, create_app, protocol
+from viewbase import GraphWindow, create_app, protocol
 from fastapi.testclient import TestClient
 
 
 def _graph():
-    c = Canvas()
+    c = GraphWindow()
     c.add_node("a")
     c.add_node("b")
     c.add_node("c")
@@ -15,7 +15,7 @@ def _graph():
 
 
 def test_define_flow_type_stored_in_snapshot():
-    c = Canvas()
+    c = GraphWindow()
     c.define_flow_type("dns", color="#ffd166", size=0.7, speed=1.5)
     c.define_flow_type("http")
     snap = c.snapshot()

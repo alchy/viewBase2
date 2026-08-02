@@ -47,4 +47,12 @@ export function applyCssVars(theme, root = document.documentElement) {
       ? `repeating-linear-gradient(0deg, ${w.headerFg}22 0px, ${w.headerFg}22 1px, transparent 1px, transparent 4px)`
       : 'none');
   }
+  // Lišta screenu podle tématu (workbench-amiga: bílá lišta s modrým
+  // textem jako na WB 1.3 referenci) – fallbacky drží dnešní světle
+  // šedý vzhled pro témata bez `screenBar`.
+  const bar = theme.screenBar;
+  if (bar) {
+    if (bar.bg != null) root.style.setProperty('--vb-screenbar-bg', bar.bg);
+    if (bar.fg != null) root.style.setProperty('--vb-screenbar-fg', bar.fg);
+  }
 }

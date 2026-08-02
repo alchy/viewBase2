@@ -92,6 +92,10 @@ export function createDesktop({ container, screenId, connection }) {
     for (const spec of store.windows ?? []) {
       windowManager.open(spec.kind === 'terminal' ? 'terminal' : 'control', spec);
     }
+    // Explicitně umístěné SYSTÉMOVÉ log okno (vb.LogWindow(screen=...) v
+    // Pythonu, „lepší je explicitní než implicitní") – flag jde přes init
+    // snapshot, takže přežije reconnect i pozdější připojení klienta.
+    if (store.config.log_window) windowManager.open('log');
     if (store.config.title) {
       document.title = `${store.config.title} – viewbase`;
     }

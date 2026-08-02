@@ -1,11 +1,11 @@
-"""ScreenMenu (§8 designu) zapojené do Canvasu: pin_menu, menu_select
+"""ScreenMenu (§8 designu) zapojené do GraphWindow: pin_menu, menu_select
 dispatch, snapshot/init persistence, explicitní adopce Screenu."""
 import threading
 
 import pytest
 from fastapi.testclient import TestClient
 
-from viewbase import Canvas, Screen, ScreenMenu, create_app, protocol
+from viewbase import GraphWindow, Screen, ScreenMenu, create_app, protocol
 from viewbase.screen import reset_allocator
 
 
@@ -24,7 +24,7 @@ def _menu():
 
 
 def test_pin_menu_queues_action():
-    c = Canvas()
+    c = GraphWindow()
     c.pin_menu(_menu())
     (a,) = c.drain_actions()
     assert a["action"] == "open_menu"
@@ -32,14 +32,14 @@ def test_pin_menu_queues_action():
 
 
 def test_pin_menu_stored_in_snapshot():
-    c = Canvas()
+    c = GraphWindow()
     assert c.snapshot()["menu"] is None
     c.pin_menu(_menu())
     assert c.snapshot()["menu"]["groups"][0]["name"] == "Graf"
 
 
 def test_pin_menu_replace_updates_snapshot():
-    c = Canvas()
+    c = GraphWindow()
     c.pin_menu(_menu())
     m2 = ScreenMenu()
     m2.item("Jine", "X")
@@ -48,7 +48,7 @@ def test_pin_menu_replace_updates_snapshot():
 
 
 def test_menu_select_dispatches_to_on_select_handler():
-    c = Canvas()
+    c = GraphWindow()
     calls = []
     done = threading.Event()
 
@@ -67,14 +67,14 @@ def test_menu_select_dispatches_to_on_select_handler():
 
 
 def test_menu_select_unknown_item_does_not_raise():
-    c = Canvas()
+    c = GraphWindow()
     c.pin_menu(_menu())
     c.dispatch_event("menu_select", {"item_id": "ghost", "client_id": "x"})
     c.close()
 
 
 def test_menu_select_without_pinned_menu_does_not_raise():
-    c = Canvas()
+    c = GraphWindow()
     c.dispatch_event("menu_select", {"item_id": "x", "client_id": "y"})
     c.close()
 
@@ -87,7 +87,7 @@ def test_init_message_carries_menu_key():
 
 
 def test_init_over_ws_carries_pinned_menu():
-    c = Canvas()
+    c = GraphWindow()
     c.pin_menu(_menu())
     with TestClient(create_app(c)) as client:
         with client.websocket_connect("/ws") as ws:
@@ -103,8 +103,8 @@ def test_init_over_ws_carries_pinned_menu():
 
 def test_canvas_adopts_menu_pinned_before_it_existed():
     screen = Screen(title="Síť")
-    screen.pin_menu(_menu())          # Canvas ještě neexistuje
-    canvas = Canvas(screen=screen)    # explicitní adopce v konstruktoru
+    screen.pin_menu(_menu())          # GraphWindow ještě neexistuje
+    canvas = GraphWindow(screen=screen)    # explicitní adopce v konstruktoru
     assert [g["name"] for g in canvas.snapshot()["menu"]["groups"]] == [
         "Graf", "Zobrazení"]
 
@@ -112,7 +112,7 @@ def test_canvas_adopts_menu_pinned_before_it_existed():
 def test_adopted_menu_action_delivered_exactly_once():
     screen = Screen(title="Síť")
     screen.pin_menu(_menu())
-    canvas = Canvas(screen=screen)
+    canvas = GraphWindow(screen=screen)
     actions = canvas.drain_actions()
     open_menu_actions = [a for a in actions if a["action"] == "open_menu"]
     assert len(open_menu_actions) == 1   # ne zdvojené (screen fronta + pin_menu)
@@ -130,7 +130,7 @@ def test_adopted_menu_select_still_dispatches():
     menu = ScreenMenu()
     menu.item("Graf", "Přidat uzel", on_select=on_select)
     screen.pin_menu(menu)
-    canvas = Canvas(screen=screen)
+    canvas = GraphWindow(screen=screen)
     item_id = menu.spec()["groups"][0]["items"][0]["id"]
     canvas.dispatch_event("menu_select", {"item_id": item_id, "client_id": "x"})
     assert done.wait(2.0)
@@ -139,14 +139,14 @@ def test_adopted_menu_select_still_dispatches():
 
 
 def test_canvas_without_screen_close_does_not_queue_screen_remove():
-    c = Canvas()
+    c = GraphWindow()
     c.close()
     assert c.drain_actions() == []
 
 
 def test_canvas_with_screen_close_queues_screen_remove():
     screen = Screen(title="Síť")
-    canvas = Canvas(screen=screen)
+    canvas = GraphWindow(screen=screen)
     canvas.close()
     actions = canvas.drain_actions()
     assert {"action": "screen_remove", "screen_id": screen.id} in actions

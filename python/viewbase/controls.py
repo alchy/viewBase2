@@ -124,7 +124,7 @@ class TerminalWindow:
     """Konzolové okno: prompt + append-only výstup (REPL v prohlížeči).
 
     Na rozdíl od ControlWindow nemá typovaná pole — je to I/O konzole. Server
-    do něj píše přes `Canvas.terminal_write`, uživatelův řádek přijde eventem
+    do něj píše přes `GraphWindow.terminal_write`, uživatelův řádek přijde eventem
     `terminal_input`. Spec nese `kind:"terminal"`, aby ho frontend odlišil od
     formulářového okna."""
 

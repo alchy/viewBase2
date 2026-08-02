@@ -204,6 +204,7 @@ Všechny v `docs/images/workbench-ref/`:
 | (starší, z Fáze 5/9) `screenbar.png`, `gadget-right-pair.png`, `gadget-depth-left.png`, `reference-full-reaction.png`, `reference-full-os32.png`, `reference-menu-pulldown.png`, `menu-bar-row.png`, `window-titlebar-*.png`, ikony | Starší reference z původního designu (§2 spec) | Hyperion Entertainment press kit, viz design spec §2 |
 | `workbench13-desktop-toastytech.png` | Workbench 1.3 desktop — modrá plocha, „typické okno" (Workbench1.3/Utilities/Prefs) se všemi gadgety, ikony na ploše; ilustrace cílového vizuálu prostředí (posláno v navazujícím kole 2026-08-02) | `toastytech.com/guis/amiga1wb13.png` |
 | `guru-meditation-toastytech.png` | Guru Meditation — červeně orámovaný box nahoře, černá plocha („Software Failure. Press left mouse button to continue.") | `toastytech.com/guis/amiga1guru.png` |
+| `workbench1-default-toastytech.png` | Workbench 1.0 — zdroj bitmapy SIZING GADGETU (pravý dolní roh okna, dva čtverečky; vyříznuto do `frontend/src/assets/gadgets/resize.png`) a barev `workbench-amiga` | `toastytech.com/guis/amiga1default.png` |
 
 **Chybí v repu:** AmigaDOS okno (bílá pruhovaná lišta, modré tělo, oranžový kurzor) — uživatel
 ho vložil přímo do konverzace (ne URL), takže není stažitelný. Popis viz §1e výše. Pokud bude

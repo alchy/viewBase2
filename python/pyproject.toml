@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "viewbase"
 version = "0.1.0"
-description = "Živá 2D/3D force-graph vizualizace ovládaná z Pythonu"
+description = "Amiga Workbench-style pracovní prostředí v prohlížeči ovládané z Pythonu – screeny, okna a živá 2D/3D vizualizace grafů"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

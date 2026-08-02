@@ -131,13 +131,13 @@ nej = max(top.values())
 print(f"Staženo {len(texty)} stránek, {len(words)} slov "
       f"({len(set(words))} unikátních), beru {len(top)} nejčastějších.")
 
-canvas = vb.Canvas(title=f"Slova: {URL} (hloubka {DEPTH})",
+graph = vb.GraphWindow(title=f"Slova: {URL} (hloubka {DEPTH})",
                    theme="modern", highlight_neighbors=1)
 
-with canvas.batch():
+with graph.batch():
     for slovo, pocet in top.items():
         norm = pocet / nej
-        canvas.add_node(
+        graph.add_node(
             slovo,
             count=pocet,
             size=round(0.6 + 2.2 * norm, 2),
@@ -153,7 +153,7 @@ with canvas.batch():
             key = tuple(sorted((a, b)))
             if key not in seen:
                 seen.add(key)
-                canvas.add_edge(a, b)
+                graph.add_edge(a, b)
 
 print(f"Uzlů: {len(top)}, hran (sousedství slov): {len(seen)}")
-vb.serve(canvas, port=8080, open_browser=True)
+vb.serve(graph, port=8080, open_browser=True)

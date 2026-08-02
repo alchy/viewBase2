@@ -1,4 +1,4 @@
-"""Canvas – zdroj pravdy grafu a veřejné API knihovny."""
+"""GraphWindow – zdroj pravdy grafu a veřejné API knihovny."""
 from __future__ import annotations
 
 import logging
@@ -21,7 +21,7 @@ logger = logging.getLogger("viewbase")
 
 _LABEL_KEY = re.compile(r"\{([^{}]+)\}")
 
-BUILTIN_THEMES = ("modern", "cyber", "workbench")
+BUILTIN_THEMES = ("modern", "cyber", "workbench-gray", "workbench-amiga")
 QUALITIES = ("low", "high", "auto")
 
 # Sentinel „argument nezadán" – odlišuje `update_node(a)` (typ/label nech být)
@@ -47,8 +47,12 @@ def _edge_key(source: str, target: str) -> tuple[str, str]:
     return (source, target) if source <= target else (target, source)
 
 
-class Canvas:
-    """Thread-safe model grafu. Mutace se hromadí jako delty pro server."""
+class GraphWindow:
+    """Grafové OKNO na screenu – speciální instance okna (window-first
+    model: screen je plocha, všechno na ní jsou okna; graf je jen jeden
+    z typů, vedle log/control/terminal oken). Zároveň thread-safe model
+    grafu: uzly/hrany se přidávají PŘES INSTANCI OKNA a mutace se
+    hromadí jako delty pro server."""
 
     def __init__(self, *, title: str = "viewbase", dimensions: int = 3,
                  theme: Any = "modern", highlight_neighbors: int = 1,
@@ -102,18 +106,24 @@ class Canvas:
 
     def _adopt_screen(self, screen: "Screen") -> None:
         """Explicitně převezme stav nahromaděný na Screenu PŘED tím, než k
-        němu byl přiřazený Canvas – vytvoření Screenu a přiřazení grafu
+        němu byl přiřazený GraphWindow – vytvoření Screenu a přiřazení grafu
         jsou nezávislé atomární operace (jen pořadí je volné, vazba je pak
         trvalá 1:1, viz screen.py). Duck-typed vůči Screenu (žádný
         cyklický import, stejně jako type hint `screen` výše).
 
         Přenese `_menu` PŘÍMO (ne přes `self.pin_menu` – to by zdvojilo
         akci, protože `screen.drain_actions()` níž vrací tutéž `open_menu`
-        akci, kterou `Screen.pin_menu` zařadil, když ještě neměl Canvas)."""
-        screen._canvas = self
+        akci, kterou `Screen.pin_menu` zařadil, když ještě neměl GraphWindow)."""
+        screen._graph = self
         with self._lock:
             if screen._menu is not None:
                 self._menu = screen._menu
+            # Systémové log okno umístěné na screen PŘED grafem
+            # (vb.LogWindow(screen=...) – viz log.py): flag jde do configu,
+            # tedy do init snapshotu – přežije reconnect, na rozdíl od
+            # jednorázové akce.
+            if screen._log_window:
+                self.config["log_window"] = True
             for action in screen.drain_actions():
                 self._actions.append(action)
 
@@ -630,9 +640,9 @@ class Canvas:
 
     @classmethod
     def from_networkx(cls, graph, *, type_attr: str | None = None,
-                      label: str | None = None, **canvas_kwargs) -> "Canvas":
-        """Canvas rovnou z (networkx-like) grafu:
-        vb.serve(vb.Canvas.from_networkx(G), open_browser=True)."""
+                      label: str | None = None, **canvas_kwargs) -> "GraphWindow":
+        """GraphWindow rovnou z (networkx-like) grafu:
+        vb.serve(vb.GraphWindow.from_networkx(G), open_browser=True)."""
         canvas = cls(**canvas_kwargs)
         canvas.add_graph(graph, type_attr=type_attr, label=label)
         return canvas

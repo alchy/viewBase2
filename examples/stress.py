@@ -56,14 +56,14 @@ def styl(deg: int):
     return size, color
 
 
-canvas = vb.Canvas(title=f"Stress test ({N} uzlů)", theme="modern", quality="auto")
+graph = vb.GraphWindow(title=f"Stress test ({N} uzlů)", theme="modern", quality="auto")
 
-with canvas.batch():
+with graph.batch():
     for i in range(N):
         size, color = styl(degree[i])
-        canvas.add_node(f"n{i}", degree=degree[i], size=size, color=color)
+        graph.add_node(f"n{i}", degree=degree[i], size=size, color=color)
     for a, b in edges:
-        canvas.add_edge(f"n{a}", f"n{b}")
+        graph.add_edge(f"n{a}", f"n{b}")
 
 print("Graf nahrán, spouštím server.")
-vb.serve(canvas, port=8080, open_browser=True)
+vb.serve(graph, port=8080, open_browser=True)

@@ -1,7 +1,7 @@
 """number/boolean pole a live režim control oken."""
 import pytest
 
-from viewbase import Canvas, ControlWindow
+from viewbase import GraphWindow, ControlWindow
 from viewbase.controls import validate_values
 
 
@@ -40,7 +40,7 @@ def test_boolean_field_spec_and_validation():
 
 
 def test_open_window_live_flag_in_action_and_snapshot():
-    c = Canvas()
+    c = GraphWindow()
     w = ControlWindow("render", title="R")
     w.boolean("on", "Zapnuto")
     c.open_window(w, live=True)
@@ -54,7 +54,7 @@ def test_open_window_live_flag_in_action_and_snapshot():
 
 
 def test_open_window_default_is_not_live():
-    c = Canvas()
+    c = GraphWindow()
     c.open_window(ControlWindow("w"))
     (action,) = c.drain_actions()
     assert action["live"] is False

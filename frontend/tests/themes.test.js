@@ -39,20 +39,31 @@ describe('resolveTheme', () => {
     expect(theme.palette.length).toBeGreaterThanOrEqual(8);
   });
 
-  it('workbench je vestavěné: chrome z JSON, graf zděděný z modern', () => {
-    const theme = resolveTheme('workbench');
+  it('workbench-gray je vestavěné: chrome z JSON, graf zděděný z modern', () => {
+    const theme = resolveTheme('workbench-gray');
     expect(theme.window.bodyBg).toBe('#0055aa');
     expect(theme.window.headerStripe).toBe(true);
     expect(theme.screenBar.bg).toBe('#cfe1fb');
-    // graf (node/edge/label/bloom) NENÍ ve workbench.json definovaný –
+    // graf (node/edge/label/bloom) NENÍ ve workbench JSON definovaný –
     // zůstává zděděný z modern (design §7: paleta grafu řídí vývojář)
     expect(theme.node).toEqual(THEMES.modern.node);
     expect(theme.edge).toEqual(THEMES.modern.edge);
     expect(theme.bloom).toEqual(THEMES.modern.bloom);
   });
 
+  it('workbench-amiga: modrý WB 1.3 vzhled z reference', () => {
+    const theme = resolveTheme('workbench-amiga');
+    expect(theme.background).toBe('#0057af');       // modrá plocha
+    expect(theme.window.headerBg).toBe('#ffffff');  // bílá lišta…
+    expect(theme.window.headerFg).toBe('#0057af');  // …s modrým textem/pruhy
+    expect(theme.window.headerStripe).toBe(true);
+    expect(theme.window.border).toBe('#ffffff');    // bílé rámy oken
+    expect(theme.screenBar).toEqual({ bg: '#ffffff', fg: '#0057af', menuAttach: true });
+    expect(theme.node).toEqual(THEMES.modern.node); // graf zděděný z modern
+  });
+
   it('workbench merge nemutuje modern', () => {
-    resolveTheme('workbench');
+    resolveTheme('workbench-amiga');
     expect(THEMES.modern.window.headerBg).toBe('#d8dde6');
   });
 });

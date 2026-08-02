@@ -1,4 +1,4 @@
-"""Úklid: Canvas.close a serve() finally."""
+"""Úklid: GraphWindow.close a serve() finally."""
 import pytest
 import uvicorn
 
@@ -7,7 +7,7 @@ from viewbase import server
 
 
 def test_close_je_idempotentni_a_dispatch_je_pak_noop():
-    canvas = vb.Canvas()
+    canvas = vb.GraphWindow()
     calls = []
     canvas.on_click(lambda event: calls.append(event))
     canvas.close()
@@ -17,7 +17,7 @@ def test_close_je_idempotentni_a_dispatch_je_pak_noop():
 
 
 def test_serve_zavre_canvas_po_keyboard_interrupt(monkeypatch):
-    canvas = vb.Canvas()
+    canvas = vb.GraphWindow()
 
     def fake_run(*args, **kwargs):
         raise KeyboardInterrupt

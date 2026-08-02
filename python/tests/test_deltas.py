@@ -1,4 +1,4 @@
-from viewbase import Canvas
+from viewbase import GraphWindow
 
 
 def drain_deltas(c):
@@ -8,11 +8,11 @@ def drain_deltas(c):
 
 
 def test_drain_empty_returns_none():
-    assert Canvas().drain() is None
+    assert GraphWindow().drain() is None
 
 
 def test_seq_increments_per_drain():
-    c = Canvas()
+    c = GraphWindow()
     c.add_node("a")
     seq1, _ = c.drain()
     c.add_node("b")
@@ -22,7 +22,7 @@ def test_seq_increments_per_drain():
 
 
 def test_drain_has_all_five_keys():
-    c = Canvas()
+    c = GraphWindow()
     c.add_node("a")
     deltas = drain_deltas(c)
     assert set(deltas) == {"add_nodes", "update_nodes", "remove_nodes",
@@ -30,14 +30,14 @@ def test_drain_has_all_five_keys():
 
 
 def test_add_then_remove_in_one_window_cancels_out():
-    c = Canvas()
+    c = GraphWindow()
     c.add_node("a")
     c.remove_node("a")
     assert c.drain() is None
 
 
 def test_remove_then_add_keeps_both():
-    c = Canvas()
+    c = GraphWindow()
     c.add_node("a")
     c.drain()                      # klienti už uzel znají
     c.remove_node("a")
@@ -48,7 +48,7 @@ def test_remove_then_add_keeps_both():
 
 
 def test_update_folds_into_pending_add():
-    c = Canvas()
+    c = GraphWindow()
     c.add_node("a")
     c.update_node("a", x=1)
     deltas = drain_deltas(c)
@@ -57,7 +57,7 @@ def test_update_folds_into_pending_add():
 
 
 def test_remove_node_emits_edge_removals():
-    c = Canvas()
+    c = GraphWindow()
     c.add_node("a")
     c.add_node("b")
     c.add_edge("a", "b")
@@ -69,7 +69,7 @@ def test_remove_node_emits_edge_removals():
 
 
 def test_batch_holds_deltas_until_exit():
-    c = Canvas()
+    c = GraphWindow()
     with c.batch():
         c.add_node("a")
         c.add_node("b")

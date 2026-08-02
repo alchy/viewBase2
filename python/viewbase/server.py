@@ -1,10 +1,10 @@
 """FastAPI server: statické assety + WebSocket protokol + runner.
 
 Multi-screen (viz docs/superpowers/specs/2026-08-02-multi-screen-workbench-
-design.md): jeden server obsluhuje N Canvasů multiplexovaných na jednom WS
+design.md): jeden server obsluhuje N grafových oken multiplexovaných na jednom WS
 spojení podle `screen_id`. Fáze 2 návrhu – frontend ještě neumí víc screenů
 vykreslit, ale protokol a routing na serveru už jsou reálné a otestované.
-Log okno nepotřebuje vlastní Canvas – server jen releuje LogBus (viz
+Log okno nepotřebuje vlastní GraphWindow – server jen releuje LogBus (viz
 log.py) všem klientům jako zprávy `log`."""
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 
 from . import protocol
-from .canvas import Canvas
+from .graph_window import GraphWindow
 from .log import LogRecord, bus as log_bus
 
 logger = logging.getLogger("viewbase")
@@ -32,21 +32,21 @@ STATIC_DIR = Path(__file__).parent / "static"
 PATCH_INTERVAL = 1 / 30
 
 
-def _resolve_canvas(canvases_by_screen: dict, screen_id) -> Canvas | None:
-    """Najdi Canvas pro příchozí zprávu. Přesná shoda `screen_id` má
+def _resolve_window(windows_by_screen: dict, screen_id) -> GraphWindow | None:
+    """Najdi GraphWindow pro příchozí zprávu. Přesná shoda `screen_id` má
     přednost; klient bez `screen_id` (legacy, nebo jediný screen bez
-    Screenu) se routuje na jediný canvas, pokud je jednoznačný."""
-    if screen_id in canvases_by_screen:
-        return canvases_by_screen[screen_id]
-    if screen_id is None and len(canvases_by_screen) == 1:
-        return next(iter(canvases_by_screen.values()))
+    Screenu) se routuje na jediný window, pokud je jednoznačný."""
+    if screen_id in windows_by_screen:
+        return windows_by_screen[screen_id]
+    if screen_id is None and len(windows_by_screen) == 1:
+        return next(iter(windows_by_screen.values()))
     return None
 
 
-async def _broadcast_step(canvases: list[Canvas], canvases_by_screen: dict,
+async def _broadcast_step(windows: list[GraphWindow], windows_by_screen: dict,
                           clients: set[WebSocket],
                           pending_logs: list[dict]) -> None:
-    """Jeden krok vysílání: pro každý canvas nejdřív patch (data), pak akce
+    """Jeden krok vysílání: pro každý window nejdřív patch (data), pak akce
     (odkazují na data) – viz komentář u _broadcast_loop níž – a nakonec
     nastřádané log záznamy (LogBus, čistý tail, žádný stav k drainování).
 
@@ -55,28 +55,28 @@ async def _broadcast_step(canvases: list[Canvas], canvases_by_screen: dict,
     (typicky `screen_remove`), pokud v tu chvíli náhodou nikdo neposlouchal.
     Pro graf (`drain()`) je to neškodné (`snapshot()` novému klientovi vrátí
     aktuální stav tak jako tak), ale jednorázová akce jako `screen_remove` se
-    jinak neopakuje – proto zavřený canvas hned po posledním odvysílání
-    ODSTRANÍME z `canvases`/`canvases_by_screen`, ať nový klient vůbec
+    jinak neopakuje – proto zavřený window hned po posledním odvysílání
+    ODSTRANÍME z `windows`/`windows_by_screen`, ať nový klient vůbec
     nedostane `init` pro screen, který už neexistuje (create/destroy jsou
-    explicitní páry, viz screen.py/Canvas.close)."""
+    explicitní páry, viz screen.py/GraphWindow.close)."""
     messages = []
     closed = []
-    for canvas in canvases:
-        actions = canvas.drain_actions()
-        drained = canvas.drain()
+    for window in windows:
+        actions = window.drain_actions()
+        drained = window.drain()
         if drained is not None:
             seq, deltas = drained
             messages.append(protocol.encode(
-                protocol.patch_message(seq, deltas, screen_id=canvas.screen_id)))
+                protocol.patch_message(seq, deltas, screen_id=window.screen_id)))
         messages.extend(
-            protocol.encode({"type": "action", "screen_id": canvas.screen_id,
+            protocol.encode({"type": "action", "screen_id": window.screen_id,
                              **action})
             for action in actions)
-        if canvas._closed:
-            closed.append(canvas)
-    for canvas in closed:
-        canvases.remove(canvas)
-        canvases_by_screen.pop(canvas.screen_id, None)
+        if window._closed:
+            closed.append(window)
+    for window in closed:
+        windows.remove(window)
+        windows_by_screen.pop(window.screen_id, None)
     if pending_logs:
         messages.extend(
             protocol.encode(protocol.log_message(record))
@@ -92,14 +92,14 @@ async def _broadcast_step(canvases: list[Canvas], canvases_by_screen: dict,
             clients.discard(ws)
 
 
-async def _broadcast_loop(canvases: list[Canvas], canvases_by_screen: dict,
+async def _broadcast_loop(windows: list[GraphWindow], windows_by_screen: dict,
                           clients: set[WebSocket], state_lock: asyncio.Lock,
                           pending_logs: list[dict]) -> None:
     while True:
         await asyncio.sleep(PATCH_INTERVAL)
         try:
             async with state_lock:
-                await _broadcast_step(canvases, canvases_by_screen, clients,
+                await _broadcast_step(windows, windows_by_screen, clients,
                                       pending_logs)
         except Exception as exc:
             logger.exception("Chyba ve vysílací smyčce")
@@ -120,25 +120,25 @@ def _make_log_relay(loop: asyncio.AbstractEventLoop):
     return pending, _on_record
 
 
-def create_app(*canvases: Canvas) -> FastAPI:
-    """Sestav FastAPI aplikaci nad jedním nebo víc Canvasy: statické assety,
+def create_app(*windows: GraphWindow) -> FastAPI:
+    """Sestav FastAPI aplikaci nad jedním nebo víc GraphWindow: statické assety,
     `/ws` (init + delty + akce + log, multiplexed po screen_id), `/api/event`
-    (REST vstřik události). Víc canvasů vyžaduje, aby měl každý svůj
-    `screen=` (jinak nejde spolehlivě routovat) – jeden canvas beze Screenu
+    (REST vstřik události). Víc grafových oken vyžaduje, aby mělo každé svůj
+    `screen=` (jinak nejde spolehlivě routovat) – jeden window beze Screenu
     (legacy) funguje jako dřív. Běžný uživatel volá `serve()`; tohle je pro
     testy a vlastní hostování (uvicorn, mount)."""
-    canvases_list = list(canvases)
-    if not canvases_list:
-        raise ValueError("create_app() vyžaduje aspoň jeden Canvas")
-    if len(canvases_list) > 1:
-        missing = [c for c in canvases_list if c.screen_id is None]
+    windows_list = list(windows)
+    if not windows_list:
+        raise ValueError("create_app() vyžaduje aspoň jeden GraphWindow")
+    if len(windows_list) > 1:
+        missing = [c for c in windows_list if c.screen_id is None]
         if missing:
             raise ValueError(
-                "víc canvasů najednou vyžaduje, aby měl každý svůj screen=")
-        ids = [c.screen_id for c in canvases_list]
+                "víc grafových oken najednou vyžaduje, aby mělo každé svůj screen=")
+        ids = [c.screen_id for c in windows_list]
         if len(set(ids)) != len(ids):
-            raise ValueError("dva canvasy nemůžou sdílet stejný screen")
-    canvases_by_screen = {c.screen_id: c for c in canvases_list}
+            raise ValueError("dvě grafová okna nemůžou sdílet stejný screen")
+    windows_by_screen = {c.screen_id: c for c in windows_list}
 
     clients: set[WebSocket] = set()
     state_lock = asyncio.Lock()
@@ -149,9 +149,9 @@ def create_app(*canvases: Canvas) -> FastAPI:
         pending_logs, on_record = _make_log_relay(loop)
         log_bus.subscribe(on_record)
         task = asyncio.create_task(
-            _broadcast_loop(canvases_list, canvases_by_screen, clients,
+            _broadcast_loop(windows_list, windows_by_screen, clients,
                             state_lock, pending_logs))
-        stop_tasks = [c.start_periodic_tasks() for c in canvases_list]
+        stop_tasks = [c.start_periodic_tasks() for c in windows_list]
         yield
         for stop in stop_tasks:
             stop.set()
@@ -183,11 +183,11 @@ def create_app(*canvases: Canvas) -> FastAPI:
             # broadcast je pošle všem (novému klientovi jako idempotentní
             # upsert), takže seq navazuje pro staré i nové klienty.
             async with state_lock:
-                for canvas in canvases_list:
-                    snap = canvas.snapshot()
+                for window in windows_list:
+                    snap = window.snapshot()
                     await ws.send_text(protocol.encode(
                         protocol.init_message(**snap,
-                                              screen_id=canvas.screen_id)))
+                                              screen_id=window.screen_id)))
                 clients.add(ws)
         except WebSocketDisconnect:
             return
@@ -208,7 +208,7 @@ def create_app(*canvases: Canvas) -> FastAPI:
                     payload = msg.get("payload")
                     if not isinstance(payload, dict):
                         payload = {}
-                    target = _resolve_canvas(canvases_by_screen,
+                    target = _resolve_window(windows_by_screen,
                                              msg.get("screen_id"))
                     if target is None:
                         logger.warning(
@@ -241,7 +241,7 @@ def create_app(*canvases: Canvas) -> FastAPI:
         `{"event": "terminal_input", "payload": {"window_id": "konzole",
         "line": "Kdo je Čapek?"}}` projde týmž `dispatch_event` jako zpráva
         z prohlížeče: handler (on_input) se zavolá a jeho výstup + mutace
-        canvasu se rozešlou VŠEM připojeným klientům. Určeno pro demo/testy
+        grafu se rozešlou VŠEM připojeným klientům. Určeno pro demo/testy
         řízené zvenčí (curl) — konverzaci tak lze přehrát do otevřených oken.
         Sync endpoint (threadpool): blokující handler nezmrazí WS broadcast.
         Každý request se loguje jako `backend_api` (pretty-printed JSON,
@@ -254,7 +254,7 @@ def create_app(*canvases: Canvas) -> FastAPI:
         payload = message.get("payload") or {}
         if not isinstance(event, str) or not isinstance(payload, dict):
             return {"ok": False, "error": "čekám {event: str, payload: dict}"}
-        target = _resolve_canvas(canvases_by_screen, message.get("screen_id"))
+        target = _resolve_window(windows_by_screen, message.get("screen_id"))
         if target is None:
             return {"ok": False,
                     "error": f"neznámý screen_id {message.get('screen_id')!r}"}
@@ -277,16 +277,74 @@ def create_app(*canvases: Canvas) -> FastAPI:
     return app
 
 
+class Project:
+    """SLUŽBA projektu – vstupní bod workflow, analogie práce se souborem
+    (uživatelské zadání: „stejně jako když je zvyklý pracovat se souborem,
+    dělá nejdříve fopen … a po ukončení práce soubor zavírá close"):
+
+        project = vb.Project(port=8080)      # 1. „fopen": porty PŘED vším
+        screen = vb.Screen(title="…")        # 2. plocha → id
+        graph = vb.GraphWindow(screen=screen)  # 3. okna na screenu
+        graph.add_node(…)                    # 4. data přes instance oken
+        project.serve(screen)                # 5. start služby (blokující)
+        …                                    #    block=False → project.stop()
+                                             #    zavře listener jako close()
+
+    `serve()` bere SCREENY (plochy se vším, co na nich je) – grafová okna
+    si z nich vezme sám (`screen.graph`); pro jednoduché případy přijme i
+    přímo GraphWindow. Context manager: `with vb.Project(port=…) as p:`
+    zavře port po bloku."""
+
+    def __init__(self, *, host: str = "127.0.0.1", port: int = 8080) -> None:
+        self.host = host
+        self.port = port
+        self._handle: ServerHandle | None = None
+
+    def serve(self, *surfaces, open_browser: bool = False,
+              block: bool = True) -> "ServerHandle | None":
+        """Spusť službu nad screeny (nebo přímo grafovými okny). Screen bez
+        grafového okna zatím servírovat nejde – frontend materializuje
+        screen přes init jeho grafu (známé omezení v1)."""
+        windows = []
+        for surface in surfaces:
+            graph = getattr(surface, "graph", None)
+            if graph is not None:            # Screen se svým grafovým oknem
+                windows.append(graph)
+            elif hasattr(surface, "snapshot"):   # přímo GraphWindow
+                windows.append(surface)
+            else:
+                raise ValueError(
+                    "Project.serve() bere Screen (s grafovým oknem) nebo "
+                    "GraphWindow; screen bez grafového okna zatím servírovat "
+                    "nejde")
+        handle = serve(*windows, host=self.host, port=self.port,
+                       open_browser=open_browser, block=block)
+        self._handle = handle
+        return handle
+
+    def stop(self, timeout: float = 5.0) -> None:
+        """Zavři službu i listener port – „close()" projektu."""
+        if self._handle is not None:
+            self._handle.stop(timeout)
+            self._handle = None
+
+    def __enter__(self) -> "Project":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.stop()
+
+
 class ServerHandle:
     """Server běžící na pozadí (serve(block=False)) – pro REPL a Jupyter.
     Kontext manager: `with vb.serve(c, block=False) as s:` ho po bloku
     zastaví."""
 
     def __init__(self, server: uvicorn.Server, thread: threading.Thread,
-                 canvases: tuple[Canvas, ...]):
+                 windows: tuple[GraphWindow, ...]):
         self._server = server
         self._thread = thread
-        self._canvases = canvases
+        self._windows = windows
 
     @property
     def port(self) -> int:
@@ -294,11 +352,11 @@ class ServerHandle:
         return self._server.servers[0].sockets[0].getsockname()[1]
 
     def stop(self, timeout: float = 5.0) -> None:
-        """Zastav server (graceful), počkej na doběh vlákna, zavři canvasy."""
+        """Zastav server (graceful), počkej na doběh vlákna, zavři grafová okna."""
         self._server.should_exit = True
         self._thread.join(timeout)
-        for canvas in self._canvases:
-            canvas.close()
+        for window in self._windows:
+            window.close()
 
     def __enter__(self) -> "ServerHandle":
         return self
@@ -307,31 +365,31 @@ class ServerHandle:
         self.stop()
 
 
-def _make_server(canvases: tuple[Canvas, ...], host: str,
+def _make_server(windows: tuple[GraphWindow, ...], host: str,
                  port: int) -> uvicorn.Server:
     # ws_ping_interval=None vypíná serverový keepalive ping knihovny
     # websockets: jeho samostatná úloha jinak souběžně "draina" stejné
     # spojení jako náš broadcast a při velkém provozu spadne na interním
     # assertu. Mrtvá spojení odhalí selhání dalšího patche (klient se
     # reconnectne), keepalive proto nepotřebujeme.
-    config = uvicorn.Config(create_app(*canvases), host=host, port=port,
+    config = uvicorn.Config(create_app(*windows), host=host, port=port,
                             log_level="warning",
                             ws_ping_interval=None, ws_ping_timeout=None)
     return uvicorn.Server(config)
 
 
-def serve(*canvases: Canvas, host: str = "127.0.0.1", port: int = 8080,
+def serve(*windows: GraphWindow, host: str = "127.0.0.1", port: int = 8080,
           open_browser: bool = False,
           block: bool = True) -> ServerHandle | None:
-    """Spustí server nad jedním nebo víc Canvasy (multi-screen – víc
-    canvasů vyžaduje, aby měl každý svůj `screen=`, viz `create_app`).
-    `block=True` (default) blokuje do Ctrl-C; mutace canvasu pak dělej
+    """Spustí server nad jedním nebo víc GraphWindow (multi-screen – víc
+    grafových oken vyžaduje, aby mělo každé svůj `screen=`, viz `create_app`).
+    `block=True` (default) blokuje do Ctrl-C; mutace grafu pak dělej
     z every() úloh nebo event handlerů. `block=False` server spustí
     v daemon vlákně a vrátí ServerHandle (REPL/Jupyter): prompt zůstane
     volný, `handle.stop()` server ukončí."""
-    if not canvases:
-        raise ValueError("serve() vyžaduje aspoň jeden Canvas")
-    server = _make_server(canvases, host, port)
+    if not windows:
+        raise ValueError("serve() vyžaduje aspoň jeden GraphWindow")
+    server = _make_server(windows, host, port)
     if open_browser:
         threading.Timer(
             0.7, webbrowser.open, args=(f"http://{host}:{port}/",)).start()
@@ -339,8 +397,8 @@ def serve(*canvases: Canvas, host: str = "127.0.0.1", port: int = 8080,
         try:
             server.run()
         finally:
-            for canvas in canvases:
-                canvas.close()   # i po KeyboardInterrupt – nenechat viset vlákna
+            for window in windows:
+                window.close()   # i po KeyboardInterrupt – nenechat viset vlákna
         return None
     thread = threading.Thread(target=server.run, name="viewbase-server",
                               daemon=True)
@@ -348,15 +406,15 @@ def serve(*canvases: Canvas, host: str = "127.0.0.1", port: int = 8080,
     deadline = time.monotonic() + 5.0
     while not server.started:          # čekej na bind (nebo pád)
         if not thread.is_alive():
-            for canvas in canvases:
-                canvas.close()
+            for window in windows:
+                window.close()
             raise RuntimeError(
                 "viewbase server se nepodařilo spustit – viz log výše"
                 f" (host={host}, port={port})")
         if time.monotonic() > deadline:
             server.should_exit = True
-            for canvas in canvases:
-                canvas.close()
+            for window in windows:
+                window.close()
             raise TimeoutError("viewbase server nenastartoval do 5 s")
         time.sleep(0.01)
-    return ServerHandle(server, thread, canvases)
+    return ServerHandle(server, thread, windows)

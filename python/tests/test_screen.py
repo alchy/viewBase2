@@ -52,10 +52,10 @@ def test_dict_theme_accepted():
 
 
 def test_workbench_theme_accepted():
-    assert Screen(theme="workbench").theme == "workbench"
+    assert Screen(theme="workbench-gray").theme == "workbench-gray"
 
 
-# ---- lifecycle: Screen funguje i bez přiřazeného Canvasu -----------------
+# ---- lifecycle: Screen funguje i bez přiřazeného GraphWindow -----------------
 
 def test_pin_menu_before_canvas_queues_action():
     from viewbase.menu import ScreenMenu
@@ -70,10 +70,10 @@ def test_pin_menu_before_canvas_queues_action():
 
 
 def test_pin_menu_after_canvas_delegates_directly():
-    from viewbase import Canvas
+    from viewbase import GraphWindow
     from viewbase.menu import ScreenMenu
     screen = Screen(title="Síť")
-    canvas = Canvas(screen=screen)
+    canvas = GraphWindow(screen=screen)
     menu = ScreenMenu()
     menu.item("Graf", "Přidat uzel")
     screen.pin_menu(menu)
@@ -93,8 +93,8 @@ def test_destroy_without_canvas_just_clears_queue():
 
 
 def test_destroy_with_canvas_closes_it():
-    from viewbase import Canvas
+    from viewbase import GraphWindow
     screen = Screen(title="Síť")
-    canvas = Canvas(screen=screen)
+    canvas = GraphWindow(screen=screen)
     screen.destroy()
     assert canvas._closed is True

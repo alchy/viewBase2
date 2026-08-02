@@ -15,6 +15,7 @@
 // obdélníky – „vytáhni okno zpátky nahoru").
 import closeIcon from '../assets/gadgets/close.png';
 import depthIcon from '../assets/gadgets/depth.png';
+import resizeIcon from '../assets/gadgets/resize.png';
 import zoomIcon from '../assets/gadgets/zoom.png';
 import { wirePointerDrag } from './drag.js';
 import { SCREEN_BAR_HEIGHT } from './drag_reveal.js';
@@ -281,25 +282,44 @@ export class BaseWindow {
 
   _headerH() { return this.bar.offsetHeight || DOCK_SLOT_HEIGHT; }
 
-  /** Úchyty v obou dolních rozích. Jsou pořád v DOM (aby měly co chytat myš),
-   *  ale neviditelné – čtvereček se vykreslí až při najetí na roh, jak je to
-   *  zvykem na desktopu. Staví se v _mount, kdy už tělo okna existuje. */
+  /** Úchyty pro změnu velikosti. Pravý dolní roh je VIDITELNÝ Amiga sizing
+   *  gadget (uživatelská oprava: hover-zvýraznění čtverečku „nefunguje
+   *  vždy" – proto se kreslí natrvalo, jako na referenci
+   *  workbench1-default-toastytech.png; binární bitmapa barvená
+   *  `--vb-window-gadget`, stejný vzor jako gadgety lišty). Levý dolní roh
+   *  zůstává jako neviditelný hover úchyt navíc (bonus nad rámec originálu
+   *  – Amiga měla jen pravý). Staví se v _mount, kdy už tělo okna existuje. */
   _buildGrips() {
     this.grips = ['se', 'sw'].map((corner) => {
       const grip = document.createElement('div');
       grip.dataset.role = `vb-resize-${corner}`;
-      grip.style.cssText = [
-        'position:absolute', 'bottom:2px',
-        corner === 'se' ? 'right:2px' : 'left:2px',
-        `width:${GRIP_PX}px`, `height:${GRIP_PX}px`,
-        'box-sizing:border-box', 'border-radius:3px',
-        'background:var(--vb-window-gadget, #8a93a3)',
-        'border:1px solid var(--vb-window-gadget, #8a93a3)',
-        'opacity:0', 'transition:opacity 0.12s', 'touch-action:none',
-        `cursor:${corner === 'se' ? 'nwse' : 'nesw'}-resize`,
-      ].join(';');
-      grip.addEventListener('pointerenter', () => this._showGrip(grip, true));
-      grip.addEventListener('pointerleave', () => this._showGrip(grip, false));
+      if (corner === 'se') {
+        grip.style.cssText = [
+          'position:absolute', 'bottom:1px', 'right:1px',
+          `width:${GRIP_PX}px`, `height:${GRIP_PX}px`,   // hit-area > vizuál
+          'touch-action:none', 'cursor:nwse-resize',
+          // gadget leží na TĚLE okna → barva textu těla (bodyFg), ne
+          // --vb-window-gadget: ta je laděná k liště a na modrém těle
+          // workbench témat by splynula (modrá na modré)
+          'background:var(--vb-window-body-fg, #8a93a3)',
+          // odsazení od rámu okna (uživatelská oprava: glyf se nemá dotýkat
+          // dolní čáry) – 6px, aby minul i zaoblení rohu (border-radius 6px)
+          `-webkit-mask:url("${resizeIcon}") right 4px bottom 6px/16px 16px no-repeat`,
+          `mask:url("${resizeIcon}") right 4px bottom 6px/16px 16px no-repeat`,
+        ].join(';');
+      } else {
+        grip.style.cssText = [
+          'position:absolute', 'bottom:2px', 'left:2px',
+          `width:${GRIP_PX}px`, `height:${GRIP_PX}px`,
+          'box-sizing:border-box', 'border-radius:3px',
+          'background:var(--vb-window-gadget, #8a93a3)',
+          'border:1px solid var(--vb-window-gadget, #8a93a3)',
+          'opacity:0', 'transition:opacity 0.12s', 'touch-action:none',
+          'cursor:nesw-resize',
+        ].join(';');
+        grip.addEventListener('pointerenter', () => this._showGrip(grip, true));
+        grip.addEventListener('pointerleave', () => this._showGrip(grip, false));
+      }
       this._resizeFromGrip(grip, corner);
       this.el.appendChild(grip);
       return grip;
@@ -307,6 +327,8 @@ export class BaseWindow {
   }
 
   _showGrip(grip, visible) {
+    // SE je trvale viditelný Amiga gadget – hover neřeší (viz _buildGrips)
+    if (grip.dataset.role === 'vb-resize-se') return;
     // během tažení zůstává vidět, i když ukazatel roh opustí
     if (!visible && this.resizeState) return;
     grip.style.opacity = visible && !this.isMinimized ? GRIP_OPACITY : '0';

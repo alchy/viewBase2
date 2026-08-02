@@ -119,16 +119,19 @@ describe('BaseWindow — změna velikosti za rohový úchyt', () => {
     return g;
   }
 
-  it('okno má úchyt v obou dolních rozích a jsou skryté', () => {
+  it('pravý roh je trvale viditelný Amiga sizing gadget, levý skrytý', () => {
     const win = makeWindow('aktivace');
     expect(grip(win, 'se')).not.toBeNull();
     expect(grip(win, 'sw')).not.toBeNull();
-    expect(grip(win, 'se').style.opacity).toBe('0');
+    // SE = bitmapový gadget (maska + barva palety), žádné hover schovávání
+    expect(grip(win, 'se').style.opacity).not.toBe('0');
+    expect(grip(win, 'se').style.cursor).toBe('nwse-resize');
+    expect(grip(win, 'sw').style.opacity).toBe('0');
   });
 
-  it('najetí na roh čtvereček zobrazí (transluentně), odjetí ho schová', () => {
+  it('najetí na levý roh čtvereček zobrazí (transluentně), odjetí ho schová', () => {
     const win = makeWindow('aktivace');
-    const g = grip(win, 'se');
+    const g = grip(win, 'sw');
     g.dispatchEvent(new PointerEvent('pointerenter', { bubbles: true }));
     expect(Number(g.style.opacity)).toBeGreaterThan(0);
     expect(Number(g.style.opacity)).toBeLessThan(1);

@@ -2,7 +2,7 @@
 import urllib.error
 import urllib.request
 
-from viewbase import Canvas, serve
+from viewbase import GraphWindow, serve
 
 
 def _http_status(port: int) -> int:
@@ -14,7 +14,7 @@ def _http_status(port: int) -> int:
 
 
 def test_serve_nonblocking_start_and_stop():
-    c = Canvas()
+    c = GraphWindow()
     c.add_node("a")
     handle = serve(c, port=0, block=False)     # port=0 = efemérní
     try:
@@ -26,7 +26,7 @@ def test_serve_nonblocking_start_and_stop():
 
 
 def test_serve_nonblocking_context_manager():
-    c = Canvas()
+    c = GraphWindow()
     with serve(c, port=0, block=False) as handle:
         assert handle.port > 0
         assert _http_status(handle.port) in (200, 404)

@@ -5,7 +5,7 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from viewbase import Canvas, Screen, create_app, log, protocol
+from viewbase import GraphWindow, Screen, create_app, log, protocol
 from viewbase.log import bus as log_bus
 from viewbase.screen import reset_allocator
 
@@ -28,28 +28,28 @@ def test_create_app_without_canvas_raises():
 
 def test_create_app_multi_canvas_without_screen_raises():
     with pytest.raises(ValueError):
-        create_app(Canvas(), Canvas())
+        create_app(GraphWindow(), GraphWindow())
 
 
 def test_create_app_duplicate_screen_raises():
     screen = Screen(title="A")
     with pytest.raises(ValueError):
-        create_app(Canvas(screen=screen), Canvas(screen=screen))
+        create_app(GraphWindow(screen=screen), GraphWindow(screen=screen))
 
 
 def test_canvas_stores_screen_id():
     screen = Screen(title="Síť")
-    canvas = Canvas(screen=screen)
+    canvas = GraphWindow(screen=screen)
     assert canvas.screen_id == screen.id
-    assert Canvas().screen_id is None
+    assert GraphWindow().screen_id is None
 
 
 def test_two_canvases_each_get_own_init():
     screen_a = Screen(title="A")
     screen_b = Screen(title="B")
-    canvas_a = Canvas(screen=screen_a)
+    canvas_a = GraphWindow(screen=screen_a)
     canvas_a.add_node("a1")
-    canvas_b = Canvas(screen=screen_b)
+    canvas_b = GraphWindow(screen=screen_b)
     canvas_b.add_node("b1")
     with TestClient(create_app(canvas_a, canvas_b)) as client:
         with client.websocket_connect("/ws") as ws:
@@ -65,9 +65,9 @@ def test_two_canvases_each_get_own_init():
 def test_event_routes_to_correct_canvas_by_screen_id():
     screen_a = Screen(title="A")
     screen_b = Screen(title="B")
-    canvas_a = Canvas(screen=screen_a)
+    canvas_a = GraphWindow(screen=screen_a)
     canvas_a.add_node("x")
-    canvas_b = Canvas(screen=screen_b)
+    canvas_b = GraphWindow(screen=screen_b)
     canvas_b.add_node("x")   # stejné id uzlu, jiný canvas – nesmí kolidovat
 
     seen = {"a": None, "b": None}
@@ -100,9 +100,9 @@ def test_event_routes_to_correct_canvas_by_screen_id():
 def test_event_with_unresolvable_screen_id_is_dropped_not_crashed():
     screen_a = Screen(title="A")
     screen_b = Screen(title="B")
-    canvas_a = Canvas(screen=screen_a)
+    canvas_a = GraphWindow(screen=screen_a)
     canvas_a.add_node("x")
-    canvas_b = Canvas(screen=screen_b)
+    canvas_b = GraphWindow(screen=screen_b)
 
     done = threading.Event()
 
@@ -125,7 +125,7 @@ def test_event_with_unresolvable_screen_id_is_dropped_not_crashed():
 
 
 def test_log_record_relayed_over_ws():
-    canvas = Canvas()
+    canvas = GraphWindow()
     with TestClient(create_app(canvas)) as client:
         with client.websocket_connect("/ws") as ws:
             ws.send_text(hello())
@@ -144,7 +144,7 @@ def test_log_record_relayed_over_ws():
 
 
 def test_vb_log_relayed_over_ws():
-    canvas = Canvas()
+    canvas = GraphWindow()
     with TestClient(create_app(canvas)) as client:
         with client.websocket_connect("/ws") as ws:
             ws.send_text(hello())
@@ -160,7 +160,7 @@ def test_vb_log_relayed_over_ws():
 
 
 def test_rest_event_logs_as_backend_api_json():
-    canvas = Canvas()
+    canvas = GraphWindow()
     canvas.add_node("a")
 
     @canvas.on_click
@@ -185,8 +185,8 @@ def test_rest_event_logs_as_backend_api_json():
 def test_rest_event_unresolvable_screen_returns_error():
     screen_a = Screen(title="A")
     screen_b = Screen(title="B")
-    canvas_a = Canvas(screen=screen_a)
-    canvas_b = Canvas(screen=screen_b)
+    canvas_a = GraphWindow(screen=screen_a)
+    canvas_b = GraphWindow(screen=screen_b)
     client = TestClient(create_app(canvas_a, canvas_b))
     resp = client.post("/api/event", json={"event": "x", "payload": {}})
     assert resp.json()["ok"] is False
@@ -204,9 +204,9 @@ def test_canvas_closed_with_no_clients_is_removed_before_next_connect(
     from viewbase import server as server_module
     monkeypatch.setattr(server_module, "PATCH_INTERVAL", 0.001)
     screen_a = Screen(title="A")
-    canvas_a = Canvas(screen=screen_a)
+    canvas_a = GraphWindow(screen=screen_a)
     screen_b = Screen(title="B")
-    canvas_b = Canvas(screen=screen_b)
+    canvas_b = GraphWindow(screen=screen_b)
     with TestClient(create_app(canvas_a, canvas_b)) as client:
         canvas_b.close()                    # nikdo zatím není připojený
         time.sleep(0.05)                    # ať broadcast smyčka stihne uklidit
@@ -225,9 +225,9 @@ def test_canvas_closed_with_no_clients_screen_remove_not_lost_forever(
     from viewbase import server as server_module
     monkeypatch.setattr(server_module, "PATCH_INTERVAL", 0.001)
     screen_a = Screen(title="A")
-    canvas_a = Canvas(screen=screen_a)
+    canvas_a = GraphWindow(screen=screen_a)
     screen_b = Screen(title="B")
-    canvas_b = Canvas(screen=screen_b)
+    canvas_b = GraphWindow(screen=screen_b)
     with TestClient(create_app(canvas_a, canvas_b)) as client:
         canvas_b.close()
         time.sleep(0.05)

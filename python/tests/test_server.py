@@ -2,10 +2,10 @@ import threading
 
 from fastapi.testclient import TestClient
 
-from viewbase import Canvas, create_app, protocol
+from viewbase import GraphWindow, create_app, protocol
 
 
-def make_client(canvas: Canvas) -> TestClient:
+def make_client(canvas: GraphWindow) -> TestClient:
     return TestClient(create_app(canvas))
 
 
@@ -14,7 +14,7 @@ def hello() -> str:
 
 
 def test_hello_gets_init():
-    canvas = Canvas(title="T")
+    canvas = GraphWindow(title="T")
     canvas.add_node("a")
     with make_client(canvas) as client:
         with client.websocket_connect("/ws") as ws:
@@ -26,7 +26,7 @@ def test_hello_gets_init():
 
 
 def test_protocol_mismatch_gets_error():
-    with make_client(Canvas()) as client:
+    with make_client(GraphWindow()) as client:
         with client.websocket_connect("/ws") as ws:
             ws.send_text(protocol.encode({"type": "hello", "protocol": 999}))
             msg = protocol.decode(ws.receive_text())
@@ -34,7 +34,7 @@ def test_protocol_mismatch_gets_error():
 
 
 def test_mutation_streams_patch():
-    canvas = Canvas()
+    canvas = GraphWindow()
     with make_client(canvas) as client:
         with client.websocket_connect("/ws") as ws:
             ws.send_text(hello())
@@ -48,7 +48,7 @@ def test_mutation_streams_patch():
 
 
 def test_event_reaches_handler_with_client_id():
-    canvas = Canvas()
+    canvas = GraphWindow()
     canvas.add_node("a")
     seen = {}
     done = threading.Event()
@@ -73,7 +73,7 @@ def test_event_reaches_handler_with_client_id():
 
 
 def test_invalid_message_keeps_connection_alive():
-    canvas = Canvas()
+    canvas = GraphWindow()
     done = threading.Event()
 
     @canvas.on_background_click
@@ -94,7 +94,7 @@ def test_handshake_nezahazuje_pending_delty(monkeypatch):
     from viewbase import server as server_module
     # Uspat broadcast smyčku, ať delty zůstanou pending po celou dobu testu
     monkeypatch.setattr(server_module, "PATCH_INTERVAL", 1000)
-    canvas = Canvas()
+    canvas = GraphWindow()
     canvas.add_node("a")
     canvas.drain()                                    # "a" drainujeme předem – baseline
     with make_client(canvas) as client:

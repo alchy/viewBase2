@@ -5,17 +5,17 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from viewbase import Canvas, create_app
+from viewbase import GraphWindow, create_app
 
 
 def test_every_requires_positive_interval():
-    c = Canvas()
+    c = GraphWindow()
     with pytest.raises(ValueError):
         c.every(0)
 
 
 def test_every_runs_after_start_and_stops():
-    c = Canvas()
+    c = GraphWindow()
     ran = threading.Event()
 
     @c.every(0.01)
@@ -28,7 +28,7 @@ def test_every_runs_after_start_and_stops():
 
 
 def test_every_survives_handler_exception():
-    c = Canvas()
+    c = GraphWindow()
     calls = []
     done = threading.Event()
 
@@ -45,7 +45,7 @@ def test_every_survives_handler_exception():
 
 
 def test_every_registered_after_start_is_ignored():
-    c = Canvas()
+    c = GraphWindow()
     stop = c.start_periodic_tasks()
     ran = threading.Event()
 
@@ -58,7 +58,7 @@ def test_every_registered_after_start_is_ignored():
 
 
 def test_close_stops_tasks():
-    c = Canvas()
+    c = GraphWindow()
     counter = []
 
     @c.every(0.01)
@@ -74,7 +74,7 @@ def test_close_stops_tasks():
 
 
 def test_serve_lifespan_starts_every_tasks():
-    c = Canvas()
+    c = GraphWindow()
     ran = threading.Event()
 
     @c.every(0.01)

@@ -42,7 +42,9 @@ export class ScreenBar {
     this.bar.dataset.role = 'vb-screen-menu-bar';
     this.bar.style.cssText = [
       'display:grid', 'grid-template-columns:1fr auto 1fr', 'align-items:center',
-      'height:26px', 'padding:0 6px', 'background:rgba(230,230,235,0.95)',
+      'height:26px', 'padding:0 6px',
+      'background:var(--vb-screenbar-bg, rgba(230,230,235,0.95))',
+      'color:var(--vb-screenbar-fg, #000)',
       'border:1px solid rgba(0,0,0,0.4)', 'box-sizing:border-box',
       'cursor:ns-resize', 'user-select:none',
     ].join(';');
@@ -107,7 +109,7 @@ export class ScreenBar {
     btn.title = title;
     btn.style.cssText = [
       'width:20px', 'height:16px', 'padding:0', 'border:none', 'flex:none',
-      'cursor:pointer', 'background:#000',
+      'cursor:pointer', 'background:var(--vb-screenbar-fg, #000)',
       `-webkit-mask:url("${icon}") center/100% 100% no-repeat`,
       `mask:url("${icon}") center/100% 100% no-repeat`,
     ].join(';');
@@ -157,7 +159,8 @@ export class ScreenBar {
       const active = group.name === this.openGroup;
       btn.style.cssText = [
         'padding:4px 12px', 'border:none', 'cursor:pointer', 'font:inherit',
-        active ? 'background:#3b7bc4;color:#fff' : 'background:transparent;color:#000',
+        active ? 'background:#3b7bc4;color:#fff'
+          : 'background:transparent;color:inherit',   // barvu dává lišta (téma)
       ].join(';');
       // pointerdown MUSÍ zastavit propagaci – jinak klik na skupinu zároveň
       // nastartuje drag (viz addGadget výše, stejný důvod).

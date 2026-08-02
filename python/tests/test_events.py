@@ -2,11 +2,11 @@ import logging
 import threading
 import time
 
-from viewbase import Canvas
+from viewbase import GraphWindow
 
 
 def test_on_click_registers_and_returns_function():
-    c = Canvas()
+    c = GraphWindow()
 
     @c.on_click
     def handler(event):
@@ -17,7 +17,7 @@ def test_on_click_registers_and_returns_function():
 
 
 def test_dispatch_runs_handler_with_namespace_event():
-    c = Canvas()
+    c = GraphWindow()
     done = threading.Event()
     seen = {}
 
@@ -33,7 +33,7 @@ def test_dispatch_runs_handler_with_namespace_event():
 
 
 def test_all_decorators_map_to_protocol_events():
-    c = Canvas()
+    c = GraphWindow()
     fired = {"node_click": threading.Event(), "node_hover": threading.Event(),
              "background_click": threading.Event(),
              "view_change": threading.Event()}
@@ -53,7 +53,7 @@ def test_all_decorators_map_to_protocol_events():
 
 
 def test_handler_exception_logged_server_survives(caplog):
-    c = Canvas()
+    c = GraphWindow()
     ok = threading.Event()
 
     @c.on_click
@@ -77,11 +77,11 @@ def test_handler_exception_logged_server_survives(caplog):
 
 
 def test_unknown_event_is_noop():
-    Canvas().dispatch_event("ghost_event", {"x": 1})   # nesmí spadnout
+    GraphWindow().dispatch_event("ghost_event", {"x": 1})   # nesmí spadnout
 
 
 def test_two_handlers_for_same_event_both_run():
-    c = Canvas()
+    c = GraphWindow()
     first, second = threading.Event(), threading.Event()
     c.on_click(lambda e: first.set())
     c.on_click(lambda e: second.set())

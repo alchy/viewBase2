@@ -79,6 +79,30 @@ bus = LogBus()
 
 def log(message: str, level: str = "info") -> None:
     """Zapiš diagnostickou hlášku z uživatelského kódu do log okna
-    (`source="backend_user"`) – viz `Canvas.on_click`/`@canvas.every`
+    (`source="backend_user"`) – viz `GraphWindow.on_click`/`@graph.every`
     handlery a §3a designu."""
     bus.publish(level, "backend_user", message)
+
+
+class LogWindow:
+    """SYSTÉMOVÉ log okno na screenu – speciální druh okna, jehož obsah
+    dodává knihovna sama (proces-wide LogBus, `tail -f`), vývojář ho jen
+    explicitně UMÍSTÍ: `vb.LogWindow(screen=screen)` ho otevře na daném
+    screenu hned při startu. Bez explicitního umístění se log okno otevírá
+    samo na předním screenu při prvním záznamu (auto-open).
+
+    Umístění jde přes config grafového okna screenu (init snapshot), ne
+    přes jednorázovou akci – přežije reconnect i klienty připojené později.
+    Funguje i PŘED přiřazením grafu na screen (stejný vzor jako
+    `Screen.pin_menu`)."""
+
+    def __init__(self, *, screen) -> None:
+        if not hasattr(screen, "id"):
+            raise ValueError("screen musí být instance vb.Screen")
+        self.screen = screen
+        with screen._lock:
+            screen._log_window = True
+            graph = screen._graph
+        if graph is not None:
+            with graph._lock:
+                graph.config["log_window"] = True

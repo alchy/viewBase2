@@ -1,0 +1,67 @@
+"""Explicitní workflow (fopen→close analogie): Project drží službu/port,
+Screen je plocha, okna jsou typované instance – LogWindow je systémové
+okno umístěné na screen explicitně."""
+import pytest
+
+import viewbase as vb
+from viewbase.screen import reset_allocator
+
+
+@pytest.fixture(autouse=True)
+def _reset():
+    reset_allocator()
+    yield
+    reset_allocator()
+
+
+# ---- LogWindow: systémové okno, umístění přes init snapshot ---------------
+
+def test_log_window_before_graph_lands_in_snapshot_config():
+    screen = vb.Screen(title="A")
+    vb.LogWindow(screen=screen)               # dřív, než existuje graf
+    graph = vb.GraphWindow(screen=screen)
+    assert graph.snapshot()["config"]["log_window"] is True
+
+
+def test_log_window_after_graph_lands_in_snapshot_config():
+    screen = vb.Screen(title="A")
+    graph = vb.GraphWindow(screen=screen)
+    vb.LogWindow(screen=screen)
+    assert graph.snapshot()["config"]["log_window"] is True
+
+
+def test_without_log_window_config_has_no_flag():
+    graph = vb.GraphWindow(screen=vb.Screen(title="A"))
+    assert "log_window" not in graph.snapshot()["config"]
+
+
+def test_log_window_requires_screen():
+    with pytest.raises(ValueError):
+        vb.LogWindow(screen="ne-screen")
+
+
+# ---- Screen.graph + Project.serve mapování --------------------------------
+
+def test_screen_graph_property():
+    screen = vb.Screen(title="A")
+    assert screen.graph is None
+    graph = vb.GraphWindow(screen=screen)
+    assert screen.graph is graph
+
+
+def test_project_serve_rejects_screen_without_graph():
+    project = vb.Project(port=0)
+    with pytest.raises(ValueError):
+        project.serve(vb.Screen(title="prázdný"))
+
+
+def test_project_serves_screen_and_closes_port_like_a_file():
+    """fopen→close: serve(screen) otevře listener, stop() ho zavře."""
+    screen = vb.Screen(title="A")
+    graph = vb.GraphWindow(screen=screen)
+    graph.add_node("a")
+    with vb.Project(port=0) as project:       # port=0: efemérní, bez kolizí
+        handle = project.serve(screen, block=False)
+        assert handle.port > 0
+    # po with bloku je port zavřený a graf uklizený
+    assert graph._closed is True

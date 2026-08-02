@@ -1,0 +1,8 @@
+# viewbase – instalace z repa (editable) včetně dev závislostí (pytest, httpx):
+#
+#   pip install -r requirements.txt
+#
+# Nainstaluje balíček z ./python (fastapi + uvicorn jako runtime závislosti).
+# Frontend je v repu už sestavený (python/viewbase/static) – Node.js je
+# potřeba jen při vývoji frontendu (frontend/, npm install && npm run build).
+-e ./python[dev]

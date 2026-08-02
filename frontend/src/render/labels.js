@@ -1,4 +1,9 @@
 import { Text } from 'troika-three-text';
+// Font ZABUNDLOVANÝ v assetech (uživatelský požadavek: aplikace může běžet
+// mimo internet) – troika si jinak fonty pro glyfy stahuje z CDN
+// (unicodeFontsURL „defaults to CDN"). DejaVu Sans pokrývá latinku včetně
+// češtiny; licence vedle fontu (DejaVuSans-LICENSE.txt).
+import labelFontUrl from '../assets/fonts/DejaVuSans.ttf';
 import { nodeStyle } from './style.js';
 
 const FADE_SPEED = 6;     // 1/s – rychlost náběhu/zhasnutí opacity
@@ -51,6 +56,7 @@ export class LabelLayer {
 
   _styleText(text) {
     const { label } = this.theme;
+    text.font = labelFontUrl;   // lokální font, žádné CDN (offline provoz)
     text.fontSize = label.size;
     text.color = label.color;
     text.outlineColor = label.halo;
