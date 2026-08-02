@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clampValue, readValues } from '../src/render/control_window.js';
+import { clampValue, readValues } from '../src/plugins/control.js';
 
 const intField = { key: 'n', type: 'int', value: 30, min: 0, max: 100, step: 1 };
 const strField = { key: 's', type: 'string', value: 'ab', maxlength: 4 };

@@ -1,5 +1,3 @@
-import { guruCode } from './guru_code.js';
-
 const STYLE_ID = 'vb-guru-style';
 
 function ensureBlinkKeyframes() {
@@ -41,7 +39,8 @@ export class GuruMeditation {
       'position:absolute', 'top:50%', 'left:50%', 'transform:translate(-50%,-50%)',
       'border:3px solid #ff0000', 'padding:18px 28px', 'color:#ff0000',
       'text-align:center', 'font-size:18px', 'font-weight:bold',
-      'letter-spacing:0.5px', 'white-space:nowrap',
+      'letter-spacing:0.5px', 'white-space:pre-wrap', 'word-break:break-word',
+      'max-width:80%', 'box-sizing:border-box',
       'animation:vb-guru-blink 1s step-start infinite',
     ].join(';');
 
@@ -51,21 +50,15 @@ export class GuruMeditation {
     // (trackpad, jednotlačítková myš), viz dismiss handler níže.
     this.bar.textContent = 'Software Failure.  Press mouse button or Esc to continue.';
 
+    // Druhý řádek boxu: SKUTEČNÝ důvod chyby (uživatelská oprava: „původní
+    // amiga hash kód je nahrazen reálným důvodem – například connection
+    // lost"). Žádný zvláštní text pod boxem – všechno je v boxu.
     this.code = document.createElement('div');
     this.code.dataset.role = 'vb-guru-code';
     this.code.style.cssText = 'margin-top:6px';
 
     this.box.append(this.bar, this.code);
-
-    this.detail = document.createElement('div');
-    this.detail.dataset.role = 'vb-guru-detail';
-    this.detail.style.cssText = [
-      'position:absolute', 'left:50%', 'bottom:12%', 'transform:translateX(-50%)',
-      'max-width:70%', 'color:#663333', 'text-align:center', 'font-size:13px',
-      'white-space:pre-wrap', 'word-break:break-word',
-    ].join(';');
-
-    this.el.append(this.box, this.detail);
+    this.el.append(this.box);
     // Libovolné tlačítko myši (ne jen levé – Mac) i Esc zavírají.
     this.el.addEventListener('mousedown', () => this.hide());
     this._onKeydown = (e) => {
@@ -79,12 +72,11 @@ export class GuruMeditation {
   }
 
   /** `kind`: 'frontend_error' | 'connection_lost' | 'backend_error'.
-   * `message`: text zobrazený pod boxem (skutečná chyba, ne jen kód – na
-   * rozdíl od originálu je tohle vývojářský nástroj, detail se hodí). */
+   * `message`: skutečný důvod – jde PŘÍMO do boxu místo Amiga hash kódu
+   * (tohle je vývojářský nástroj, důvod je užitečnější než hex). */
   show(kind, message) {
     this.reason = kind;
-    this.code.textContent = `Guru Meditation #${guruCode(kind, message)}`;
-    this.detail.textContent = message ?? '';
+    this.code.textContent = `Guru Meditation: ${message ?? kind}`;
     this.el.style.display = 'block';
   }
 

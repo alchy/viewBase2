@@ -1,19 +1,21 @@
-/** ScreenMenuBar (§8 + §8a + §9 designu): PRÁVĚ JEDNA lišta na screen –
- *  titulek, skupiny menu (ScreenMenu §8 + vestavěné Options §8a) a depth
- *  gadgety (`addGadget`, `ScreenManager`) POHROMADĚ v jednom pruhu, žádná
- *  druhá lišta navíc (uživatelská oprava: „máš na screenu mít vždy jen
- *  jednu lištu… i menu je v rámci screen lišty" – dřív existoval oddělený
- *  root-level screen bar NAD touhle per-screen menu lištou, dvě lišty na
- *  jednom screenu). Je SOUČÁST kontejneru screenu (`container.appendChild`),
+/** ScreenBar (WM jádro, §8 + §8a + §9 designu): PRÁVĚ JEDNA lišta na
+ *  screen – vystředěný titulek, skupiny menu (ScreenMenu §8 + vestavěné
+ *  Options §8a) a depth gadgety (`addGadget`, `ScreenManager`)
+ *  POHROMADĚ v jednom pruhu, žádná druhá lišta navíc (uživatelská oprava:
+ *  „máš na screenu mít vždy jen jednu lištu… i menu je v rámci screen
+ *  lišty"). Je SOUČÁST kontejneru screenu (`container.appendChild`),
  *  takže se s ním posouvá jako jeden blok při drag-reveal (§6) – žádná
  *  fixní lišta, co zůstane viset, když se screen celý odtáhne pryč.
  *
  *  Dva druhy skupin v menu:
  *  - "vzdálené" ze ScreenMenu (§8, `pin_menu`) – klik na položku pošle
- *    event `menu_select`, dropdown se zavře (příkazová paleta).
- *  - "lokální" Options (§8a) – existuje VŽDY, poslední před gadgety.
- *    Checkbox indikátor, klik dropdown NEZAVŘE (přepínač, ne příkaz). */
-export class ScreenMenuBar {
+ *    event `menu_select`.
+ *  - "lokální" Options (§8a) – položky určuje AKTIVNÍ okno na screenu
+ *    (macOS menu bar model; dodává WindowManager.refreshOptions).
+ *  Volba položky (příkaz i checkbox) dropdown VŽDY zavře – „zvolím,
+ *  menu se zavře" (uživatelská oprava; dřív checkbox nechával dropdown
+ *  otevřený pro vícenásobné přepínání). */
+export class ScreenBar {
   constructor({ container, sendEvent }) {
     this.container = container;
     this.sendEvent = sendEvent;
@@ -52,20 +54,16 @@ export class ScreenMenuBar {
     this.groupsEl.style.cssText = 'display:flex;justify-self:start;min-width:0';
     this.bar.appendChild(this.groupsEl);
 
-    this.centerEl = document.createElement('div');
-    this.centerEl.style.cssText = [
-      'display:flex', 'align-items:center', 'gap:8px', 'justify-self:center', 'min-width:0',
-    ].join(';');
+    // Vystředěný TITULEK – nic víc (uživatelská oprava: metriky sítě
+    // nese titulek grafového okna, „lišta už to nepotřebuje, má jen
+    // titulek").
     this.titleEl = document.createElement('span');
     this.titleEl.dataset.role = 'vb-screen-bar-title';
     this.titleEl.style.cssText = [
-      'overflow:hidden', 'text-overflow:ellipsis', 'white-space:nowrap', 'font-weight:600',
+      'overflow:hidden', 'text-overflow:ellipsis', 'white-space:nowrap',
+      'font-weight:600', 'justify-self:center', 'min-width:0',
     ].join(';');
-    this.metricsEl = document.createElement('span');
-    this.metricsEl.dataset.role = 'vb-screen-bar-metrics';
-    this.metricsEl.style.cssText = 'color:#555;white-space:nowrap';
-    this.centerEl.append(this.titleEl, this.metricsEl);
-    this.bar.appendChild(this.centerEl);
+    this.bar.appendChild(this.titleEl);
 
     // depth gadgety (§2 designu reference) – naplní `ScreenManager.addGadget`
     this.gadgetsEl = document.createElement('div');
@@ -93,14 +91,6 @@ export class ScreenMenuBar {
    *  registraci a při každém initu (title se může změnit reconnectem). */
   setTitle(text) {
     this.titleEl.textContent = text;
-  }
-
-  /** Živé metriky (§7b designu – „vedle názvu info o počtu objektů a
-   *  fps") – volá `screen_instance.js` periodicky. `text` je hotový
-   *  formátovaný řetězec (`"N uzlů · M fps"`), ne strukturovaná data –
-   *  formátování je věc volajícího, lišta jen zobrazuje. */
-  setMetrics(text) {
-    this.metricsEl.textContent = text ? `· ${text}` : '';
   }
 
   /** Depth gadget (§2 designu reference – bitmapa vyříznutá ze
@@ -221,7 +211,9 @@ export class ScreenMenuBar {
         row.addEventListener('click', (e) => {
           e.stopPropagation();
           item.onToggle(!item.checked);
-          // dropdown zůstává otevřený – checkbox skupina jde přepínat víckrát
+          // „zvolím, menu se zavře" (uživatelská oprava) – checkbox se
+          // chová stejně jako příkaz, žádné čekání na klik mimo menu
+          this._closeDropdown();
         });
       } else {
         row.dataset.itemId = item.id;

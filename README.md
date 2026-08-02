@@ -191,14 +191,25 @@ vb.serve(canvas_a, canvas_b, open_browser=True)   # jeden server, dva canvasy
 Server multiplexuje `init`/patch/akce podle `screen_id` na jednom WS
 spojení a `vb.log(message, level=…)` teče do prohlížeče jako zpráva `log`.
 
-Frontend je **window-first**: screen je prázdný desktop a všechno na něm
-jsou okna. **Graf žije v okně** (velké, s odsazením od krajů; jde přesouvat,
-zmenšovat za rohové úchyty i minimalizovat do doku — geometrie se pamatuje v
-`localStorage`) a **log je taky okno**: na první `log` zprávu se samo otevře
-okno **„Log"** na předním screenu — `tail -f` v okně ve stylu AmigaShell
-(nové řádky dolů, autoscroll na poslední, každý řádek s timestampem). Jako
-AmigaShell nemá zavírací gadget (`closable: false`) — jde jen minimalizovat
-do doku, takže se divákovi nikdy neztratí.
+Frontend je architektonicky **window manager s pluginy**: jádro
+(`frontend/src/wm/`) umí screeny, okna, lištu a Options — a vůbec neví, co
+okna zobrazují. Každá schopnost je **plugin** (`frontend/src/plugins/`):
+vlastní typ okna + vlastní Options + vlastní server akce. **Zobrazení
+grafu je jen jedna z těchto schopností** (`plugins/graph/` — WebGL
+pipeline, fyzika, picking), stejné váhy jako log konzole, detailní okna
+uzlů, formulářová (control) a terminálová okna. Přidání nové schopnosti =
+nový plugin, žádný zásah do jádra. Detaily v
+[architektonické revizi](docs/superpowers/specs/2026-08-02-wm-plugin-architecture.md).
+
+Screen je prázdný desktop a všechno na něm jsou okna. **Graf žije v okně**
+(velké, s odsazením od krajů; jde přesouvat, zmenšovat za rohové úchyty,
+minimalizovat do doku i **maximalizovat dvojklikem na lištu** — geometrie
+se pamatuje v `localStorage`; v liště okna běží živé info o síti
+„2D/3D · N uzlů · M fps") a **log je taky okno**: na první `log` zprávu se
+samo otevře okno **„Log"** na předním screenu — `tail -f` v okně ve stylu
+AmigaShell (nové řádky dolů, autoscroll na poslední, každý řádek s
+timestampem). Jako AmigaShell nemá zavírací gadget (`closable: false`) —
+jde jen minimalizovat do doku, takže se divákovi nikdy neztratí.
 
 Na liště každého screenu je vestavěná skupina **„Options"** (view-only,
 žádné Python volání ji nezakládá; je vždy první skupina, `ScreenMenu`
@@ -208,12 +219,14 @@ běží", „Křivkové hrany (splajn)", **„3D pohled"** (živé přepnutí ka
 fyzikální simulace 2D/3D za běhu; volba se pamatuje v `localStorage` napříč
 reconnecty); klik na okno logu → filtry úrovní (debug/info/warning/error)
 a zdrojů. Okna bez vlastních Options (detail, control, terminál) skupinu
-nemění. A pokud něco na frontendu spadne (neodchycená
-JS chyba), spojení vypadne, nebo backend zaloguje `level="error"`, objeví
-se **Guru Meditation** — věrná homage na Amiga crash obrazovku (červeně
-orámovaný blikající box, `#AAAAAAAA.BBBBBBBB` kód, zavírá se libovolným
+nemění; volba položky (i checkbox) dropdown hned zavře. A pokud něco na
+frontendu spadne (neodchycená JS chyba), spojení vypadne, nebo backend
+zaloguje `level="error"`, objeví se **Guru Meditation** — homage na Amiga
+crash obrazovku (červeně orámovaný blikající box, zavírá se libovolným
 tlačítkem myši nebo Esc — ne jen levým, na Macu nedává smysl), ne tichý
-`console.error`.
+`console.error`. Místo původního hex kódu nese box **skutečný důvod
+chyby** („Spojení se serverem vypadlo…", text výjimky) — je to vývojářský
+nástroj, důvod je užitečnější než hash.
 
 Nové je i vestavěné téma **`"workbench"`** (`Canvas(theme="workbench")`)
 — přebarví okna do Amiga/AmigaDOS palety: bílá titulková lišta s jemným
@@ -229,7 +242,7 @@ A taky vestavěné **`ScreenMenu`** (§8 designu) — pull-down menu, co si
 vývojář sám naplní. `Screen.pin_menu(menu)` funguje nezávisle na tom, jestli
 `Canvas` už existuje — Screen a Canvas jsou explicitně nezávislé, atomické
 objekty, ne implicitně provázaná dvojice. V prohlížeči se objeví lišta se
-skupinami nahoře v canvasu (`Options` je na ní vždy poslední skupina); klik
+skupinami nahoře na screenu (`Options` je na ní vždy první skupina); klik
 na skupinu rozbalí dropdown (světle šedý, tvrdý okraj — podle Workbench
 reference), klik na položku zavolá `on_select` na serveru a menu přežije
 reconnect. Kompletní příklad (menu naplněné před vznikem Canvasu):
@@ -237,8 +250,9 @@ reconnect. Kompletní příklad (menu naplněné před vznikem Canvasu):
 
 Frontend teď víc `Canvas` instancí (`screen=` na obou) i **vizuálně**
 zvládá — každý screen má **právě jednu lištu** od kraje ke kraji (Options +
-`ScreenMenu` skupiny vlevo, vystředěný titulek s živými metrikami „N uzlů ·
-M fps", vpravo jediný depth gadget, přesně podle Workbench reference) a
+`ScreenMenu` skupiny vlevo, vystředěný titulek, vpravo jediný depth
+gadget, přesně podle Workbench reference; info o síti nese lišta okna
+grafu, ne lišta screenu) a
 vlastní graf, téma i okna. Depth gadget prohodí přední/zadní screen; navíc
 jde přední screen **tahem myší za lištu** stáhnout dolů a odkrýt ten pod
 ním — přesně jako na Amize (mapování bitmapa→scanline: celý screen se

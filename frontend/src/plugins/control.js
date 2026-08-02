@@ -1,10 +1,12 @@
-/** Control okno: formulářové tělo (int/number slider+číslo, string text,
+/** Control plugin: formulářové okno (int/number slider+číslo, string text,
  *  enum select, bool checkbox) + tlačítko Použít, které pošle všechny hodnoty
  *  zpět; live režim posílá při každé změně (throttle) a tlačítko nemá.
- *  Chrome dědí z BaseWindow. Čisté helpery clampValue/readValues zrcadlí
- *  backend validaci. */
+ *  Chrome dědí z BaseWindow (wm/). Čisté helpery clampValue/readValues
+ *  zrcadlí backend validaci. Instalace do desktopu registruje typ okna
+ *  'control' – server akce open_window/close_window routuje jádro
+ *  (desktop.js) genericky přes registr typů. */
 import { throttle } from '../interact/throttle.js';
-import { BaseWindow } from './base_window.js';
+import { BaseWindow } from '../wm/base_window.js';
 
 const LIVE_THROTTLE_MS = 150;   // live submit při tažení slideru
 
@@ -167,4 +169,31 @@ export class ControlWindow extends BaseWindow {
   _renderBody() {
     // formulář persistuje v DOM; téma ani obnova nevyžadují rebuild
   }
+}
+
+const CONTROL_WIDTH_CHARS = 30;
+
+/** Instalace do desktopu: typ okna 'control' (spec z protokolu –
+ *  open_window akce nebo store.windows při initu). Stejné window_id
+ *  nahrazuje existující okno (server poslal novou definici dialogu). */
+export function createControlPlugin({ container, windowManager, sendEvent }) {
+  windowManager.registerType('control', (spec) => {
+    windowManager.get(spec.window_id)?.close();   // nahrazení stejného window_id
+    const win = windowManager.adopt(new ControlWindow({
+      id: spec.window_id,
+      title: spec.title,
+      fields: spec.fields,
+      live: spec.live,
+      closable: spec.closable,
+      widthChars: CONTROL_WIDTH_CHARS,
+      onSubmit: (payload) => sendEvent({
+        type: 'event', event: 'window_submit', payload,
+      }),
+      container,
+      manager: windowManager,
+    }));
+    win.bringToFront();
+    return win;
+  });
+  return { name: 'control' };
 }

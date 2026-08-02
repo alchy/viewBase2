@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   MIN_WINDOW_H, MIN_WINDOW_W, posKey, resizeGeometry,
-} from '../src/render/base_window.js';
+} from '../src/wm/base_window.js';
 
 describe('posKey (perzistence pozic oken)', () => {
   it('klíč z id okna', () => {

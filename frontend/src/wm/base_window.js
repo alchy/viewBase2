@@ -1,11 +1,12 @@
-/** Sdílené chrome okno (Amiga Workbench): záhlaví s gadgety zavřít/
- *  minimalizovat/obnovit, tažení za záhlaví, změna velikosti za rohové úchyty,
- *  dok vlevo dole, z-order.
- *  Tělo dodává podtřída: nastaví this.body v _buildBody() a (volitelně)
- *  překresluje v _renderBody(). Podtřída v konstruktoru po super() nastaví
- *  svá pole, pak zavolá this._buildBody() a this._mount(). Čisté funkce
- *  clampToCanvas/dockLayout/resizeGeometry jsou tu; windows.js je
- *  re-exportuje. */
+/** Chrome okna (WM jádro, Amiga Workbench styl): rám, záhlaví s bitmapovými
+ *  gadgety (zavřít/minimalizovat/obnovit), tažení za záhlaví, změna
+ *  velikosti za rohové úchyty, minimalizace do doku, maximalizace
+ *  dvojklikem, perzistence geometrie (localStorage), z-order.
+ *  Tělo dodává typ okna (plugin): nastaví this.body v _buildBody() a
+ *  (volitelně) překresluje v _renderBody(). Podtřída v konstruktoru po
+ *  super() nastaví svá pole, pak zavolá this._buildBody() a this._mount().
+ *  Pointer wiring jde přes sdílené `wirePointerDrag` (drag.js) – pojistky
+ *  proti sticky tažení jsou tam, ne tady. */
 // Bitmapové gadgety (§3a handoveru: „bitmapy pro okna si vezmi z obrázků
 // přidaných do repa") – výřezy z docs/images/workbench-ref/, Vite je
 // zabalí do bundlu. Mapování na naši funkcionalitu: zavřít = obrysový
@@ -15,6 +16,8 @@
 import closeIcon from '../assets/gadgets/close.png';
 import depthIcon from '../assets/gadgets/depth.png';
 import zoomIcon from '../assets/gadgets/zoom.png';
+import { wirePointerDrag } from './drag.js';
+import { SCREEN_BAR_HEIGHT } from './drag_reveal.js';
 
 export function clampToCanvas(x, y, w, h, bounds) {
   const maxX = Math.max(0, bounds.width - w);
@@ -34,11 +37,6 @@ const DOCK_GAP = 8;
 const DOCK_SLOT_HEIGHT = 28;
 
 const POS_PREFIX = 'vb-pos:';   // localStorage klíč perzistence pozic/velikostí
-
-// Výška screen baru (screen_menu.js, height:26px) – maximalizované okno
-// začíná POD ním, jinak by lišta okna zajela pod lištu screenu (ta má vyšší
-// z-index) a nešla by chytit.
-const SCREEN_BAR_H = 26;
 
 export const MIN_WINDOW_W = 180;   // px – pod tím už je okno nepoužitelné
 export const MIN_WINDOW_H = 90;
@@ -247,35 +245,35 @@ export class BaseWindow {
     return g;
   }
 
+  /** Tažení okna za záhlaví. `this.dragOffset` zrcadlí stav tažení jen
+   *  kvůli introspekci v testech; wiring (capture, sticky pojistky) řeší
+   *  sdílené `wirePointerDrag`. */
   _dragFromHeader(bar) {
-    bar.addEventListener('pointerdown', (e) => {
-      if (e.target.dataset.gadget) return;
-      this.bringToFront();
-      const rect = this.el.getBoundingClientRect();
-      const cont = this.container.getBoundingClientRect();
-      this.dragOffset = {
-        x: e.clientX - rect.left, y: e.clientY - rect.top,
-        contLeft: cont.left, contTop: cont.top,
-      };
-      bar.setPointerCapture(e.pointerId);
-    });
-    bar.addEventListener('pointermove', (e) => {
-      if (!this.dragOffset || this.isMinimized) return;
-      const x = e.clientX - this.dragOffset.contLeft - this.dragOffset.x;
-      const y = e.clientY - this.dragOffset.contTop - this.dragOffset.y;
-      const pos = clampToCanvas(x, y, this._boxW(), this._headerH(),
-        this._bounds());
-      this._place(pos.x, pos.y);
-    });
-    const end = (e) => {
-      if (this.dragOffset) {
+    wirePointerDrag(bar, {
+      onStart: (e) => {
+        if (e.target.dataset.gadget) return null;
+        this.bringToFront();
+        const rect = this.el.getBoundingClientRect();
+        const cont = this.container.getBoundingClientRect();
+        this.dragOffset = {
+          x: e.clientX - rect.left, y: e.clientY - rect.top,
+          contLeft: cont.left, contTop: cont.top,
+        };
+        return this.dragOffset;
+      },
+      onMove: (e, drag) => {
+        if (this.isMinimized) return;
+        const x = e.clientX - drag.contLeft - drag.x;
+        const y = e.clientY - drag.contTop - drag.y;
+        const pos = clampToCanvas(x, y, this._boxW(), this._headerH(),
+          this._bounds());
+        this._place(pos.x, pos.y);
+      },
+      onEnd: () => {
         this.dragOffset = null;
-        try { bar.releasePointerCapture(e.pointerId); } catch { /* noop */ }
         if (!this.isMinimized) this._savePos();   // pozice přežije reload
-      }
-    };
-    bar.addEventListener('pointerup', end);
-    bar.addEventListener('pointercancel', end);
+      },
+    });
   }
 
   _headerH() { return this.bar.offsetHeight || DOCK_SLOT_HEIGHT; }
@@ -311,40 +309,39 @@ export class BaseWindow {
     grip.style.opacity = visible && !this.isMinimized ? GRIP_OPACITY : '0';
   }
 
+  /** Změna velikosti za rohový úchyt – stejný sdílený wiring jako tažení
+   *  (`wirePointerDrag`), jen jiná geometrie (`resizeGeometry`). */
   _resizeFromGrip(grip, corner) {
-    grip.addEventListener('pointerdown', (e) => {
-      if (this.isMinimized) return;
-      e.stopPropagation();            // ne, tohle není tažení okna
-      this.bringToFront();
-      const rect = this.el.getBoundingClientRect();
-      this.resizeState = {
-        corner, pointerX: e.clientX, pointerY: e.clientY,
-        start: {
-          x: this.x, y: this.y,
-          w: rect.width || this._boxW(), h: rect.height || this._boxH(),
-        },
-      };
-      this._showGrip(grip, true);
-      grip.setPointerCapture(e.pointerId);
+    wirePointerDrag(grip, {
+      onStart: (e) => {
+        if (this.isMinimized) return null;
+        e.stopPropagation();            // ne, tohle není tažení okna
+        this.bringToFront();
+        const rect = this.el.getBoundingClientRect();
+        this.resizeState = {
+          corner, pointerX: e.clientX, pointerY: e.clientY,
+          start: {
+            x: this.x, y: this.y,
+            w: rect.width || this._boxW(), h: rect.height || this._boxH(),
+          },
+        };
+        this._showGrip(grip, true);
+        return this.resizeState;
+      },
+      onMove: (e, state) => {
+        if (this.isMinimized) return;
+        const geo = resizeGeometry(state.start, state.corner,
+          e.clientX - state.pointerX, e.clientY - state.pointerY,
+          { w: MIN_WINDOW_W, h: MIN_WINDOW_H }, this._bounds());
+        this._place(geo.x, geo.y);
+        this._applySize(geo.w, geo.h);
+      },
+      onEnd: () => {
+        this.resizeState = null;
+        this._showGrip(grip, false);
+        this._savePos();               // velikost i pozice přežijí reload
+      },
     });
-    grip.addEventListener('pointermove', (e) => {
-      if (!this.resizeState || this.isMinimized) return;
-      const state = this.resizeState;
-      const geo = resizeGeometry(state.start, state.corner,
-        e.clientX - state.pointerX, e.clientY - state.pointerY,
-        { w: MIN_WINDOW_W, h: MIN_WINDOW_H }, this._bounds());
-      this._place(geo.x, geo.y);
-      this._applySize(geo.w, geo.h);
-    });
-    const end = (e) => {
-      if (!this.resizeState) return;
-      this.resizeState = null;
-      try { grip.releasePointerCapture(e.pointerId); } catch { /* noop */ }
-      this._showGrip(grip, false);
-      this._savePos();               // velikost i pozice přežijí reload
-    };
-    grip.addEventListener('pointerup', end);
-    grip.addEventListener('pointercancel', end);
   }
 
   /** Nastav okno na pevné rozměry: tělo dostane zbytek výšky a scrolluje,
@@ -381,8 +378,8 @@ export class BaseWindow {
         x: this.x, y: this.y,
         w: rect.width || this._boxW(), h: rect.height || this._boxH(),
       };
-      this._place(0, SCREEN_BAR_H);
-      this._applySize(bounds.width, bounds.height - SCREEN_BAR_H);
+      this._place(0, SCREEN_BAR_HEIGHT);
+      this._applySize(bounds.width, bounds.height - SCREEN_BAR_HEIGHT);
     } else {
       const prev = this.maximizedFrom;
       this.maximizedFrom = null;

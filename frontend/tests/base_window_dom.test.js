@@ -3,7 +3,7 @@
  *  localStorage stubujeme (Map) — happy-dom má Storage neúplný; prohlížeče
  *  reálné Storage API mají. */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { BaseWindow } from '../src/render/base_window.js';
+import { BaseWindow } from '../src/wm/base_window.js';
 
 const store = new Map();
 const fakeStorage = {
@@ -64,15 +64,34 @@ describe('BaseWindow — perzistence pozice', () => {
     win.bar.setPointerCapture = () => {};
     win.bar.releasePointerCapture = () => {};
     win.bar.dispatchEvent(new PointerEvent('pointerdown',
-      { clientX: 50, clientY: 50, pointerId: 1, bubbles: true }));
+      { clientX: 50, clientY: 50, pointerId: 1, bubbles: true, buttons: 1 }));
     win.bar.dispatchEvent(new PointerEvent('pointermove',
-      { clientX: 250, clientY: 180, pointerId: 1, bubbles: true }));
+      { clientX: 250, clientY: 180, pointerId: 1, bubbles: true, buttons: 1 }));
     win.bar.dispatchEvent(new PointerEvent('pointerup',
       { pointerId: 1, bubbles: true }));
     const saved = JSON.parse(fakeStorage.getItem('vb-pos:aktivace'));
     expect(saved.x).toBe(win.x);
     expect(saved.y).toBe(win.y);
     expect(saved.x).not.toBe(40);           // opravdu se hnulo z kaskády
+  });
+
+  it('pohyb bez drženého tlačítka okno nevleče (sticky fix)', () => {
+    const win = makeWindow('sticky');
+    win.bar.setPointerCapture = () => {};
+    win.bar.releasePointerCapture = () => {};
+    win.bar.dispatchEvent(new PointerEvent('pointerdown',
+      { clientX: 50, clientY: 50, pointerId: 1, bubbles: true, buttons: 1 }));
+    // pointerup se ztratil (capture glitch na reálném HW) – další pohyb už
+    // jde bez tlačítka a tažení musí skončit, ne vléct okno za myší
+    const before = { x: win.x, y: win.y };
+    win.bar.dispatchEvent(new PointerEvent('pointermove',
+      { clientX: 400, clientY: 400, pointerId: 1, bubbles: true, buttons: 0 }));
+    expect({ x: win.x, y: win.y }).toEqual(before);
+    expect(win.dragOffset).toBeNull();
+    // a další pohyb (pořád bez tlačítka) taky nic nedělá
+    win.bar.dispatchEvent(new PointerEvent('pointermove',
+      { clientX: 600, clientY: 500, pointerId: 1, bubbles: true, buttons: 0 }));
+    expect({ x: win.x, y: win.y }).toEqual(before);
   });
 });
 
@@ -92,9 +111,9 @@ describe('BaseWindow — změna velikosti za rohový úchyt', () => {
     // rozměry z getBoundingClientRect happy-dom nezná → stav si nastavíme sami
     win.el.getBoundingClientRect = () => ({ width: 300, height: 200 });
     g.dispatchEvent(new PointerEvent('pointerdown',
-      { clientX: from.x, clientY: from.y, pointerId: 1, bubbles: true }));
+      { clientX: from.x, clientY: from.y, pointerId: 1, bubbles: true, buttons: 1 }));
     g.dispatchEvent(new PointerEvent('pointermove',
-      { clientX: to.x, clientY: to.y, pointerId: 1, bubbles: true }));
+      { clientX: to.x, clientY: to.y, pointerId: 1, bubbles: true, buttons: 1 }));
     g.dispatchEvent(new PointerEvent('pointerup',
       { pointerId: 1, bubbles: true }));
     return g;

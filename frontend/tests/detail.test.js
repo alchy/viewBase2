@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  buildRows, clampToCanvas, dockLayout, windowsToRefresh,
-} from '../src/render/windows.js';
+import { buildRows, windowsToRefresh } from '../src/plugins/detail.js';
+import { clampToCanvas, dockLayout } from '../src/wm/base_window.js';
 
 const patch = (over = {}) => ({
   add_nodes: [], update_nodes: [], remove_nodes: [],

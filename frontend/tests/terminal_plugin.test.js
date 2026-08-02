@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { widthToChars } from '../src/render/terminal_window.js';
+import { widthToChars } from '../src/plugins/terminal.js';
 
 describe('widthToChars', () => {
   it('px šířku přepočte na znaky (÷8)', () => {

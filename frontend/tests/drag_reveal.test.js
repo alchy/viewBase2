@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   clampDragOffset, offsetAfterDrag, swapFrontWithNext, translateYForOffset,
-} from '../src/screens/drag_reveal.js';
+} from '../src/wm/drag_reveal.js';
 
 describe('clampDragOffset', () => {
   it('ořízne do 0..1', () => {

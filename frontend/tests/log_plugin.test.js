@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   LOG_LEVELS, LOG_SOURCES, defaultLogFilters, filterRecords,
   formatLogLine, matchesFilters,
-} from '../src/screens/log_panel.js';
+} from '../src/plugins/log.js';
 
 const rec = (overrides) => ({
   level: 'info', source: 'backend_program', message: 'x', component: null,

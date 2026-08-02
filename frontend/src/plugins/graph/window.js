@@ -3,15 +3,15 @@
  *  kontejner screenu, ale DOVNITŘ obyčejného okna – screen je prázdný
  *  desktop, co hostí N oken (graf, log, detail, control, terminal…).
  *  Tělo okna je jen prázdný hostitel: Renderer si do něj připojí svůj
- *  WebGL canvas sám (screen_instance mu předá `graphWindow.body` místo
+ *  WebGL canvas sám (graf plugin mu předá `graphWindow.body` místo
  *  celého kontejneru screenu) – proto se tady žádný obsah nestaví.
  *
  *  Bez gadgetu [x] (`closable: false`): zavřený graf by neměl jak se
  *  vrátit (žádné UI ani Python API na znovuotevření) – minimalizace do
  *  doku stačí. Options grafu (fyzika/splajn/2D-3D) dodává
- *  `optionsProvider` ze screen_instance (closure s přístupem k engine/
+ *  `optionsProvider` z graf pluginu (closure s přístupem k engine/
  *  renderer/store) přes sdílené rozhraní BaseWindow.getOptionsItems. */
-import { BaseWindow, MIN_WINDOW_H, MIN_WINDOW_W } from './base_window.js';
+import { BaseWindow, MIN_WINDOW_H, MIN_WINDOW_W } from '../../wm/base_window.js';
 
 const INSET_X = 24;       // výchozí odsazení od krajů desktopu (rozhodnutí
 const INSET_TOP = 40;     // uživatele: „velké okno přes většinu screenu",
@@ -61,10 +61,28 @@ export class GraphWindow extends BaseWindow {
   }
 
   /** Titulek grafu = titulek canvasu (dorazí až s `init`, může se změnit
-   *  reconnectem) – volá screen_instance ze store subscribe. */
+   *  reconnectem) – volá graf plugin z onInit. */
   setTitle(text) {
     this.title = text;
     this.titleEl.textContent = text;
+  }
+
+  /** Živé informace o síti v LIŠTĚ GRAFOVÉHO OKNA (uživatelská oprava:
+   *  „speciální okno pro síť nese informace o typu sítě (2D/3D atp.) a
+   *  informace o uzlech, lišta [screenu] už to nepotřebuje") – lazy
+   *  vytvoření elementu vedle gadgetů, formátovaný text dodává graf
+   *  plugin (`"3D · N uzlů · M fps"`). */
+  setMetrics(text) {
+    if (!this.metricsEl) {
+      this.metricsEl = document.createElement('span');
+      this.metricsEl.dataset.role = 'graph-metrics';
+      this.metricsEl.style.cssText = [
+        'font-weight:400', 'font-size:11px', 'opacity:0.8',
+        'white-space:nowrap', 'flex:0 0 auto',
+      ].join(';');
+      this.bar.insertBefore(this.metricsEl, this.minGadget);
+    }
+    this.metricsEl.textContent = text;
   }
 
   _renderBody() {

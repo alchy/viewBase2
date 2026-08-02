@@ -15,6 +15,18 @@
 > gadgetu (`closable: false`), jde jen minimalizovat. Gadgety = binární
 > bitmapy (CSS mask) barvené `--vb-window-gadget` z palety per screen; okna
 > mají rám `--vb-window-border` (workbench černý).
+>
+> **NAVAZUJÍCÍ VELKÝ REFAKTOR (stejný den):** celý frontend přestavěn na
+> **window manager + pluginy** (zadání: „zobrazení grafu je jen jedna z jeho
+> funkcí") – jádro `frontend/src/wm/` (drag.js se sticky pojistkami,
+> base_window, window_manager s registrem typů, screen_bar, screen_manager,
+> desktop, options_store), schopnosti `frontend/src/plugins/` (graph/, log,
+> detail, control, terminal). Kompletní revize a mapa přesunů:
+> `docs/superpowers/specs/2026-08-02-wm-plugin-architecture.md`. Další
+> změny chování z live testování: Options dropdown se zavírá hned po volbě;
+> metriky sítě (2D/3D · uzly · fps) v liště okna grafu, lišta screenu jen
+> titulek; Guru Meditation nese důvod přímo v boxu místo hex kódu
+> (guru_code.js smazán); dvojklik na lištu okna maximalizuje/vrací.
 > Bitmapové gadgety vyříznuty z referencí do `frontend/src/assets/gadgets/`
 > (§3b). Navíc: CSS proměnné témat jdou na kontejner screenu, ne :root —
 > témata jsou per-screen. Vše ověřeno živě Playwrightem (auto-open, prepend,

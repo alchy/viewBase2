@@ -1,8 +1,8 @@
 import { Connection } from './core/connection.js';
 import { GuruMeditation } from './core/guru_meditation.js';
 import { StatusOverlay } from './core/status.js';
-import { formatLogLine } from './screens/log_panel.js';
-import { ScreenManager } from './screens/manager.js';
+import { formatLogLine } from './plugins/log.js';
+import { ScreenManager } from './wm/screen_manager.js';
 
 const status = new StatusOverlay();
 const guru = new GuruMeditation();

@@ -1,9 +1,9 @@
-/** Terminálové (konzolové) okno: scrollovatelný append-only výstup + řádek se
- *  vstupem. Enter pošle event terminal_input; server připisuje výstup akcí
- *  terminal_append (viz WindowManager.terminalAppend → this.append). Chrome dědí
- *  z BaseWindow. Vstup je <input>, takže KeyboardControls (isEditableFocused)
- *  při psaní neovládá kameru. */
-import { BaseWindow } from './base_window.js';
+/** Terminal plugin: konzolové okno – scrollovatelný append-only výstup +
+ *  řádek se vstupem. Enter pošle event terminal_input; server připisuje
+ *  výstup akcí terminal_append (obsluhuje ji tenhle plugin). Chrome dědí
+ *  z BaseWindow (wm/). Vstup je <input>, takže KeyboardControls
+ *  (isEditableFocused) při psaní neovládá kameru. */
+import { BaseWindow } from '../wm/base_window.js';
 
 const PX_PER_CH = 8;            // hrubý převod šířky v px na znaky (BaseWindow._width)
 const OUTPUT_HEIGHT_PX = 220;   // výška výstupní plochy
@@ -98,4 +98,36 @@ export class TerminalWindow extends BaseWindow {
   _renderBody() {
     // výstup i vstup persistují v DOM; téma/obnova nevyžadují rebuild
   }
+}
+
+/** Instalace do desktopu: typ okna 'terminal' + akce `terminal_append`.
+ *  Stejné window_id nahrazuje existující okno (nová definice ze serveru). */
+export function createTerminalPlugin({ container, windowManager, sendEvent }) {
+  windowManager.registerType('terminal', (spec) => {
+    windowManager.get(spec.window_id)?.close();   // nahrazení stejného window_id
+    const win = windowManager.adopt(new TerminalWindow({
+      id: spec.window_id,
+      title: spec.title,
+      prompt: spec.prompt,
+      width: spec.width,
+      closable: spec.closable,
+      input: spec.input,
+      onInput: (payload) => sendEvent({
+        type: 'event', event: 'terminal_input', payload,
+      }),
+      container,
+      manager: windowManager,
+    }));
+    win.bringToFront();
+    return win;
+  });
+  return {
+    name: 'terminal',
+    actions: {
+      terminal_append: (msg) => {
+        const win = windowManager.get(msg.window_id);
+        if (win && win.kind === 'terminal') win.append(msg.text);
+      },
+    },
+  };
 }

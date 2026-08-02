@@ -1,17 +1,15 @@
-/** ScreenManager (Fáze 3/5/6/9 designu, docs/superpowers/plans/2026-08-02-
- *  multi-screen-workbench-plan.md): drží N ScreenInstance (screen_id ->
- *  pipeline) a drag-reveal (§6 designu, viz drag_reveal.js pro čisté
- *  funkce a poznámku o modelu – každý screen má svůj vlastní perzistentní
- *  offset, tažení se neresetuje/nekomituje). Lišta (titulek + menu +
- *  depth gadgety) je SOUČÁST každého screenu (`ScreenMenuBar`,
- *  screen_menu.js) – žádná druhá, sdílená root lišta navíc (uživatelská
- *  oprava: „máš na screenu mít vždy jen jednu lištu"). Zakryté screeny
- *  (3.+ pozice v z-stacku) běží dál naplno (fyzika), jen se přestanou
- *  vykreslovat (ScreenInstance.setActive) – jen top-2 (přední a
- *  bezprostředně za ním) jsou vidět/renderované, přesně jako na originále
- *  (jedna scanline = max 2 bitmapy). */
+/** ScreenManager (WM jádro): z-stack desktopů (screen_id -> desktop.js
+ *  instance) a drag-reveal (§6 designu, viz drag_reveal.js pro čisté
+ *  funkce – každý screen má svůj vlastní perzistentní offset, tažení se
+ *  neresetuje/nekomituje). Lišta (titulek + menu + depth gadget) je
+ *  SOUČÁST každého screenu (`ScreenBar` uvnitř desktopu) – žádná druhá,
+ *  sdílená root lišta navíc. Jen top-2 (přední a bezprostředně za ním)
+ *  jsou vidět/renderované, přesně jako na originále (jedna scanline =
+ *  max 2 bitmapy); hlubší pozice pauzují i zdroje (desktop deleguje na
+ *  pluginy). Navíc routuje proces-wide log záznamy do log oken. */
 import screenDepthIcon from '../assets/gadgets/screen-depth.png';
-import { createScreenInstance } from './screen_instance.js';
+import { createDesktop } from './desktop.js';
+import { wirePointerDrag } from './drag.js';
 import { offsetAfterDrag, swapFrontWithNext, translateYForOffset } from './drag_reveal.js';
 
 const MAX_PENDING_LOGS = 200;   // záznamy před prvním screenem – strop proti růstu
@@ -27,11 +25,9 @@ export class ScreenManager {
     this.dragState = null;        // {screenId, startY, startOffset} během tažení
     this.pendingLogs = [];        // log záznamy došlé dřív, než existuje screen
     this.logAutoOpened = false;   // auto-open proběhl (zavření uživatelem se respektuje)
-    // Bezpečnostní pojistka (uživatelský bug: "kliknu a drží se to myši" –
-    // tažení má skončit PŘESNĚ s puštěným tlačítkem, žádná mezera): pointer
-    // capture na barEl by měl `pointerup` vždy doručit, ale reálná
-    // zařízení/OS to nemusí garantovat stoprocentně (ztráta focusu okna
-    // apod.) – cokoli, co pustí tlačítko KDEKOLI na stránce, tažení ukončí.
+    // Poslední záchrana pro tažení lišty: puštění tlačítka KDEKOLI na
+    // stránce tažení ukončí (primární pojistky – buttons===0 guard,
+    // lostpointercapture – jsou ve sdíleném wirePointerDrag, drag.js).
     window.addEventListener('pointerup', () => { this.dragState = null; });
     window.addEventListener('pointercancel', () => { this.dragState = null; });
   }
@@ -45,7 +41,7 @@ export class ScreenManager {
     container.dataset.role = 'vb-screen';
     container.dataset.screenId = String(screenId);
     // POZOR: container musí být při vytvoření VIDITELNÝ (žádné display:none) –
-    // Renderer uvnitř createScreenInstance čte container.clientWidth/Height
+    // Renderer uvnitř graf pluginu čte container.clientWidth/Height
     // synchronně při konstrukci (WebGLRenderer.setSize); display:none by v tu
     // chvíli změřilo 0×0 a canvas by zůstal nesprávně nasetovaný navždy (later
     // setActive(true) sizing nepřepočítává, jen togluje display). Schová se
@@ -81,7 +77,7 @@ export class ScreenManager {
   ensure(screenId) {
     let instance = this.instances.get(screenId);
     if (instance) return instance;
-    instance = createScreenInstance({
+    instance = createDesktop({
       container: this._createContainer(screenId), screenId, connection: this.connection,
     });
     // Titulek čte store.config.title – v okamžiku vytvoření instance ještě
@@ -109,18 +105,18 @@ export class ScreenManager {
    *  Meditation (main.js). Záznamy před prvním screenem se frontují. */
   appendLog(record) {
     const logWindows = [...this.instances.values()]
-      .map((instance) => instance.windowManager?.logWindow())
+      .map((instance) => instance.logWindow())
       .filter(Boolean);
     if (logWindows.length === 0) {
       if (this.logAutoOpened) return;   // divák zavřel – respektuje se
       const front = this.instances.get(this.zOrder[0]);
-      if (!front?.windowManager) {
+      if (!front) {
         // ještě není kde okno otevřít – zafrontuj (doručí _register)
         if (this.pendingLogs.length < MAX_PENDING_LOGS) this.pendingLogs.push(record);
         return;
       }
       this.logAutoOpened = true;
-      logWindows.push(front.windowManager.openLog());
+      logWindows.push(front.openLog());
     }
     for (const win of logWindows) win.append(record);
   }
@@ -181,7 +177,7 @@ export class ScreenManager {
     // Log okno zaniklé SE screenem nezavřel divák – příští log záznam ho
     // smí auto-otevřít znovu (na novém předním screenu). Ruční zavření
     // okna (gadgetem) naopak logAutoOpened nechává, viz appendLog.
-    if (instance.windowManager?.logWindow()) this.logAutoOpened = false;
+    if (instance.logWindow()) this.logAutoOpened = false;
     instance.destroy();
     this.instances.delete(screenId);
     this.order = this.order.filter((id) => id !== screenId);
@@ -193,16 +189,16 @@ export class ScreenManager {
   _renderTitle(screenId) {
     const instance = this.instances.get(screenId);
     if (!instance) return;
-    instance.menuBar?.setTitle(instance.store?.config?.title || `Screen ${screenId}`);
+    instance.bar?.setTitle(instance.store?.config?.title || `Screen ${screenId}`);
   }
 
-  /** Zadrátuje screenovu VLASTNÍ lištu (`ScreenMenuBar` – titulek, menu,
-   *  depth gadgety, drag) – volá se jednou při registraci. Lišta je
+  /** Zadrátuje screenovu VLASTNÍ lištu (`ScreenBar` – titulek, menu,
+   *  depth gadget, drag) – volá se jednou při registraci. Lišta je
    *  SOUČÁST screenu (jeho kontejneru), takže se s ním posouvá jako jeden
-   *  blok (uživatelská oprava: „i menu je v rámci screen listy", „musí se
+   *  blok (uživatelská oprava: „i menu je v rámci screen lišty", „musí se
    *  posouvat celý blok canvasu/screeny"). */
   _wireScreenChrome(screenId, instance) {
-    const bar = instance.menuBar;
+    const bar = instance.bar;
     if (!bar) return;
     this._renderTitle(screenId);
     bar.addGadget('vb-screen-switch', screenDepthIcon,
@@ -219,34 +215,27 @@ export class ScreenManager {
    *  neprohazuje (uživatelská oprava: „tam kam dotáhnu lištu, tam zůstává
    *  obraz rozdělen" – žádný snap-back/auto-commit). */
   _wireDrag(screenId, barEl) {
-    barEl.addEventListener('pointerdown', (e) => {
-      if (this.zOrder[0] !== screenId) return;
-      this.dragState = {
-        screenId, startY: e.clientY, startOffset: this.offsets.get(screenId) ?? 0,
-      };
-      barEl.setPointerCapture(e.pointerId);
+    wirePointerDrag(barEl, {
+      onStart: (e) => {
+        if (this.zOrder[0] !== screenId) return null;
+        this.dragState = {
+          screenId, startY: e.clientY, startOffset: this.offsets.get(screenId) ?? 0,
+        };
+        return this.dragState;
+      },
+      onMove: (e, drag) => {
+        const instance = this.instances.get(screenId);
+        if (!instance) return;
+        const delta = e.clientY - drag.startY;
+        const next = offsetAfterDrag(
+          drag.startOffset, delta, instance.container.clientHeight || 0);
+        this.offsets.set(screenId, next);
+        this._layout();
+      },
+      onEnd: () => {
+        this.dragState = null;
+        // ŽÁDNÝ _layout()/reset tady – offset zůstal, kam ho tažení dotáhlo.
+      },
     });
-    barEl.addEventListener('pointermove', (e) => {
-      if (!this.dragState || this.dragState.screenId !== screenId) return;
-      const instance = this.instances.get(screenId);
-      if (!instance) return;
-      const delta = e.clientY - this.dragState.startY;
-      const next = offsetAfterDrag(
-        this.dragState.startOffset, delta, instance.container.clientHeight || 0);
-      this.offsets.set(screenId, next);
-      this._layout();
-    });
-    const endDrag = (e) => {
-      if (!this.dragState || this.dragState.screenId !== screenId) return;
-      this.dragState = null;
-      try { barEl.releasePointerCapture(e.pointerId); } catch { /* noop */ }
-      // ŽÁDNÝ _layout()/reset tady – offset zůstal, kam ho tažení dotáhlo.
-    };
-    barEl.addEventListener('pointerup', endDrag);
-    barEl.addEventListener('pointercancel', endDrag);
-    // Capture se může ztratit i BEZ pointerup/pointercancel (prohlížeč/OS
-    // specifické situace) – i to musí tažení ukončit, jinak `pointermove`
-    // dál reaguje na pohyb myši bez drženého tlačítka ("drží se myši").
-    barEl.addEventListener('lostpointercapture', endDrag);
   }
 }

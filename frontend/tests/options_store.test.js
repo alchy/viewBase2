@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_OPTIONS, loadOptions, optionsKey, saveOptions, slugTitle,
-} from '../src/screens/options.js';
+} from '../src/wm/options_store.js';
 
 class FakeStorage {
   constructor() { this.map = new Map(); }
