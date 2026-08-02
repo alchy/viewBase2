@@ -194,10 +194,13 @@ export class BaseWindow {
       });
     }
 
+    // Titulek ZLEVA jako na Amiga Workbench (uživatelská oprava: „text
+    // názvu okna řadí zleva… necentruje se"), hned za close gadgetem,
+    // pokud okno nějaký má. flex:1 tlačí metriky/gadgety doprava.
     this.titleEl = document.createElement('div');
     this.titleEl.textContent = this.title;
     this.titleEl.style.cssText = [
-      'flex:1', 'text-align:center', 'font-weight:600',
+      'flex:1', 'text-align:left', 'font-weight:600',
       'white-space:nowrap', 'overflow:hidden', 'text-overflow:ellipsis',
     ].join(';');
 

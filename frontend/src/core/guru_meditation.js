@@ -40,7 +40,9 @@ export class GuruMeditation {
       'border:3px solid #ff0000', 'padding:18px 28px', 'color:#ff0000',
       'text-align:center', 'font-size:18px', 'font-weight:bold',
       'letter-spacing:0.5px', 'white-space:pre-wrap', 'word-break:break-word',
-      'max-width:80%', 'box-sizing:border-box',
+      // width:max-content: abs. pozice s left:50% jinak sráží shrink-to-fit
+      // šířku na polovinu viewportu a první řádek se zbytečně lámal
+      'width:max-content', 'max-width:80%', 'box-sizing:border-box',
       'animation:vb-guru-blink 1s step-start infinite',
     ].join(';');
 
@@ -72,11 +74,13 @@ export class GuruMeditation {
   }
 
   /** `kind`: 'frontend_error' | 'connection_lost' | 'backend_error'.
-   * `message`: skutečný důvod – jde PŘÍMO do boxu místo Amiga hash kódu
-   * (tohle je vývojářský nástroj, důvod je užitečnější než hex). */
+   * `message`: skutečný důvod, ANGLICKY a stručně („Connection Lost",
+   * text výjimky) – jde PŘÍMO do boxu, bez „Guru Meditation" prefixu
+   * i bez Amiga hash kódu (uživatelská oprava: stačí důvod, zachovat
+   * jen styl). */
   show(kind, message) {
     this.reason = kind;
-    this.code.textContent = `Guru Meditation: ${message ?? kind}`;
+    this.code.textContent = message ?? kind;
     this.el.style.display = 'block';
   }
 

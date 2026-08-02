@@ -45,14 +45,13 @@ function bootstrap() {
         // JS/backend chybu musí odkliknout uživatel, přesně jako originál.
         guru.dismissIfConnectionRecovered();
       } else if (state === 'close') {
-        guru.show('connection_lost',
-          'Spojení se serverem vypadlo – zkouším se znovu připojit…');
+        // chybové texty v Guru boxu ANGLICKY a stručně (uživatelská
+        // oprava: „postačí 'Connection Lost'... errors v angličtině")
+        guru.show('connection_lost', 'Connection Lost');
       } else if (state === 'connect_failed') {
-        guru.show('connection_lost',
-          'Spojení se serverem se nezdařilo – zkouším se znovu připojit…');
+        guru.show('connection_lost', 'Connection Failed');
       } else if (state === 'protocol_mismatch') {
-        guru.show('connection_lost',
-          'Server běží s jinou verzí protokolu – obnovte stránku (F5).');
+        guru.show('connection_lost', 'Protocol Mismatch — reload the page (F5)');
       }
     },
     onAction: (msg) => {

@@ -232,8 +232,8 @@ zaloguje `level="error"`, objeví se **Guru Meditation** — homage na Amiga
 crash obrazovku (červeně orámovaný blikající box, zavírá se libovolným
 tlačítkem myši nebo Esc — ne jen levým, na Macu nedává smysl), ne tichý
 `console.error`. Místo původního hex kódu nese box **skutečný důvod
-chyby** („Spojení se serverem vypadlo…", text výjimky) — je to vývojářský
-nástroj, důvod je užitečnější než hash.
+chyby**, anglicky a stručně („Connection Lost", text výjimky) — je to
+vývojářský nástroj, důvod je užitečnější než hash.
 
 Nové je i vestavěné téma **`"workbench"`** (`Canvas(theme="workbench")`)
 — přebarví okna do Amiga/AmigaDOS palety: bílá titulková lišta s jemným
