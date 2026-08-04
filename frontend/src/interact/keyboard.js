@@ -14,19 +14,41 @@ const ORBIT_STEP = 0.06;    // rad na krok (auto-repeat klávesy = plynulost)
 const ZOOM_FACTOR = 0.92;   // násobek vzdálenosti (3D) / zoomu (2D) na krok
 const PAN_STEP = 40;        // světové jednotky na krok (2D pan)
 const MIN_POLAR = 0.05;     // rad – nepřeklápět kameru přes póly
+// Posun pohledu je zlomek VZDÁLENOSTI od cíle, ne pevný počet jednotek:
+// zblízka se tak posouvá jemně, z dálky svižně, a na malém i obřím grafu se
+// ovládá stejně.
+const PAN_FRACTION = 0.08;
 
 /** Klávesy: W/S = orbit nahoru/dolů (polar), A/D = vlevo/vpravo (azimut),
- *  Q/E = zoom in/out, mezerník nebo R = reset na výchozí pohled.
- *  Ve 2D režimu WASD = pan, Q/E = zoom (ortografická kamera). */
+ *  Q/E = zoom in/out, MEZERNÍK = nacentrovat na těžiště grafu (a nazoomovat
+ *  tak, aby se celý vešel), R = reset na výchozí pohled.
+ *  Ve 2D režimu WASD = pan, Q/E = zoom (ortografická kamera).
+ *
+ *  SHIFT + WASD posouvá POHLED po ploše obrazovky (vleze se do něj jiná část
+ *  grafu) místo obíhání kolem středu – kamera i její cíl se posunou o totéž,
+ *  takže se pohled nestáčí zpátky doprostřed. U velkého grafu je to jediný
+ *  způsob, jak si prohlédnout okraj, aniž by ho orbit odtočil pryč. */
 export class KeyboardControls {
-  constructor(camera, controls, { is2d = false, target = window } = {}) {
+  /** `hasFocus` rozhoduje, jestli klávesy patří tomuhle grafu – posluchač visí
+   *  na `window` (jinak by canvas musel být fokusovatelný), takže při víc
+   *  oknech nebo screenech by jinak jedna klávesa hýbala všemi najednou.
+   *  `onCenter` obslouží mezerník; bez něj se spadne zpět na reset pohledu. */
+  constructor(camera, controls, {
+    is2d = false, target = window, hasFocus = () => true, onCenter = null,
+  } = {}) {
     this._spherical = new THREE.Spherical();
     this._offset = new THREE.Vector3();
+    this._right = new THREE.Vector3();
+    this._up = new THREE.Vector3();
+    this._delta = new THREE.Vector3();
+    this.hasFocus = hasFocus;
+    this.onCenter = onCenter;
     this.setCameraControls(camera, controls, is2d);
     target.addEventListener('keydown', (e) => {
       // píše-li uživatel do inputu (ovládací okno), klávesy nepatří kameře
       if (isEditableFocused()) return;
-      if (this.handleKey(e.code)) e.preventDefault();
+      if (!this.hasFocus()) return;         // klávesy patří jinému oknu
+      if (this.handleKey(e.code, e.shiftKey)) e.preventDefault();
     });
   }
 
@@ -47,7 +69,16 @@ export class KeyboardControls {
   }
 
   /** Vrací true, když byla klávesa obsloužená. */
-  handleKey(code) {
+  handleKey(code, shift = false) {
+    if (shift) {
+      switch (code) {
+        case 'KeyW': this._panView(0, 1); return true;
+        case 'KeyS': this._panView(0, -1); return true;
+        case 'KeyA': this._panView(-1, 0); return true;
+        case 'KeyD': this._panView(1, 0); return true;
+        default: break;      // Shift+Q/E/R ať se chovají jako bez shiftu
+      }
+    }
     if (this.is2d) {
       switch (code) {
         case 'KeyW': this._pan(0, PAN_STEP); return true;
@@ -56,7 +87,8 @@ export class KeyboardControls {
         case 'KeyD': this._pan(PAN_STEP, 0); return true;
         case 'KeyQ': this._zoom(ZOOM_FACTOR); return true;
         case 'KeyE': this._zoom(1 / ZOOM_FACTOR); return true;
-        case 'Space': case 'KeyR': this.reset(); return true;
+        case 'Space': this.center(); return true;
+        case 'KeyR': this.reset(); return true;
         default: return false;
       }
     }
@@ -67,9 +99,18 @@ export class KeyboardControls {
       case 'KeyD': this._orbit(-ORBIT_STEP, 0); return true;
       case 'KeyQ': this._zoom(ZOOM_FACTOR); return true;
       case 'KeyE': this._zoom(1 / ZOOM_FACTOR); return true;
-      case 'Space': case 'KeyR': this.reset(); return true;
+      case 'Space': this.center(); return true;
+      case 'KeyR': this.reset(); return true;
       default: return false;
     }
+  }
+
+  /** Mezerník: nacentruj a nazoomuj na SKUTEČNÝ rozsah grafu (řeší okno,
+   *  které jediné zná pozice uzlů). Bez obsluhy zbývá reset na výchozí
+   *  pohled – to je ale jen pevná pozice kamery, ne střed grafu. */
+  center() {
+    if (this.onCenter && this.onCenter()) return;
+    this.reset();
   }
 
   /** Orbit kolem controls.target přes sférické souřadnice. */
@@ -95,6 +136,26 @@ export class KeyboardControls {
       this._offset.multiplyScalar(factor);
       this.camera.position.copy(this.controls.target).add(this._offset);
     }
+    this._changed();
+  }
+
+  /** Posun POHLEDU po ploše obrazovky – „veze se plátno".
+   *
+   *  Kamera i její cíl se posunou o TENTÝŽ vektor, takže se pohled nestáčí
+   *  zpět ke středu jako u orbitu; graf se dá takhle procházet od kraje ke
+   *  kraji. Směry se berou z matice kamery (její osy vpravo/nahoru), aby
+   *  posun odpovídal tomu, co uživatel vidí, ne světovým osám.
+   *
+   *  `dx`/`dy` jsou -1/0/1 (vlevo–vpravo / dolů–nahoru). */
+  _panView(dx, dy) {
+    const krok = this.is2d
+      ? PAN_STEP / (this.camera.zoom || 1)
+      : this.camera.position.distanceTo(this.controls.target) * PAN_FRACTION;
+    this._right.setFromMatrixColumn(this.camera.matrix, 0).multiplyScalar(dx * krok);
+    this._up.setFromMatrixColumn(this.camera.matrix, 1).multiplyScalar(dy * krok);
+    this._delta.copy(this._right).add(this._up);
+    this.camera.position.add(this._delta);
+    this.controls.target.add(this._delta);
     this._changed();
   }
 

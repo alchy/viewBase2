@@ -85,7 +85,16 @@ export function createGraphPlugin(ctx) {
               renderer.setHighlight(null);
             },
           });
-        keyboardControls = new KeyboardControls(renderer.camera, renderer.controls, { is2d });
+        keyboardControls = new KeyboardControls(
+          renderer.camera, renderer.controls, {
+            is2d,
+            // klávesy patří grafu jen když je jeho okno aktivní A jeho screen
+            // je zrovna vidět (skryté screeny mají display:none → offsetParent
+            // null); jinak by jeden stisk hýbal grafy na všech screenech
+            hasFocus: () => windowManager.hasKeyboard(graphWindow)
+              && graphWindow.body.offsetParent !== null,
+            onCenter: () => renderer.centerOnGraph(),
+          });
       } else {
         keyboardControls.setCameraControls(renderer.camera, renderer.controls, is2d);
       }

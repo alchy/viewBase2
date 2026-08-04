@@ -96,6 +96,83 @@ describe('PhysicsCore', () => {
     expect(core.sim).toBe(simBefore);
   });
 
+  it('shluky si najde sám z topologie, průběžně během tikání', () => {
+    // dvě husté kliky spojené jediným mostem – zřetelná struktura
+    const nodes = []; const links = [];
+    for (let k = 0; k < 2; k += 1) {
+      for (let i = 0; i < 20; i += 1) nodes.push({ id: `${k}_${i}` });
+      for (let i = 0; i < 20; i += 1) {
+        for (let j = i + 1; j < 20; j += 1) {
+          links.push({ source: `${k}_${i}`, target: `${k}_${j}` });
+        }
+      }
+    }
+    links.push({ source: '0_0', target: '1_0' });
+    const core = new PhysicsCore({ dimensions: 3 });
+    core.applyInit({ nodes, links });
+    expect(core.groups.size).toBe(0);        // hned po initu ještě nic
+    for (let i = 0; i < 200 && core.groups.size === 0; i += 1) core.tick();
+    expect(core.groups.size).toBe(2);        // dopočítáno během tikání
+    const g = (id) => core.nodes.find((n) => n.id === id).group;
+    expect(g('0_5')).toBe(g('0_9'));         // klika drží pohromadě
+    expect(g('0_5')).not.toBe(g('1_5'));     // a je oddělená od druhé
+  });
+
+  it('bez skupin je síla skupin no-op (pozice zůstanou konečné)', () => {
+    const core = new PhysicsCore({ dimensions: 3 });
+    core.applyInit({
+      nodes: [{ id: 'a' }, { id: 'b' }, { id: 'c' }],
+      links: [{ source: 'a', target: 'b' }],
+    });
+    for (let i = 0; i < 50; i += 1) core.tick();
+    expect(core.groups.size).toBe(0);
+    expect(core.nodes.every((n) => Number.isFinite(n.x) && Number.isFinite(n.y)
+      && Number.isFinite(n.z))).toBe(true);
+  });
+
+  it('skupiny se od sebe odtáhnou: členové blíž k sobě než k cizí skupině', () => {
+    const core = new PhysicsCore({ dimensions: 3 });
+    const nodes = [];
+    const links = [];
+    for (let i = 0; i < 6; i += 1) {
+      nodes.push({ id: `x${i}`, group: 'X' }, { id: `y${i}`, group: 'Y' });
+    }
+    // uvnitř skupin řetízek, mezi skupinami jediný most
+    for (let i = 1; i < 6; i += 1) {
+      links.push({ source: `x${i - 1}`, target: `x${i}` },
+        { source: `y${i - 1}`, target: `y${i}` });
+    }
+    links.push({ source: 'x0', target: 'y0' });
+    core.applyInit({ nodes, links });
+    expect(core.groups.size).toBe(2);
+    for (let i = 0; i < 400; i += 1) core.tick();
+    const stred = (p) => {
+      const cl = core.nodes.filter((n) => n.id.startsWith(p));
+      return cl.reduce((a, n) => [a[0] + n.x / cl.length, a[1] + n.y / cl.length,
+        a[2] + n.z / cl.length], [0, 0, 0]);
+    };
+    const [ax, ay, az] = stred('x');
+    const [bx, by, bz] = stred('y');
+    const mezi = Math.hypot(ax - bx, ay - by, az - bz);
+    const uvnitr = core.nodes.filter((n) => n.group === 'X')
+      .reduce((s, n) => s + Math.hypot(n.x - ax, n.y - ay, n.z - az), 0) / 6;
+    expect(mezi).toBeGreaterThan(uvnitr);
+  });
+
+  it('síla skupin drží ve 2D z = 0', () => {
+    const core = new PhysicsCore({ dimensions: 2 });
+    core.applyInit({
+      nodes: [{ id: 'a', group: 'X' }, { id: 'b', group: 'X' },
+        { id: 'c', group: 'Y' }, { id: 'd', group: 'Y' }],
+      links: [{ source: 'a', target: 'c' }],
+    });
+    let buf = null;
+    for (let i = 0; i < 100; i += 1) buf = core.tick() || buf;
+    expect(buf[2]).toBe(0);
+    expect(buf[11]).toBe(0);
+    expect(core.nodes.every((n) => Number.isFinite(n.x))).toBe(true);
+  });
+
   it('linkKey nekoliduje pro id s mezerami', () => {
     const core = new PhysicsCore({ dimensions: 3 });
     core.applyInit({

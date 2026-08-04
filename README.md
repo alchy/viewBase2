@@ -51,6 +51,19 @@ obrací:
   nezávisí na počtu uzlů; popisky jsou SDF text ve WebGL s LOD rozpočtem.
 - **Server posílá jen delty** (přidej/změň/odeber uzel·hranu, akce) přes
   WebSocket; graf se může za běhu průběžně přestavovat.
+- **Graf se sám rozpadne na oblasti** — knihovna si ve workeru najde shluky
+  z topologie (Louvain) a dá každému gravitační centrum, které se odtahuje
+  od ostatních; hustě propojené uzly tak drží pohromadě místo aby se všechno
+  slilo doprostřed. Hledání běží jako průběžná úloha v rozpočtu zbylém ze
+  snímku, takže ani na velkém grafu neseká ovládání, a graf se dělí znovu,
+  když se za běhu dost změní. Vlastní rozdělení se dá vnutit metadatem
+  `skupina` u uzlu (slovní druh, korpus, cokoli aplikace ví lépe).
+
+**Ovládání:** `W`/`A`/`S`/`D` obíhá kolem grafu, **`Shift`+`WASD` veze plátno**
+(prochází graf do stran, aniž by se pohled stáčel zpět ke středu), `Q`/`E`
+přibližuje, **mezerník nacentruje na těžiště grafu** a odzoomuje na celý jeho
+rozsah, `R` vrátí výchozí pohled. Klávesy patří vždy jen aktivnímu oknu na
+viditelném screenu.
 
 Naměřeno (Apple M4 Pro, headless Chromium): **3 000 uzlů ~120 fps**,
 **10 000 uzlů ~86 fps**.

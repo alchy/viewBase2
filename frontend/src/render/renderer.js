@@ -13,6 +13,7 @@ const SMOOTHING = 8;            // 1/s – rychlost dobíhání zobrazené pozic
 const DIM_TOWARD_BG = 0.75;     // ztlumené uzly: 75 % cesty k barvě pozadí
 const FOCUS_DURATION = 0.6;     // s – dolet kamery na uzel
 const ORTHO_HALF_HEIGHT = 600;  // světové jednotky – polovina výšky 2D pohledu
+const CENTER_PADDING = 1.1;     // rezerva při centrování, ať graf nedrhne o okraj
 const DEFAULT_TYPE = '__default';  // klíč meshe pro uzly bez typu
 
 // Geometrie tvarů – rozměry voleny na zhruba stejný vizuální objem.
@@ -563,6 +564,74 @@ export class Renderer {
     this.focusId = nodeId;
     this.focusElapsed = 0;
     this._focusFrom.copy(this.controls.target);
+  }
+
+  /** Obal skutečně vykreslených uzlů: střed a poloměr, nebo null (prázdno).
+   *
+   *  Bere pozice z fyziky, ne z bounding sphere meshů – ty jsou instancované
+   *  a jejich koule se po pohybu uzlů samy neinvalidují. Poloměr je vzdálenost
+   *  NEJVZDÁLENĚJŠÍHO uzlu od těžiště; ne p95, protože centrování má ukázat
+   *  celý graf včetně odletěvších úlomků. */
+  graphBounds() {
+    const { ids, positions } = this.engine;
+    const count = Math.min(ids.length, Math.floor(positions.length / 3));
+    if (count === 0) return null;
+    const center = new THREE.Vector3();
+    for (let i = 0; i < count; i += 1) {
+      center.x += positions[i * 3];
+      center.y += positions[i * 3 + 1];
+      center.z += positions[i * 3 + 2];
+    }
+    center.divideScalar(count);
+    let radius = 0;
+    for (let i = 0; i < count; i += 1) {
+      const dx = positions[i * 3] - center.x;
+      const dy = positions[i * 3 + 1] - center.y;
+      const dz = positions[i * 3 + 2] - center.z;
+      const d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 > radius) radius = d2;
+    }
+    return { center, radius: Math.sqrt(radius) };
+  }
+
+  /** Nacentruj pohled na graf tak, aby se celý vešel do okna.
+   *
+   *  Zachovává SMĚR pohledu – uživatel si graf natočil, jak chtěl, a čeká
+   *  jen posun a odzoomování, ne přeskok jinam. Vzdálenost se počítá ze
+   *  zorného úhlu (u perspektivy) po té užší straně okna, aby se graf vešel
+   *  i na široký monitor. Vrací false, když ještě nejsou žádné pozice. */
+  centerOnGraph() {
+    if (!this.camera || !this.controls) return false;
+    const bounds = this.graphBounds();
+    if (!bounds) return false;
+    const radius = Math.max(bounds.radius, 1) * CENTER_PADDING;
+    this.focusId = null;                    // přebij rozjetý dolet na uzel
+    if (this.camera.isOrthographicCamera) {
+      const pulVysky = ORTHO_HALF_HEIGHT;
+      const pulSirky = pulVysky * (this.container.clientWidth
+        / Math.max(1, this.container.clientHeight));
+      this.camera.zoom = Math.min(pulVysky, pulSirky) / radius;
+      this.camera.updateProjectionMatrix();
+      this.camera.position.set(bounds.center.x, bounds.center.y,
+        this.camera.position.z);
+    } else {
+      const svisly = THREE.MathUtils.degToRad(this.camera.fov);
+      const vodorovny = 2 * Math.atan(Math.tan(svisly / 2) * this.camera.aspect);
+      const uzsi = Math.min(svisly, vodorovny);
+      const vzdalenost = radius / Math.sin(uzsi / 2);
+      const smer = new THREE.Vector3()
+        .subVectors(this.camera.position, this.controls.target);
+      if (smer.lengthSq() < 1e-6) smer.set(0, 0, 1);
+      smer.normalize().multiplyScalar(
+        THREE.MathUtils.clamp(vzdalenost, this.controls.minDistance,
+          this.controls.maxDistance));
+      this.camera.position.copy(bounds.center).add(smer);
+    }
+    this.controls.target.copy(bounds.center);
+    this.camera.lookAt(this.controls.target);
+    this.controls.update();
+    this.controls.dispatchEvent({ type: 'change' });
+    return true;
   }
 
   _stepFocus(dt) {

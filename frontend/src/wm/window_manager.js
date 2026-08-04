@@ -16,6 +16,11 @@ export class WindowManager {
     this.types = new Map();          // kind -> factory(spec) => BaseWindow
     this.windows = new Map();        // id -> BaseWindow
     this.optionsSource = null;       // poslední AKTIVNÍ okno, co definuje Options
+    // Okno, kterému patří klávesnice. Na rozdíl od `optionsSource` se mění
+    // při KAŽDÉ aktivaci (i u oken bez Options): klávesy musí patřit tomu,
+    // do čeho uživatel naposled klikl, jinak by WASD otáčelo grafem, i když
+    // píše do terminálu vedle.
+    this.activeWindow = null;
     this.z = 900;
     this.dockSlots = [];
   }
@@ -55,8 +60,15 @@ export class WindowManager {
    *  téže „aplikace", přesně jako na macOS menu pořád patří aplikaci
    *  (rozhodnutí uživatele: nemění se + skrýt na prázdném screenu). */
   _setActive(win) {
+    this.activeWindow = win;
     if (win.getOptionsItems() != null) this.optionsSource = win;
     this.refreshOptions();
+  }
+
+  /** Patří klávesnice tomuhle oknu? Dokud uživatel nikam neklikl, ano —
+   *  aby ovládání fungovalo hned po otevření, ne až po prvním kliknutí. */
+  hasKeyboard(win) {
+    return this.activeWindow === null || this.activeWindow === win;
   }
 
   /** Přerenderuj Options skupinu podle aktuálního zdroje – volají to i
@@ -92,6 +104,9 @@ export class WindowManager {
   _forget(id) {
     const win = this.windows.get(id);
     this.windows.delete(id);
+    // zavřené okno nesmí dál držet klávesnici – jinak by po jeho zavření
+    // nereagovalo žádné (activeWindow by ukazovalo na neexistující okno)
+    if (this.activeWindow === win) this.activeWindow = null;
     if (win !== this.optionsSource) return;
     // Zdroj Options zmizel – převezme ho nejvrchnější zbylé okno, co nějaké
     // Options definuje; bez takového se skupina schová (setOptionsGroup(null)).

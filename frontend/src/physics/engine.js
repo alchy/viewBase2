@@ -1,3 +1,11 @@
+/** Skupina uzlu pro fyziku – meta `skupina` (např. komunita spočtená
+ *  aplikací). Chybí → undefined a síla skupin uzel ignoruje. Klíč se bere
+ *  jako řetězec, ať se čísla i názvy chovají stejně. */
+function groupOf(n) {
+  const g = n.meta && n.meta.skupina;
+  return g === undefined || g === null ? undefined : String(g);
+}
+
 /** Most mezi GraphStore a fyzikálním workerem. Drží poslední ids + pozice
  *  pro renderer (ids a buffer se mohou krátce lišit délkou – renderer bere
  *  min(ids.length, positions.length / 3)). */
@@ -40,8 +48,8 @@ export class PhysicsEngine {
       this.worker.postMessage({
         type: 'init',
         dimensions: store.config.dimensions,
-        nodes: [...store.nodes.values()]
-          .map((n) => ({ id: n.id, mass: Number(n.meta && n.meta.mass) })),
+        nodes: [...store.nodes.values()].map((n) => ({
+          id: n.id, mass: Number(n.meta && n.meta.mass), group: groupOf(n) })),
         links: [...store.edges.values()]
           .map((e) => ({ source: e.source, target: e.target,
             weight: Number(e.meta && e.meta.weight) })),
@@ -50,8 +58,8 @@ export class PhysicsEngine {
       const p = event.patch;
       this.worker.postMessage({
         type: 'patch',
-        addNodes: p.add_nodes.map(
-          (n) => ({ id: n.id, mass: Number(n.meta && n.meta.mass) })),
+        addNodes: p.add_nodes.map((n) => ({
+          id: n.id, mass: Number(n.meta && n.meta.mass), group: groupOf(n) })),
         removeNodes: p.remove_nodes,
         addLinks: p.add_edges.map(
           (e) => ({ source: e.source, target: e.target,
