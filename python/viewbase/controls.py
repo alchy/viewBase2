@@ -9,6 +9,9 @@ from __future__ import annotations
 import math
 from typing import Any
 
+from .widgets import (Button, Checkbox, Field, Input, Slider, TextElement,
+                      render_elements)
+
 
 def _normalize_options(options: list) -> list[dict]:
     """Seznam (value, label) dvojic nebo holých hodnot → [{value, label}]."""
@@ -155,22 +158,32 @@ class TerminalWindow:
 
 
 class HtmlWindow:
-    """HTML okno: obsah je HTML poslané z Pythonu, vykreslené v sandboxovaném
-    iframu („prohlížeč v prohlížeči" jen pro kód, který mu server pošle).
+    """HTML okno: obsah skládaný z PRVKŮ (heading/label/button/input/slider/
+    checkbox – viz `viewbase.widgets`) na instanci okna, bez psaní HTML.
+    Vykreslí se v sandboxovaném iframu stylem ostatních oken (téma).
 
-    Na rozdíl od terminálu (prostý text) umí nadpisy, tabulky, štítky,
-    odkazy a tlačítka; styl dodá frontend z proměnných tématu, takže okno
-    vypadá jako ostatní (detail/control/terminál). Do okna se píše přes
-    `GraphWindow.html_set` (nahradí obsah) a `html_append` (připíše na
-    konec – streamový výpis); klik na prvek s `data-vb-event` přijde
-    eventem `html_event`. Bez JS uživatele: `<script>` a `on*` atributy
-    frontend před vložením odstraní, odkazy nenavigují.
+        okno = vb.HtmlWindow("panel", title="Ovládání")
+        graph.open_html(okno)
+        jmeno = okno.input("Název"); pridat = okno.button("Přidat")
+        pridat.on_click(lambda e: graph.add_node(jmeno.value))
 
-    Okno si drží AKTUÁLNÍ obsah (`html`) kvůli init replay po reconnectu –
-    proto strop `MAX_HTML`: append do nekonečna nesmí nafouknout init
-    zprávu; při překročení se obsah ořízne zepředu na hranici tagu."""
+    Každý prvek má stabilní `id` a volitelné `name`, `.text`/`.value` pro
+    čtení i zápis (zápis pošle klientům patch jen toho prvku) a handlery
+    `on_click`/`on_change`/`on_submit`; `okno.on_event(fn)` dostane vše.
+    Rozložení: bez `grid()` prvky pod sebou, `okno.grid(cols=2)` +
+    `row=/col=/colspan=` u prvku.
 
-    MAX_HTML = 512 * 1024   # znaků; přebije se i na instanci (testy)
+    Pokročilí mohou poslat vlastní HTML přes `GraphWindow.html_set` /
+    `html_append` (raw část se vysází PŘED prvky) – bez JS (frontend
+    `<script>`/`on*` odstraní), odkazy nenavigují; klik na prvek s
+    `data-vb-event` a submit `<form data-vb-event>` přijdou jako
+    `html_event` (`.event`, `.value`, `.values`).
+
+    Okno si drží aktuální obsah kvůli init replay po reconnectu – raw část má
+    strop `MAX_HTML` (append do nekonečna nesmí nafouknout init; ořez zepředu
+    na hranici tagu)."""
+
+    MAX_HTML = 512 * 1024   # znaků raw části; přebije se i na instanci (testy)
 
     def __init__(self, window_id: str, *, title: str = "",
                  width: int = 560, height: int = 320,
@@ -182,7 +195,19 @@ class HtmlWindow:
         self.width = int(width)
         self.height = int(height)
         self.closable = bool(closable)
-        self.html = ""
+        self._raw = ""                       # html_set/html_append (pokročilí)
+        self._elements: list[Any] = []       # prvky v pořadí přidání
+        self._by_id: dict[str, Any] = {}
+        self._grid_cols: int | None = None
+        self._owner: Any = None              # GraphWindow po open_html (posílá akce)
+        self._handlers: list[Any] = []       # okno.on_event
+
+    # ---- protokol ---------------------------------------------------------
+
+    @property
+    def html(self) -> str:
+        """Celý aktuální obsah (raw část + prvky) – init replay i html_set."""
+        return self._raw + render_elements(self._elements, self._grid_cols)
 
     def spec(self) -> dict[str, Any]:
         """Popis okna pro frontend (akce open_window i init replay);
@@ -198,12 +223,12 @@ class HtmlWindow:
         }
 
     def set_html(self, html: str) -> None:
-        """Nahraď celý obsah (klient dostane akci html_set)."""
-        self.html = self._trim(str(html))
+        """Nahraď raw část obsahu (klient dostane akci html_set)."""
+        self._raw = self._trim(str(html))
 
     def append_html(self, html: str) -> None:
-        """Připiš fragment na konec (klient dostane akci html_append)."""
-        self.html = self._trim(self.html + str(html))
+        """Připiš fragment na konec raw části (klient dostane akci html_append)."""
+        self._raw = self._trim(self._raw + str(html))
 
     def _trim(self, html: str) -> str:
         """Ořez zepředu na MAX_HTML: začátek se posune na první `<` za
@@ -214,6 +239,101 @@ class HtmlWindow:
             return html
         cut = html.find("<", len(html) - limit)
         return html[cut:] if cut != -1 else html[len(html) - limit:]
+
+    # ---- prvky (katalog) ---------------------------------------------------
+
+    def grid(self, cols: int = 2) -> "HtmlWindow":
+        """Mřížka: prvky pak dostávají `row=`/`col=`/`colspan=`; bez toho se
+        řadí pod sebou (auto-flow i uvnitř mřížky)."""
+        self._grid_cols = max(1, int(cols))
+        self._sync_full()
+        return self
+
+    def heading(self, text: Any, *, level: int = 2, **kw: Any) -> TextElement:
+        """Nadpis (h1–h3). `kw`: name, row, col, colspan."""
+        return self._add(TextElement(self, text, tag=f"h{min(3, max(1, int(level)))}", **kw))
+
+    def label(self, text: Any, **kw: Any) -> TextElement:
+        """Text (odstavec); `.text` jde měnit za běhu (jen ten prvek se překreslí)."""
+        return self._add(TextElement(self, text, tag="p", **kw))
+
+    def button(self, text: Any, **kw: Any) -> Button:
+        """Tlačítko → `on_click`."""
+        return self._add(Button(self, text, **kw))
+
+    def input(self, label: Any, *, value: Any = "", placeholder: str | None = None,  # noqa: A003
+              **kw: Any) -> Input:
+        """Textové pole → `on_change`, Enter → `on_submit`; `.value` je str."""
+        return self._add(Input(self, label, value=value, placeholder=placeholder, **kw))
+
+    def slider(self, label: Any, *, value: Any = 0, min: Any = 0, max: Any = 100,  # noqa: A002
+               step: Any = 1, live: bool = False, **kw: Any) -> Slider:
+        """Posuvník → `on_change` (po puštění; `live=True` i při tažení); `.value` číslo."""
+        return self._add(Slider(self, label, value=value, min=min, max=max, step=step,
+                                live=live, **kw))
+
+    def checkbox(self, label: Any, *, value: bool = False, **kw: Any) -> Checkbox:
+        """Zaškrtávátko → `on_change`; `.value` True/False."""
+        return self._add(Checkbox(self, label, value=value, **kw))
+
+    def on_event(self, fn: Any = None) -> Any:
+        """Jeden handler na všechny události okna (`event.kind`, `.element`,
+        `.name`, `.value`, `.values`). Dekorátor i volání."""
+        if fn is None:
+            return lambda f: self.on_event(f)
+        self._handlers.append(fn)
+        return fn
+
+    def element(self, id_or_name: str) -> Any:
+        """Prvek podle id nebo name (None, když není)."""
+        if id_or_name in self._by_id:
+            return self._by_id[id_or_name]
+        for el in self._elements:
+            if el.name == id_or_name:
+                return el
+        return None
+
+    # ---- vnitřek: synchronizace s klienty ---------------------------------
+
+    def _add(self, el: Any) -> Any:
+        el.id = f"{self.window_id}-{len(self._elements) + 1}"
+        self._elements.append(el)
+        self._by_id[el.id] = el
+        self._sync_full()
+        return el
+
+    def _sync_full(self) -> None:
+        """Přidání prvku / změna mřížky → celé okno (html_set), typicky při
+        startu; `with graph.batch()` sloučí. Bez owneru (před open_html) nic."""
+        if self._owner is not None:
+            self._owner._emit_html("html_set", self.window_id, html=self.html)
+
+    def _patch(self, el: Any) -> None:
+        """Změna `.text`/`.value` → jen ten prvek (html_patch)."""
+        if self._owner is not None:
+            self._owner._emit_html("html_patch", self.window_id, id=el.id, html=el.render())
+
+    def _dispatch(self, event: Any) -> None:
+        """Událost z klienta (viz GraphWindow._on_html_event): nejdřív
+        aktualizuj `.value` polí z `event.values`, pak handlery prvku
+        (`on_click`/`on_change`/`on_submit` podle `event.kind`) a okna."""
+        values = getattr(event, "values", None) or {}
+        for el in self._elements:
+            if isinstance(el, Field) and el.name in values:
+                el._set_from_client(values[el.name])
+        el = self._by_id.get(getattr(event, "id", None) or "") \
+            or self.element(getattr(event, "event", "") or "")
+        event.element = el
+        event.name = getattr(event, "event", None)
+        if not getattr(event, "kind", None):
+            event.kind = "click"
+        if el is not None:
+            if isinstance(el, Field) and event.kind in ("change", "submit") \
+                    and hasattr(event, "value"):
+                el._set_from_client(event.value)
+            el._fire(event.kind, event)
+        for fn in self._handlers:
+            fn(event)
 
 
 _DROP = object()   # sentinel: hodnotu zahodit (None je validní string/enum)

@@ -387,6 +387,7 @@ class GraphWindow:
         `on_event` předchozí callback zruší (stejně jako open_terminal)."""
         with self._lock:
             self._html_windows[window.window_id] = window
+            window._owner = self             # prvky odteď posílají html_set/html_patch
             if on_event is not None:
                 self._html_callbacks[window.window_id] = on_event
             else:
@@ -403,7 +404,7 @@ class GraphWindow:
                 raise ValueError(f"HTML okno '{window_id}' neexistuje")
             window.set_html(html)
             self._actions.append({"action": "html_set",
-                                  "window_id": window_id, "html": str(html)})
+                                  "window_id": window_id, "html": window.html})
 
     def html_append(self, window_id: str, html: str) -> None:
         """Připiš HTML fragment na konec okna (streamový výpis; klient drží
@@ -416,11 +417,17 @@ class GraphWindow:
             self._actions.append({"action": "html_append",
                                   "window_id": window_id, "html": str(html)})
 
+    def _emit_html(self, action: str, window_id: str, **fields: Any) -> None:
+        """Akce od prvků HTML okna (html_set celého okna / html_patch prvku)."""
+        with self._lock:
+            self._actions.append({"action": action, "window_id": window_id, **fields})
+
     def _on_html_event(self, event) -> None:
         """Interní handler eventu html_event (klik na [data-vb-event] nebo
         submit <form data-vb-event> v HTML okně): doplň `.value` (None, když
-        prvek data-vb-value nemá) a `.values` (dict hodnot polí formuláře
-        podle `name`; u kliku prázdný) a zavolej on_event okna."""
+        prvek data-vb-value nemá) a `.values` (dict hodnot polí okna podle
+        `name`), předej oknu (prvky: aktualizace `.value`, handlery prvků a
+        `okno.on_event`) a zavolej `on_event` z open_html."""
         window_id = getattr(event, "window_id", None)
         if not isinstance(getattr(event, "event", None), str):
             return
@@ -429,7 +436,10 @@ class GraphWindow:
         if not isinstance(getattr(event, "values", None), dict):
             event.values = {}
         with self._lock:
+            window = self._html_windows.get(window_id)
             callback = self._html_callbacks.get(window_id)
+        if window is not None:
+            window._dispatch(event)          # prvky: .value, on_click/on_change/on_submit
         if callback is not None:
             callback(event)
 
