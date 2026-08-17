@@ -147,7 +147,7 @@ týž graf, jen přepnutý přepínač:
 |---|---|---|
 | `LogWindow` | **systémové** okno — obsah dodává knihovna (proces-wide log, `tail -f`) | `examples/log_window.py` |
 | `TerminalWindow` | **textové/dialogové** okno — píše se do něj a umí poslat string od uživatele | `examples/terminal.py` |
-| `HtmlWindow` | **HTML okno** — formátovaný obsah (nadpisy, tabulky, štítky, tlačítka) poslaný z Pythonu; kliky se vrací eventem | `examples/html_window.py` |
+| `HtmlWindow` | **panel z prvků** — heading/label/button/input/slider/checkbox skládané z Pythonu bez HTML; události s hodnotami se vrací do Pythonu | `examples/html_window.py` |
 | `ControlWindow` | **formulářové** okno — typovaná pole, hodnoty tečou zpět do Pythonu | `examples/prototype.py` |
 | `GraphWindow` | **grafové** okno — živý 2D/3D graf, fyzika, eventy, toky | `examples/quickstart.py` |
 | detailní okno | **systémové** okno s metadaty uzlu — otevírá klik do grafu | `examples/log_demo.py` |
@@ -192,37 +192,70 @@ feed bez vstupního řádku). Kompletní ukázka včetně REST pushování:
 
 ### HTML okno
 
-`HtmlWindow` — „prohlížeč v prohlížeči" jen pro kód, který mu pošle server:
-formátovaný výpis s nadpisy, tabulkami, štítky, odkazy a tlačítky tam, kde
-terminál nabízí jen text. Styl je **sjednocený s ostatními okny** — obsah se
-vysází boilerplate CSS, které bere barvy z proměnných tématu (`--vb-window-*`),
-takže tabulka klíč/hodnota vypadá jako detail okno, tlačítka jako control okno,
-`<pre>/<code>` jako terminál a změna tématu přebarví HTML okno stejně jako ostatní.
+`HtmlWindow` — ovládací/informační panel poskládaný z **prvků** přímo
+v Pythonu, **bez psaní HTML** (záměr: jednoduchost a jednotný vzhled i za
+cenu menší volnosti). Čtyři kroky:
 
 ```python
-karta = vb.HtmlWindow("karta", title="Uzel", width=420, height=250)
+panel = vb.HtmlWindow("panel", title="Ovládání", width=440, height=300)   # 1) okno
+graph.open_html(panel)
+panel.grid(cols=2)                                                        # 2) mřížka (volitelně)
 
-def on_event(event):                    # event.event = data-vb-event, event.value = data-vb-value
-    if event.event == "focus":
-        graph.focus(event.value)
+stav   = panel.label("stav: v pořádku", row=0, col=0, colspan=2)         # 3) prvky z katalogu
+jmeno  = panel.input("Název uzlu", value="srv-3", name="jmeno", row=1, col=0)
+zatez  = panel.slider("Zátěž (%)", value=50, min=0, max=100, name="zatez", row=1, col=1)
+sleduj = panel.checkbox("Zvýraznit sousedy", value=True, name="sleduj", row=2, col=0)
+pridat = panel.button("Přidat uzel", row=3, col=0)
 
-graph.open_html(karta, on_event=on_event)
-graph.html_set("karta", """
-  <h2>Server 0 <span class="vb-tag">server</span></h2>
-  <table class="kv"><tr><td>stav</td><td><span class="vb-ok">● běží</span></td></tr></table>
-  <button data-vb-event="focus" data-vb-value="srv-0">Zaostřit</button>
-""")                                     # nahradí celý obsah
-graph.html_append("udalosti", "<div>09:41 <span class='vb-warn'>warn</span> fps 48</div>")  # připíše
+@pridat.on_click                                                          # 4) události
+def _(event):
+    graph.add_node(jmeno.value, load=zatez.value)     # .value polí je v handleru už aktuální
+    if sleduj.value:
+        graph.highlight(jmeno.value, depth=1)
+    stav.text = f"přidán {jmeno.value}"               # zápis → překreslí se JEN tenhle prvek
+
+@zatez.on_change                                      # slider po puštění (live=True i při tažení)
+def _(event):
+    stav.text = f"zátěž {event.value} %"              # event.value je číslo, ne text
+
+@jmeno.on_submit                                      # Enter v textovém poli
+def _(event):
+    graph.focus(event.value)
 ```
 
-Utility třídy boilerplate: `table.kv` (klíč/hodnota), `.vb-key` (tlumený
-text), `.vb-tag` (štítek), `.vb-ok` / `.vb-warn` / `.vb-err`, `.vb-bar > i`
-(progress), `.vb-actions` (řada tlačítek), `.num` (číslo vpravo), `.small`.
-Vlastní `<style>` v posílaném HTML má poslední slovo. **Hranice:** JS v HTML
-se odstraní (`<script>`, `on*`, `javascript:`), odkazy nenavigují — jediná
-cesta ven je `data-vb-event` → `html_event`. Okno si pamatuje aktuální obsah
-pro replay po reconnectu (strop `HtmlWindow.MAX_HTML`, ořez zepředu).
-Kompletní ukázka: `examples/html_window.py`.
+**Katalog prvků** (základ, další přibudou postupně): výstup `heading`,
+`label`; interakce `button`, `input`, `slider`, `checkbox`. Každý prvek má
+stabilní `.id`, volitelné `name=` (klíč do `event.values`), `.text` nebo
+`.value` pro čtení i zápis. Bez `grid()` se prvky řadí pod sebe.
+
+**Události:** `prvek.on_click / on_change / on_submit(fn)` (dekorátor i
+volání), nebo `panel.on_event(fn)` pro vše. `event` nese `.element`,
+`.name`, `.kind` (`click`/`change`/`submit`), `.value` (hodnota prvku, u
+tlačítka `None`) a `.values` (hodnoty **všech** polí okna podle `name`,
+s typy: číslo/slider → číslo, checkbox → `True`/`False`). Server nejdřív
+aktualizuje `.value` prvků, teprve pak volá handlery — takže v handleru
+tlačítka čteš rovnou `jmeno.value`. Bohatý text uvnitř prvku:
+`stav.text = vb.Ui.ok("běží")` (`vb.Ui.ok/warn/err/tag/code/bar`).
+
+Styl je **sjednocený s ostatními okny**: prvky se vysází stylem z proměnných
+tématu (popisky v barvě klíčů jako detail okno, tlačítka jako control okno),
+změna tématu je přebarví. Kompletní ukázka: `examples/html_window.py`.
+
+<details>
+<summary>Pro pokročilé: vlastní HTML (<code>html_set</code> / <code>html_append</code>)</summary>
+
+`graph.html_set("id", "<h2>…</h2>")` nahradí raw část obsahu (vysází se
+před prvky), `graph.html_append("id", "<div>…</div>")` připíše na konec (živý
+výpis, okno drží konec). Klik na prvek s `data-vb-event` (+ `data-vb-value`)
+a odeslání `<form data-vb-event="…">` přijdou do `graph.open_html(win,
+on_event=…)` jako `event.event` / `event.value` / `event.values`. Utility
+třídy boilerplate: `table.kv`, `.vb-key`, `.vb-tag`, `.vb-ok/.vb-warn/.vb-err`,
+`.vb-bar > i`, `.vb-actions`, `.num`, `.small`; vlastní `<style>` má poslední
+slovo. **Hranice:** JS v HTML se odstraní (`<script>`, `on*`, `javascript:`),
+odkazy nenavigují. Okno si pamatuje obsah pro replay po reconnectu (strop
+`HtmlWindow.MAX_HTML`). Builder `vb.Ui` umí totéž bez ručního HTML.
+
+</details>
 
 ### Formulářové okno
 
@@ -496,7 +529,7 @@ a [architektura WM + pluginy](docs/superpowers/specs/2026-08-02-wm-plugin-archit
 | `examples/prototype.py` | `ControlWindow` jako **formulářový dialog** (přidání uzlu podle zadaných polí), `TerminalWindow` jako log |
 | `examples/showcase.py` | téma cyber, typy uzlů, **živá změna barvy/typu za běhu**, toky, **control okno** (čáry/splajny) |
 | `examples/terminal.py` | **konzole v prohlížeči**: `TerminalWindow`, `on_input`, `terminal_write`, výstupní panel a REST push (`/api/event`) |
-| `examples/html_window.py` | **HTML okno**: `HtmlWindow`, `html_set` (karta uzlu po kliku), `html_append` (živý výpis), `data-vb-event` → `on_event`, utility třídy a vlastní `<style>` |
+| `examples/html_window.py` | **HTML okno z prvků**: `HtmlWindow` + `grid`, `label`/`input`/`slider`/`checkbox`/`button`, `on_click`/`on_change`/`on_submit`, `.text`/`.value` za běhu, `panel.on_event` |
 | `examples/words.py` | mapa slov z Wikipedie (crawl odkazů) |
 | `examples/stress.py` | zátěžový test (tisíce uzlů) |
 | `examples/log_demo.py` | **multi-screen Workbench**: `vb.log()` → vestavěné okno „Log" (`tail -f` styl AmigaShell, timestampy), Options aktivního okna na liště (graf: fyzika/splajn/3D; log: filtry úrovní a zdrojů) |

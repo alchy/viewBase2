@@ -1,17 +1,21 @@
-"""HTML okno: formátovaný obsah z Pythonu v okně prohlížeče.
+"""HTML okno: ovládací panel poskládaný z PRVKŮ – bez psaní HTML.
 
-Ukazuje, co `HtmlWindow` umí a jak s ním pracovat:
- - `open_html(win, on_event=…)` – okno s HTML obsahem; klik na prvek s
-   `data-vb-event` přijde do handleru jako `event.event` (+ `event.value`),
- - `html_set` – nahradí celý obsah (karta uzlu po kliku do grafu),
- - `html_append` – připíše fragment na konec (živý výpis, drží konec),
- - boilerplate: obsah je vysázený stylem ostatních oken (barvy z tématu),
-   utility třídy `.vb-tag`, `.vb-ok/.vb-warn/.vb-err`, `.vb-bar`,
-   `table.kv`, `.vb-actions`; vlastní `<style>` má poslední slovo,
- - co NEJDE (záměrně): JS v posílaném HTML se odstraní, odkazy nenavigují –
-   „prohlížeč v prohlížeči" interpretuje jen to, co mu pošle server.
+Vzor pro začátečníka (čtyři kroky):
+ 1. instance okna       okno = vb.HtmlWindow(...); graph.open_html(okno)
+ 2. mřížka (volitelně)  okno.grid(cols=2)  → prvky dostanou row=/col=
+ 3. prvky z katalogu    okno.heading/label (výstup), okno.button/input/
+                        slider/checkbox (interakce); každý má .id, .name,
+                        .text nebo .value – čtení i zápis
+ 4. události            @prvek.on_click / on_change / on_submit – event
+                        říká, KTERÝ prvek (event.element, event.name), co
+                        se stalo (event.kind) a hodnoty všech polí
+                        (event.values); .value polí jsou v handleru už
+                        aktuální, netřeba nic parsovat
 
-Spusť a klikni na uzel v grafu (karta), nebo na tlačítka v kartě.
+Změna prvku z Pythonu (stav.text = ..., zatez.value = 40) překreslí jen
+ten prvek – rozepsaný text v jiných polích zůstane. Co v okně NEJDE:
+vlastní HTML/CSS/JS (záměrně – jednoduchost a jednotný vzhled; pokročilí
+mají graph.html_set(...) s raw HTML, viz README).
 """
 import random
 
@@ -22,85 +26,84 @@ graph.define_type("server", shape="box", color="#28d7fe", size=1.4)
 graph.define_type("db", shape="octahedron", color="#ff2a6d", size=1.6)
 
 with graph.batch():
-    for i in range(6):
+    for i in range(3):
         graph.add_node(f"srv-{i}", type="server", label="{name}", name=f"Server {i}",
                        load=random.randint(10, 95))
     graph.add_node("db-0", type="db", label="{name}", name="Hlavní DB", load=37)
-    for i in range(6):
+    for i in range(3):
         graph.add_edge(f"srv-{i}", "db-0")
 
-# 1) Karta uzlu – obsah se NAHRAZUJE (html_set) při každém kliku do grafu.
-karta = vb.HtmlWindow("karta", title="Uzel", width=420, height=250)
-# 2) Živý výpis – obsah se PŘIPISUJE (html_append), okno drží konec.
-udalosti = vb.HtmlWindow("udalosti", title="Události", width=520, height=220)
+# 1) instance okna – od téhle chvíle na ni věšíme prvky i kód
+panel = vb.HtmlWindow("panel", title="Ovládání", width=440, height=300)
+graph.open_html(panel)
+
+# 2) mřížka 2 sloupce; row/col jsou od nuly, colspan roztáhne přes sloupce
+panel.grid(cols=2)
+
+# 3) prvky – každý dostane id (panel-1, panel-2, …); name je klíč do event.values
+titul  = panel.heading("Server 0", row=0, col=0, colspan=2)
+stav   = panel.label("stav: v pořádku", row=1, col=0, colspan=2)
+jmeno  = panel.input("Název nového uzlu", value="srv-3", name="jmeno",
+                     placeholder="např. srv-9", row=2, col=0)
+zatez  = panel.slider("Zátěž nového uzlu (%)", value=50, min=0, max=100,
+                      name="zatez", row=2, col=1)
+sleduj = panel.checkbox("Zvýraznit sousedy po přidání", value=True,
+                        name="sleduj", row=3, col=0, colspan=2)
+pridat = panel.button("Přidat uzel", name="pridat", row=4, col=0)
+reset  = panel.button("Reset zátěže", name="reset", row=4, col=1)
 
 
-def karta_html(node_id: str) -> str:
-    """HTML karty: `table.kv` vypadá jako detail okno (klíče v barvě klíčů
-    tématu), tlačítka jako control okno; `data-vb-event`/`data-vb-value`
-    se vrátí v eventu html_event jako `.event`/`.value`."""
-    uzel = graph.node(node_id) or {}
-    meta = uzel.get("meta", {})
-    zatez = int(meta.get("load", 0))
-    stav = ('<span class="vb-ok">● v pořádku</span>' if zatez < 80
-            else '<span class="vb-warn">▲ přetížený</span>')
-    return f"""
-    <h2>{meta.get('name', node_id)} <span class="vb-tag">{uzel.get('type') or 'uzel'}</span></h2>
-    <table class="kv">
-      <tr><td>id</td><td><code>{node_id}</code></td></tr>
-      <tr><td>stav</td><td>{stav}</td></tr>
-      <tr><td>zátěž</td><td><div class="vb-bar" style="width:160px"><i style="width:{zatez}%"></i></div> {zatez} %</td></tr>
-    </table>
-    <div class="vb-actions">
-      <button data-vb-event="focus" data-vb-value="{node_id}">Zaostřit</button>
-      <button data-vb-event="sousede" data-vb-value="{node_id}">Sousedé</button>
-      <button data-vb-event="restart" data-vb-value="{node_id}">Restart</button>
-    </div>
-    """
+# 4) události – handler dostane event s .element / .name / .kind / .value / .values
+@pridat.on_click
+def pridej_uzel(event) -> None:
+    """Klik na tlačítko: hodnoty polí čteme rovnou z prvků (už jsou aktuální)."""
+    node = jmeno.value.strip()
+    if not node:
+        stav.text = vb.Ui.warn("zadej název uzlu")      # bohatý text = vb.Ui pomocník
+        return
+    graph.ensure_node(node, type="server", label="{name}", name=node, load=zatez.value)
+    graph.ensure_edge(node, "db-0")
+    if sleduj.value:
+        graph.highlight(node, depth=1)
+    stav.text = f"přidán {node} (zátěž {zatez.value} %)"
+    titul.text = node
+    jmeno.value = f"srv-{len(graph.nodes)}"           # zápis do pole → jen to pole se překreslí
 
 
-def na_klik_v_karte(event) -> None:
-    """Handler html_event: `event.event` je hodnota data-vb-event,
-    `event.value` hodnota data-vb-value (nebo None, když prvek žádnou nemá)."""
-    if event.event == "focus":
-        graph.focus(event.value)                       # kamera najede na uzel
-    elif event.event == "sousede":
-        graph.highlight(event.value, depth=1)          # zvýrazní okolí v grafu
-    elif event.event == "restart":
-        graph.update_node(event.value, load=random.randint(5, 30))
-        graph.html_set("karta", karta_html(event.value))   # karta se překreslí
-        graph.html_append("udalosti",
-                          f'<div><span class="vb-key">restart</span> <code>{event.value}</code> '
-                          f'<span class="vb-ok">✓</span></div>')
+@reset.on_click
+def reset_zateze(event) -> None:
+    zatez.value = 0                                    # posuvník se přesune
+    stav.text = "zátěž vynulována"
 
 
-graph.open_html(karta, on_event=na_klik_v_karte)
-graph.open_html(udalosti)                        # bez on_event – jen výpis
-graph.html_set("karta", karta_html("srv-0"))
-# Vlastní <style> je povolený a má poslední slovo – tady podbarví řádky
-# výpisu se třídou "w" (přetížení). <script> by naopak frontend odstranil.
-graph.html_set("udalosti", '<style>.w{background:rgba(232,160,47,.12)}</style>'
-                           '<h3>Živý výpis</h3>')
+@zatez.on_change
+def zatez_zmenena(event) -> None:
+    """Slider po puštění (slider(..., live=True) by hlásil i při tažení)."""
+    stav.text = f"zátěž nastavena na {event.value} %"  # event.value je číslo
+
+
+@jmeno.on_submit
+def enter_v_poli(event) -> None:
+    """Enter v textovém poli: zaostři uzel toho jména, když existuje."""
+    if graph.node(event.value):
+        graph.focus(event.value)
+        stav.text = f"zaostřeno na {event.value}"
+    else:
+        stav.text = vb.Ui.err(f"uzel {event.value} neexistuje")
+
+
+@panel.on_event
+def vsechny_udalosti(event) -> None:
+    """Jeden handler na vše – hodí se na logování; event.kind = click/change/submit."""
+    vb.log(f"panel: {event.kind} {event.name} value={event.value!r}", level="debug")
 
 
 @graph.on_click
 def klik_do_grafu(event) -> None:
-    """Klik na uzel v grafu → karta se přepíše na tenhle uzel (html_set)."""
-    graph.html_set("karta", karta_html(event.node_id))
-
-
-@graph.every(1.5)
-def tik() -> None:
-    """Každou 1,5 s jeden řádek do výpisu (html_append). Odkaz na uzel je
-    obyčejné <a href="#"> s data-vb-event – nenaviguje, jen pošle event."""
-    node = random.choice([f"srv-{i}" for i in range(6)])
-    zatez = random.randint(5, 99)
-    graph.update_node(node, load=zatez)
-    trida = ' class="w"' if zatez > 80 else ''
-    level = ('<span class="vb-warn">warn</span>' if zatez > 80
-             else '<span class="vb-key">info</span>')
-    graph.html_append("udalosti", f'<div{trida}>{level} <a href="#" data-vb-event="focus" '
-                                  f'data-vb-value="{node}">{node}</a> zátěž {zatez} %</div>')
+    """Klik na uzel v grafu → panel ukáže jeho jméno a zátěž."""
+    uzel = graph.node(event.node_id) or {}
+    titul.text = uzel.get("meta", {}).get("name", event.node_id)
+    stav.text = f"zátěž {uzel.get('meta', {}).get('load', '?')} %"
 
 
 vb.serve(graph, port=8080, open_browser=True)
