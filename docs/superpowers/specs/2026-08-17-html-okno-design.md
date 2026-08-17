@@ -140,13 +140,35 @@ init replay smyčce.
 `main.js`/desktop staví plugin vedle terminálu:
 `createHtmlPlugin({...})` do seznamu pluginů (akce se hledají dynamicky).
 
-## Ukázka a dokumentace
+## Dokumentace (závazná součást, ne dodatek)
 
-- `examples/html_window.py`: karta uzlu (`html_set`) s tlačítky
-  `focus`/`neighbors`, streamovaný výpis událostí (`html_append` každou
-  sekundu), reakce na `html_event` (focus uzlu v grafu).
-- README: sekce u terminálu — co HTML okno umí, boilerplate třídy, `data-vb-event`,
-  bezpečnostní hranice (bez JS uživatele).
+Je to knihovna — komentované ukázky jsou pro vývojáře nejlepší vysvětlení
+(požadavek uživatele). Hotovo je až s tímhle:
+
+- **`examples/html_window.py`** — spustitelná, hustě komentovaná ukázka ve
+  stylu `examples/terminal.py` (docstring nahoře: co ukazuje a proč): karta
+  uzlu (`html_set`) s tlačítky `focus`/`sousedé` přes `data-vb-event`,
+  streamovaný výpis událostí (`html_append` z `graph.every`), reakce na
+  `html_event` (focus/highlight v grafu), ukázka vlastního `<style>` a všech
+  utility tříd boilerplate. Komentáře vysvětlují i to, co NEJDE (JS, navigace).
+- **README**:
+  - řádek `HtmlWindow` v tabulce typů oken (sekce „Model: projekt → screeny
+    → okna") s odkazem na ukázku;
+  - nová podsekce **„HTML okno"** vedle „Textové (dialogové) okno" — krátký
+    kód (`open_html`, `html_set`, `html_append`, `on_event`), co boilerplate
+    sjednocuje s ostatními okny, seznam utility tříd, `data-vb-event`,
+    bezpečnostní hranice (bez JS uživatele, bez navigace);
+  - řádek `examples/html_window.py` v tabulce „Spustitelné příklady";
+  - odkaz na tento spec v seznamu návrhových dokumentů;
+  - zmínka v „Stylování oken (témata)": `window.htmlAccent`,
+    `window.outputBg`.
+- **Python docstringy** (`HtmlWindow`, `open_html`, `html_set`,
+  `html_append`, `_on_html_event`) ve stejné hloubce jako u terminálu —
+  včetně limitu replay bufferu a sémantiky nahrazení okna.
+- **Frontend komentáře**: hlavička `plugins/html.js` (proč iframe + sandbox,
+  proč vlastní most, proč sanitizace jen „proti nehodě"), komentář u každé
+  čisté funkce; boilerplate CSS s poznámkami „= detail okno", „= terminál",
+  „= control tlačítko", ať je vidět, odkud se styl bere.
 
 ## Testy
 
