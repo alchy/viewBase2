@@ -20,6 +20,7 @@ import { createDetailPlugin } from '../plugins/detail.js';
 import { createGraphPlugin } from '../plugins/graph/index.js';
 import { LOG_WINDOW_ID, createLogPlugin } from '../plugins/log.js';
 import { createTerminalPlugin } from '../plugins/terminal.js';
+import { createHtmlPlugin } from '../plugins/html.js';
 import { applyCssVars, resolveTheme } from '../themes/manager.js';
 import { ScreenBar } from './screen_bar.js';
 import { WindowManager } from './window_manager.js';
@@ -68,6 +69,7 @@ export function createDesktop({ container, screenId, connection }) {
     createDetailPlugin(ctx),
     createControlPlugin(ctx),
     createTerminalPlugin(ctx),
+    createHtmlPlugin(ctx),
   ];
 
   // GRAF JE NA SCREENU VOLITELNÝ (uživatelská revize: „screen potřebuje i
@@ -96,8 +98,9 @@ export function createDesktop({ container, screenId, connection }) {
   // registr typů) a ScreenMenu. Všechno ostatní dodávají pluginy –
   // vyhledává se dynamicky (graf plugin může přibýt až s initem).
   const coreActions = {
-    open_window: (msg) => windowManager.open(
-      msg.kind === 'terminal' ? 'terminal' : 'control', msg),
+    // registr typů je od toho, aby jádro nevědělo o konkrétních typech –
+    // routuje se podle `kind` (control spec `kind` nenese, proto fallback)
+    open_window: (msg) => windowManager.open(msg.kind ?? 'control', msg),
     close_window: (msg) => windowManager.close(msg.window_id),
     open_menu: (msg) => {
       store.menu = { groups: msg.groups };
@@ -119,7 +122,7 @@ export function createDesktop({ container, screenId, connection }) {
     applyTheme(store.config.theme);   // téma (i CSS proměnné oken) nastav dřív
     bar.setSpec(store.menu);          // připnuté ScreenMenu přežívá reconnect (§8)
     for (const spec of store.windows ?? []) {
-      windowManager.open(spec.kind === 'terminal' ? 'terminal' : 'control', spec);
+      windowManager.open(spec.kind ?? 'control', spec);
     }
     // Explicitně umístěné SYSTÉMOVÉ log okno (vb.LogWindow(screen=...) v
     // Pythonu, „lepší je explicitní než implicitní") – flag jde přes init

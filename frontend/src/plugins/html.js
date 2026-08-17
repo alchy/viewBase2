@@ -1,0 +1,151 @@
+/** HTML plugin (spec 2026-08-17): okno, které vykreslí HTML poslané z
+ *  Pythonu – „prohlížeč v prohlížeči" jen pro kód, který mu server pošle.
+ *  Chrome dědí z BaseWindow (wm/), tělo je sandboxovaný <iframe srcdoc>:
+ *  vlastní dokument = vlastní CSS (nerozbije workbench a naopak),
+ *  `sandbox="allow-scripts"` výhradně kvůli našemu mostu (kliky na
+ *  [data-vb-event] → event html_event; každý klik na <a> je zablokovaný).
+ *  JS uživatele neběží (sanitizace v html_doc.js).
+ *
+ *  Styl obsahu = boilerplate CSS z proměnných tématu (html_doc.js), takže
+ *  okno vypadá jako detail/control/terminál a změna tématu ho přebarví
+ *  stejně (plugin se hlásí přes onThemeChange a přestaví srcdoc).
+ *
+ *  Options okno nemá (getOptionsItems → null z BaseWindow) – aktivace
+ *  nemění skupinu na liště. */
+import { BaseWindow } from '../wm/base_window.js';
+import { buildSrcdoc, readThemeVars, sanitizeHtml } from './html_doc.js';
+
+const PX_PER_CH = 8;   // BaseWindow layout počítá šířku ve znacích (jako terminál)
+
+export class HtmlWindow extends BaseWindow {
+  constructor({ id, title, width, height, html, closable, container, manager,
+    onEvent }) {
+    super({
+      id, title, widthChars: Math.max(20, Math.round((Number(width) || 560) / PX_PER_CH)),
+      container, manager, kind: 'html', closable,
+    });
+    this.height = Number(height) > 0 ? Number(height) : 320;
+    this.html = String(html ?? '');
+    this.onEvent = onEvent;
+    this._loaded = false;
+    this._queue = [];          // appendy před načtením iframu
+    this._buildBody();
+    this._mount();
+  }
+
+  _buildBody() {
+    const body = document.createElement('div');
+    body.dataset.role = 'html-body';
+    body.style.cssText = [
+      `width:${this.widthChars}ch`, `height:${this.height}px`, 'max-width:92vw',
+      'display:flex', 'padding:0',
+    ].join(';');
+    const frame = document.createElement('iframe');
+    frame.dataset.role = 'html-frame';
+    // JEN allow-scripts (náš most); žádné allow-same-origin/forms/popups –
+    // dokument je opaque origin, nedosáhne na rodiče ani na localStorage.
+    frame.setAttribute('sandbox', 'allow-scripts');
+    frame.style.cssText = 'flex:1 1 auto;border:0;width:100%;height:100%;background:transparent';
+    frame.addEventListener('load', () => {
+      this._loaded = true;
+      for (const html of this._queue) this._post(html);
+      this._queue.length = 0;
+    });
+    this.frame = frame;
+    body.appendChild(frame);
+    this.body = body;
+    this.el.appendChild(body);
+    this._render();
+  }
+
+  /** Postav srcdoc z aktuálního tématu (proměnné na kontejneru screenu) a
+   *  obsahu. Každý nový srcdoc = nový dokument → čeká se znovu na load
+   *  (appendy mezitím do fronty). */
+  _render() {
+    this._loaded = false;
+    this.frame.setAttribute('srcdoc', buildSrcdoc({
+      themeVars: readThemeVars(this.container), html: this.html,
+    }));
+  }
+
+  /** Akce html_set: nahraď obsah. */
+  setHtml(html) {
+    this.html = String(html ?? '');
+    this._render();
+  }
+
+  /** Akce html_append: připiš fragment. Než je iframe načtený, frontuje se
+   *  (po load se doručí v pořadí); jinak rovnou postMessage mostu, který
+   *  drží konec jako terminál. Obsah se skládá i tady kvůli applyTheme
+   *  (nový srcdoc musí nést vše, co v okně je). */
+  appendHtml(html) {
+    const clean = sanitizeHtml(html);
+    this.html += clean;
+    if (this._loaded) this._post(clean);
+    else this._queue.push(clean);
+  }
+
+  _post(html) {
+    this.frame.contentWindow?.postMessage({ type: 'vb-html-append', html }, '*');
+  }
+
+  /** Zpráva z iframu (plugin ověřil source): klik na [data-vb-event]. */
+  handleBridgeEvent(data) {
+    if (this.onEvent) {
+      this.onEvent({ window_id: this.id, event: String(data.event ?? ''),
+        value: data.value == null ? null : String(data.value) });
+    }
+  }
+
+  applyTheme() {
+    super.applyTheme();
+    if (!this.isMinimized) this._render();
+  }
+
+  _renderBody() {
+    // iframe persistuje; téma řeší applyTheme (nový srcdoc)
+  }
+}
+
+/** Instalace do desktopu: typ okna 'html' + akce html_set/html_append.
+ *  Stejné window_id nahrazuje existující okno (nová definice ze serveru). */
+export function createHtmlPlugin({ container, windowManager, sendEvent, onThemeChange }) {
+  const windows = new Set();
+  windowManager.registerType('html', (spec) => {
+    windowManager.get(spec.window_id)?.close();
+    const win = windowManager.adopt(new HtmlWindow({
+      id: spec.window_id, title: spec.title, width: spec.width,
+      height: spec.height, html: spec.html, closable: spec.closable,
+      container, manager: windowManager,
+      onEvent: (payload) => sendEvent({ type: 'event', event: 'html_event', payload }),
+    }));
+    windows.add(win);
+    win.bringToFront();
+    return win;
+  });
+  // Most: zprávy z iframů. Přijímá se jen zpráva, jejíž source je
+  // contentWindow NAŠEHO okna – cizí okna/iframy na stránce se ignorují.
+  window.addEventListener('message', (e) => {
+    if (!e.data || e.data.type !== 'vb-html-event') return;
+    for (const win of windows) {
+      if (win.frame.contentWindow === e.source) { win.handleBridgeEvent(e.data); return; }
+    }
+  });
+  onThemeChange?.(() => {
+    for (const win of windows) {
+      if (windowManager.get(win.id) === win) win.applyTheme();
+      else windows.delete(win);              // zavřené okno – úklid
+    }
+  });
+  const target = (msg) => {
+    const win = windowManager.get(msg.window_id);
+    return win && win.kind === 'html' ? win : null;
+  };
+  return {
+    name: 'html',
+    actions: {
+      html_set: (msg) => target(msg)?.setHtml(msg.html),
+      html_append: (msg) => target(msg)?.appendHtml(msg.html),
+    },
+  };
+}
