@@ -154,6 +154,68 @@ class TerminalWindow:
         }
 
 
+class HtmlWindow:
+    """HTML okno: obsah je HTML poslané z Pythonu, vykreslené v sandboxovaném
+    iframu („prohlížeč v prohlížeči" jen pro kód, který mu server pošle).
+
+    Na rozdíl od terminálu (prostý text) umí nadpisy, tabulky, štítky,
+    odkazy a tlačítka; styl dodá frontend z proměnných tématu, takže okno
+    vypadá jako ostatní (detail/control/terminál). Do okna se píše přes
+    `GraphWindow.html_set` (nahradí obsah) a `html_append` (připíše na
+    konec – streamový výpis); klik na prvek s `data-vb-event` přijde
+    eventem `html_event`. Bez JS uživatele: `<script>` a `on*` atributy
+    frontend před vložením odstraní, odkazy nenavigují.
+
+    Okno si drží AKTUÁLNÍ obsah (`html`) kvůli init replay po reconnectu –
+    proto strop `MAX_HTML`: append do nekonečna nesmí nafouknout init
+    zprávu; při překročení se obsah ořízne zepředu na hranici tagu."""
+
+    MAX_HTML = 512 * 1024   # znaků; přebije se i na instanci (testy)
+
+    def __init__(self, window_id: str, *, title: str = "",
+                 width: int = 560, height: int = 320,
+                 closable: bool = True) -> None:
+        if width <= 0 or height <= 0:
+            raise ValueError("width i height musí být kladné")
+        self.window_id = window_id
+        self.title = title
+        self.width = int(width)
+        self.height = int(height)
+        self.closable = bool(closable)
+        self.html = ""
+
+    def spec(self) -> dict[str, Any]:
+        """Popis okna pro frontend (akce open_window i init replay);
+        `kind:"html"` ho routuje na html plugin, `html` je aktuální obsah."""
+        return {
+            "window_id": self.window_id,
+            "title": self.title,
+            "kind": "html",
+            "width": self.width,
+            "height": self.height,
+            "closable": self.closable,
+            "html": self.html,
+        }
+
+    def set_html(self, html: str) -> None:
+        """Nahraď celý obsah (klient dostane akci html_set)."""
+        self.html = self._trim(str(html))
+
+    def append_html(self, html: str) -> None:
+        """Připiš fragment na konec (klient dostane akci html_append)."""
+        self.html = self._trim(self.html + str(html))
+
+    def _trim(self, html: str) -> str:
+        """Ořez zepředu na MAX_HTML: začátek se posune na první `<` za
+        hranicí, ať replay nezačíná uprostřed tagu (klient dostává vždy jen
+        delty, ořez ovlivní jen obnovu po reconnectu)."""
+        limit = self.MAX_HTML
+        if len(html) <= limit:
+            return html
+        cut = html.find("<", len(html) - limit)
+        return html[cut:] if cut != -1 else html[len(html) - limit:]
+
+
 _DROP = object()   # sentinel: hodnotu zahodit (None je validní string/enum)
 
 

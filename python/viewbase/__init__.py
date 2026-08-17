@@ -15,14 +15,14 @@ Typy oken: GraphWindow (graf – speciální instance okna), LogWindow
 do něj), ControlWindow (formulářové). ScreenMenu je pull-down menu lišty
 screenu."""
 from . import protocol
-from .controls import ControlWindow, TerminalWindow
+from .controls import ControlWindow, HtmlWindow, TerminalWindow
 from .graph_window import GraphWindow
 from .log import LogWindow, log
 from .menu import ScreenMenu
 from .screen import Screen
 from .server import Project, ServerHandle, create_app, serve
 
-__all__ = ["Project", "Screen", "GraphWindow", "LogWindow", "ControlWindow",
+__all__ = ["Project", "Screen", "GraphWindow", "LogWindow", "ControlWindow", "HtmlWindow",
            "TerminalWindow", "ScreenMenu", "ServerHandle", "log",
            "create_app", "serve", "protocol"]
 __version__ = "0.1.0"
