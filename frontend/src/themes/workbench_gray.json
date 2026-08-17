@@ -20,6 +20,7 @@
     "dockBg": "#b8c6e8",
     "shadow": "0 2px 0 rgba(0,0,0,0.35)",
     "backdropPattern": "flat",
+    "outputBg": "rgba(0,0,0,0.10)",
     "iconSet": "workbench-classic",
     "font": "topaz-8"
   }

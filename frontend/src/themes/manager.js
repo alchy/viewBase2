@@ -36,6 +36,11 @@ export function applyCssVars(theme, root = document.documentElement) {
       '--vb-window-dock-bg': w.dockBg,
       '--vb-window-shadow': w.shadow,
       '--vb-window-border': w.border,
+      // HTML okno (spec 2026-08-17): akcent odkazů/tlačítek = gadget, ale
+      // téma smí přebít (workbench-amiga má gadget = barva těla); pozadí
+      // výstupní plochy sdílí terminál i <pre>/<code> v HTML okně.
+      '--vb-html-accent': w.htmlAccent ?? w.gadget,
+      '--vb-window-output-bg': w.outputBg ?? 'rgba(0,0,0,0.06)',
     };
     for (const [name, value] of Object.entries(map)) {
       if (value != null) root.style.setProperty(name, value);

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { deepMerge, resolveTheme } from '../src/themes/manager.js';
+import { applyCssVars, deepMerge, resolveTheme } from '../src/themes/manager.js';
 import { THEMES } from '../src/themes/themes.js';
 
 describe('resolveTheme', () => {
@@ -65,5 +65,33 @@ describe('resolveTheme', () => {
   it('workbench merge nemutuje modern', () => {
     resolveTheme('workbench-amiga');
     expect(THEMES.modern.window.headerBg).toBe('#d8dde6');
+  });
+});
+
+function fakeRoot() {
+  const vars = new Map();
+  return { vars, style: { setProperty: (k, v) => vars.set(k, v) } };
+}
+
+describe('HTML okno – proměnné tématu', () => {
+  it('modern: --vb-html-accent = gadget, output-bg default', () => {
+    const root = fakeRoot();
+    applyCssVars(resolveTheme('modern'), root);
+    expect(root.vars.get('--vb-html-accent')).toBe('#5a6573');
+    expect(root.vars.get('--vb-window-output-bg')).toBe('rgba(0,0,0,0.06)');
+  });
+
+  it('cyber: vlastní output-bg', () => {
+    const root = fakeRoot();
+    applyCssVars(resolveTheme('cyber'), root);
+    expect(root.vars.get('--vb-html-accent')).toBe('#28d7fe');
+    expect(root.vars.get('--vb-window-output-bg')).toBe('rgba(255,255,255,0.05)');
+  });
+
+  it('workbench-amiga: htmlAccent bílá (gadget splývá s modrým tělem)', () => {
+    const root = fakeRoot();
+    applyCssVars(resolveTheme('workbench-amiga'), root);
+    expect(root.vars.get('--vb-html-accent')).toBe('#ffffff');
+    expect(root.vars.get('--vb-window-output-bg')).toBe('rgba(0,0,0,0.18)');
   });
 });

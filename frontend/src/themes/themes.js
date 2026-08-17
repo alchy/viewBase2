@@ -63,6 +63,7 @@ export const cyber = {
     headerBg: 'rgba(40,215,254,0.18)', headerFg: '#d7f4ff', gadget: '#28d7fe',
     bodyBg: 'rgba(10,16,28,0.94)', bodyFg: '#d7f4ff', key: '#5a7d9e',
     dockBg: 'rgba(40,215,254,0.12)', shadow: '0 0 22px rgba(40,215,254,0.45)',
+    outputBg: 'rgba(255,255,255,0.05)',   // výstup terminálu / <pre> HTML okna na tmavém těle
   },
   flow: { size: 3.0, baseSpeed: 260, color: '#28d7fe', opacity: 1.0 },
 };
