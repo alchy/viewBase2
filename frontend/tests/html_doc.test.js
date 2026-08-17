@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  BOILERPLATE_CSS, THEME_VAR_NAMES, buildSrcdoc, sanitizeHtml,
+  BOILERPLATE_CSS, BRIDGE_JS, THEME_VAR_NAMES, buildSrcdoc, sanitizeHtml,
 } from '../src/plugins/html_doc.js';
 
 describe('sanitizeHtml – bez JS uživatele, bez navigace', () => {
@@ -23,6 +23,18 @@ describe('sanitizeHtml – bez JS uživatele, bez navigace', () => {
   it('slovo „on" v textu ani atribut bez „on" prefixu nesežere', () => {
     const html = '<p>zapnuto: on</p><i title="button on">x</i><b class="one">y</b>';
     expect(sanitizeHtml(html)).toBe(html);
+  });
+});
+
+describe('BRIDGE_JS – submit formuláře', () => {
+  it('most chytá submit, sbírá FormData do values a posílá vb-html-event', () => {
+    expect(BRIDGE_JS).toContain('"submit"');
+    expect(BRIDGE_JS).toContain('FormData');
+    expect(BRIDGE_JS).toContain('values');
+    expect(BRIDGE_JS).toContain('preventDefault');   // nikdy nenaviguje
+  });
+  it('boilerplate stylizuje input/select/textarea (= pole control okna)', () => {
+    expect(BOILERPLATE_CSS).toContain('input,select,textarea');
   });
 });
 

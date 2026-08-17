@@ -93,6 +93,43 @@ def test_html_event_calls_on_event_with_event_and_value():
     c.close()
 
 
+def test_html_event_click_has_empty_values():
+    c = GraphWindow()
+    done = threading.Event()
+    got = {}
+
+    def on_event(event):
+        got["values"] = event.values
+        done.set()
+
+    c.open_html(HtmlWindow("uzel"), on_event=on_event)
+    c.dispatch_event("html_event", {"window_id": "uzel", "event": "focus",
+                                    "value": "srv-0", "client_id": "x"})
+    assert done.wait(2.0)
+    assert got == {"values": {}}
+    c.close()
+
+
+def test_html_event_submit_passes_values_dict():
+    c = GraphWindow()
+    done = threading.Event()
+    got = {}
+
+    def on_event(event):
+        got.update(event=event.event, values=event.values)
+        done.set()
+
+    c.open_html(HtmlWindow("form"), on_event=on_event)
+    c.dispatch_event("html_event", {
+        "window_id": "form", "event": "ulozit", "value": None,
+        "values": {"jmeno": "srv-9", "typ": "server", "tagy": ["a", "b"]},
+        "client_id": "x"})
+    assert done.wait(2.0)
+    assert got == {"event": "ulozit",
+                   "values": {"jmeno": "srv-9", "typ": "server", "tagy": ["a", "b"]}}
+    c.close()
+
+
 def test_html_event_without_value_gives_none():
     c = GraphWindow()
     done = threading.Event()

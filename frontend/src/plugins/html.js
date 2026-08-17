@@ -2,9 +2,10 @@
  *  Pythonu – „prohlížeč v prohlížeči" jen pro kód, který mu server pošle.
  *  Chrome dědí z BaseWindow (wm/), tělo je sandboxovaný <iframe srcdoc>:
  *  vlastní dokument = vlastní CSS (nerozbije workbench a naopak),
- *  `sandbox="allow-scripts"` výhradně kvůli našemu mostu (kliky na
- *  [data-vb-event] → event html_event; každý klik na <a> je zablokovaný).
- *  JS uživatele neběží (sanitizace v html_doc.js).
+ *  `sandbox="allow-scripts allow-forms"` výhradně kvůli našemu mostu (klik
+ *  na [data-vb-event] i submit <form data-vb-event> → event html_event
+ *  s `values`; každý klik na <a> a každý submit je zablokovaný). JS
+ *  uživatele neběží (sanitizace v html_doc.js).
  *
  *  Styl obsahu = boilerplate CSS z proměnných tématu (html_doc.js), takže
  *  okno vypadá jako detail/control/terminál a změna tématu ho přebarví
@@ -42,9 +43,12 @@ export class HtmlWindow extends BaseWindow {
     ].join(';');
     const frame = document.createElement('iframe');
     frame.dataset.role = 'html-frame';
-    // JEN allow-scripts (náš most); žádné allow-same-origin/forms/popups –
-    // dokument je opaque origin, nedosáhne na rodiče ani na localStorage.
-    frame.setAttribute('sandbox', 'allow-scripts');
+    // allow-scripts = náš most; allow-forms JEN proto, aby ve formuláři
+    // vznikla událost submit (most ji vždy preventDefault-uje a pošle
+    // values rodiči) – bez ní by sandbox submit zahodil dřív, než ho
+    // skript uvidí. Žádné allow-same-origin/popups: dokument je opaque
+    // origin, nedosáhne na rodiče ani na localStorage.
+    frame.setAttribute('sandbox', 'allow-scripts allow-forms');
     frame.style.cssText = 'flex:1 1 auto;border:0;width:100%;height:100%;background:transparent';
     frame.addEventListener('load', () => {
       this._loaded = true;
@@ -89,12 +93,13 @@ export class HtmlWindow extends BaseWindow {
     this.frame.contentWindow?.postMessage({ type: 'vb-html-append', html }, '*');
   }
 
-  /** Zpráva z iframu (plugin ověřil source): klik na [data-vb-event]. */
+  /** Zpráva z iframu (plugin ověřil source): klik na [data-vb-event] nebo
+   *  submit formuláře. `values` je JSON objekt hodnot polí (u kliku {}). */
   handleBridgeEvent(data) {
-    if (this.onEvent) {
-      this.onEvent({ window_id: this.id, event: String(data.event ?? ''),
-        value: data.value == null ? null : String(data.value) });
-    }
+    if (!this.onEvent) return;
+    const values = data.values && typeof data.values === 'object' ? data.values : {};
+    this.onEvent({ window_id: this.id, event: String(data.event ?? ''),
+      value: data.value == null ? null : String(data.value), values });
   }
 
   applyTheme() {

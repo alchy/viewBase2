@@ -44,7 +44,11 @@ export const BOILERPLATE_CSS = [
   'blockquote{padding:2px 10px;border-left:3px solid var(--vb-html-accent);color:var(--vb-window-key)}',
   // button = tlačítko „Použít" control okna (rámeček v akcentu, průhledné)
   'button,.vb-btn{cursor:pointer;padding:3px 12px;border:1px solid var(--vb-html-accent);border-radius:4px;background:transparent;color:inherit;font:inherit}',
-  '[data-vb-event]{cursor:pointer}',
+  '[data-vb-event]{cursor:pointer}form[data-vb-event]{cursor:auto}',
+  // pole formuláře = vstupy control okna (písmo okna, rámeček v barvě klíčů)
+  'input,select,textarea{font:inherit;color:inherit;background:var(--vb-window-output-bg);border:1px solid color-mix(in srgb,var(--vb-window-key) 45%,transparent);border-radius:4px;padding:2px 6px;box-sizing:border-box}',
+  'input[type=checkbox],input[type=radio]{width:auto;padding:0}',
+  'label{color:var(--vb-window-key)}',
   '.vb-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}',
   '.vb-key,.small{color:var(--vb-window-key)}.small{font-size:11.5px}',
   '.vb-tag{display:inline-block;padding:0 7px;border:1px solid var(--vb-window-key);border-radius:9px;font-size:11px;line-height:16px;margin-right:4px}',
@@ -56,16 +60,34 @@ export const BOILERPLATE_CSS = [
 ].join('\n');
 
 /** Most uvnitř iframu – jediný JS, který v okně běží (proto
- *  sandbox="allow-scripts"). Klik na [data-vb-event] → zpráva rodiči;
- *  každý klik na <a> je preventDefault (žádná navigace); zpráva
- *  vb-html-append připíše fragment a drží konec, když byl vidět (stejná
- *  „tail" logika jako terminál). */
+ *  sandbox="allow-scripts"). Dvě cesty ven, obě jako zpráva rodiči
+ *  `vb-html-event` {event, value, values}:
+ *  - KLIK na [data-vb-event] → event = data-vb-event, value = data-vb-value
+ *    (nebo null), values = {} (kliknutí uvnitř <form> formulář NEodesílá –
+ *    to dělá jen submit tlačítko / Enter);
+ *  - SUBMIT <form data-vb-event="…"> → values = JSON objekt s klíči podle
+ *    `name` polí (opakovaný name → pole hodnot; soubory se vynechají),
+ *    event = data-vb-event formuláře (fallback name, pak "submit").
+ *  Každý klik na <a> a každý submit je preventDefault – žádná navigace
+ *  (sandbox má allow-forms JEN proto, aby submit událost vůbec vznikla).
+ *  Zpráva vb-html-append připíše fragment a drží konec, když byl vidět
+ *  (stejná „tail" logika jako terminál). */
 export const BRIDGE_JS = [
   '(function(){',
+  'function send(ev,val,values){parent.postMessage({type:"vb-html-event",event:ev,value:val,values:values||{}},"*");}',
+  'function attr(el,n){return el.hasAttribute(n)?el.getAttribute(n):null;}',
   'document.addEventListener("click",function(e){',
   ' var el=e.target&&e.target.closest?e.target.closest("[data-vb-event]"):null;',
-  ' if(el){e.preventDefault();parent.postMessage({type:"vb-html-event",event:el.getAttribute("data-vb-event"),value:el.hasAttribute("data-vb-value")?el.getAttribute("data-vb-value"):null},"*");return;}',
+  ' if(el&&el.tagName!=="FORM"){e.preventDefault();send(el.getAttribute("data-vb-event"),attr(el,"data-vb-value"),{});return;}',
   ' if(e.target&&e.target.closest&&e.target.closest("a"))e.preventDefault();',
+  '});',
+  'document.addEventListener("submit",function(e){',
+  ' var f=e.target;e.preventDefault();if(!f||f.tagName!=="FORM")return;',
+  ' var values={};new FormData(f).forEach(function(v,k){',
+  '  if(typeof v!=="string")return;',
+  '  if(k in values){if(!Array.isArray(values[k]))values[k]=[values[k]];values[k].push(v);}else values[k]=v;',
+  ' });',
+  ' send(attr(f,"data-vb-event")||attr(f,"name")||"submit",attr(f,"data-vb-value"),values);',
   '});',
   'window.addEventListener("message",function(e){',
   ' if(!e.data||e.data.type!=="vb-html-append")return;',

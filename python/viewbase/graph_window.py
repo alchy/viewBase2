@@ -379,8 +379,10 @@ class GraphWindow:
     def open_html(self, window: HtmlWindow, *, on_event=None) -> str:
         """Otevři/nahraď HTML okno: ulož do stavu (init replay) a zařaď akci
         open_window (kind:"html"). `on_event` dostane event s `.event`
-        (hodnota `data-vb-event` kliknutého prvku), `.value`
-        (`data-vb-value`, nebo None) a `.window_id`. Do okna se píše přes
+        (hodnota `data-vb-event` kliknutého prvku / odeslaného formuláře),
+        `.value` (`data-vb-value`, nebo None), `.values` (u submitu
+        <form data-vb-event="…"> dict hodnot polí podle `name` – JSON objekt,
+        který sestavil prohlížeč; u kliku {}) a `.window_id`. Do okna se píše přes
         `html_set` / `html_append`. Nahrazení okna stejného window_id bez
         `on_event` předchozí callback zruší (stejně jako open_terminal)."""
         with self._lock:
@@ -415,14 +417,17 @@ class GraphWindow:
                                   "window_id": window_id, "html": str(html)})
 
     def _on_html_event(self, event) -> None:
-        """Interní handler eventu html_event (klik na [data-vb-event] v HTML
-        okně): doplň `.value` (None, když prvek data-vb-value nemá) a zavolej
-        on_event okna."""
+        """Interní handler eventu html_event (klik na [data-vb-event] nebo
+        submit <form data-vb-event> v HTML okně): doplň `.value` (None, když
+        prvek data-vb-value nemá) a `.values` (dict hodnot polí formuláře
+        podle `name`; u kliku prázdný) a zavolej on_event okna."""
         window_id = getattr(event, "window_id", None)
         if not isinstance(getattr(event, "event", None), str):
             return
         if not hasattr(event, "value"):
             event.value = None
+        if not isinstance(getattr(event, "values", None), dict):
+            event.values = {}
         with self._lock:
             callback = self._html_callbacks.get(window_id)
         if callback is not None:

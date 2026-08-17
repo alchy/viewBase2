@@ -37,7 +37,8 @@ describe('HtmlWindow', () => {
     expect(win).toBeInstanceOf(HtmlWindow);
     expect(win.kind).toBe('html');
     expect(win.frame.tagName).toBe('IFRAME');
-    expect(win.frame.getAttribute('sandbox')).toBe('allow-scripts');
+    // allow-forms jen kvůli události submit (most ji vždy preventDefault-uje)
+    expect(win.frame.getAttribute('sandbox')).toBe('allow-scripts allow-forms');
     expect(srcdocOf(win)).toContain('<body><h1>A</h1></body>');
     expect(win.getOptionsItems()).toBeNull();          // žádné Options
   });
@@ -78,12 +79,23 @@ describe('HtmlWindow', () => {
     }));
     expect(sendEvent).toHaveBeenCalledWith({
       type: 'event', event: 'html_event',
-      payload: { window_id: 'uzel', event: 'focus', value: 'srv-0' },
+      payload: { window_id: 'uzel', event: 'focus', value: 'srv-0', values: {} },
+    });
+    // submit formuláře: values = JSON objekt s klíči = name polí
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'vb-html-event', event: 'ulozit', value: null,
+        values: { jmeno: 'srv-9', typ: 'server', tagy: ['a', 'b'] } },
+      source: cw,
+    }));
+    expect(sendEvent).toHaveBeenLastCalledWith({
+      type: 'event', event: 'html_event',
+      payload: { window_id: 'uzel', event: 'ulozit', value: null,
+        values: { jmeno: 'srv-9', typ: 'server', tagy: ['a', 'b'] } },
     });
     window.dispatchEvent(new MessageEvent('message', {
       data: { type: 'vb-html-event', event: 'evil' }, source: {},
     }));
-    expect(sendEvent).toHaveBeenCalledTimes(1);
+    expect(sendEvent).toHaveBeenCalledTimes(2);
   });
 
   it('změna tématu přestaví srcdoc se stejným obsahem', () => {
