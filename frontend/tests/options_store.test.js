@@ -64,6 +64,31 @@ describe('loadOptions/saveOptions', () => {
     expect(loadOptions('Nový', storage, liveDefaults)).toEqual(liveDefaults);
   });
 
+  it('elasticita 0 ze seedu (server default pro čáry) → default, ať splajn není no-op', () => {
+    const storage = new FakeStorage();
+    const liveDefaults = { physicsRunning: true, edgeStyle: 'line', edgeElasticity: 0.0, dimensions: 3 };
+    expect(loadOptions('Nový', storage, liveDefaults).edgeElasticity)
+      .toBe(DEFAULT_OPTIONS.edgeElasticity);
+  });
+
+  it('dřív uložená elasticita 0 (nebo vadná) se při načtení opraví na default', () => {
+    const storage = new FakeStorage();
+    saveOptions('Síť', { physicsRunning: true, edgeStyle: 'spline',
+      edgeElasticity: 0, dimensions: 3 }, storage);
+    expect(loadOptions('Síť', storage).edgeElasticity).toBe(DEFAULT_OPTIONS.edgeElasticity);
+    storage.setItem(optionsKey('Síť'), JSON.stringify({ edgeElasticity: 'x' }));
+    expect(loadOptions('Síť', storage).edgeElasticity).toBe(DEFAULT_OPTIONS.edgeElasticity);
+  });
+
+  it('kladná elasticita (ze seedu i uložená) zůstane zachovaná', () => {
+    const storage = new FakeStorage();
+    saveOptions('Síť', { physicsRunning: true, edgeStyle: 'spline',
+      edgeElasticity: 0.6, dimensions: 3 }, storage);
+    expect(loadOptions('Síť', storage).edgeElasticity).toBe(0.6);
+    expect(loadOptions('Nový', storage,
+      { ...DEFAULT_OPTIONS, edgeElasticity: 0.8 }).edgeElasticity).toBe(0.8);
+  });
+
   it('bez storage (SSR/test bez localStorage) nespadne', () => {
     expect(loadOptions('X', null)).toEqual(DEFAULT_OPTIONS);
     expect(() => saveOptions('X', DEFAULT_OPTIONS, null)).not.toThrow();

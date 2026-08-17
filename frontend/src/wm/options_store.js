@@ -32,15 +32,27 @@ export function optionsKey(title) {
  *  `storage` je injektovatelné (localStorage v prohlížeči, fake Map v testu). */
 export function loadOptions(title, storage = globalThis.localStorage,
                             defaults = DEFAULT_OPTIONS) {
-  if (!storage) return { ...defaults };
+  if (!storage) return normalizeOptions({ ...defaults });
   try {
     const raw = storage.getItem(optionsKey(title));
-    if (!raw) return { ...defaults };
+    if (!raw) return normalizeOptions({ ...defaults });
     const parsed = JSON.parse(raw);
-    return { ...defaults, ...parsed };
+    return normalizeOptions({ ...defaults, ...parsed });
   } catch {
-    return { ...defaults };
+    return normalizeOptions({ ...defaults });
   }
+}
+
+/** Options nemají ovládání elasticity a splajn s elasticitou 0 je rovná
+ *  úsečka (render/edges.js) – přepínač „Křivkové hrany" by tak nic
+ *  neudělal. Server default pro 'line' je přitom elasticity 0.0 a seed
+ *  přes `??` ho převezme (0 není nullish); do localStorage se pak uložila
+ *  nula natrvalo. Neplatná (≤0, NaN, ne-číslo) elasticita proto při
+ *  každém načtení spadne na DEFAULT_OPTIONS.edgeElasticity. */
+function normalizeOptions(options) {
+  const e = Number(options.edgeElasticity);
+  if (!(e > 0)) options.edgeElasticity = DEFAULT_OPTIONS.edgeElasticity;
+  return options;
 }
 
 export function saveOptions(title, options, storage = globalThis.localStorage) {
