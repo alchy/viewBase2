@@ -29,7 +29,7 @@ export class HtmlWindow extends BaseWindow {
     this.html = String(html ?? '');
     this.onEvent = onEvent;
     this._loaded = false;
-    this._queue = [];          // appendy před načtením iframu
+    this._queue = [];          // zprávy mostu (append/patch) před načtením iframu
     this._buildBody();
     this._mount();
   }
@@ -52,7 +52,7 @@ export class HtmlWindow extends BaseWindow {
     frame.style.cssText = 'flex:1 1 auto;border:0;width:100%;height:100%;background:transparent';
     frame.addEventListener('load', () => {
       this._loaded = true;
-      for (const html of this._queue) this._post(html);
+      for (const msg of this._queue) this._post(msg);
       this._queue.length = 0;
     });
     this.frame = frame;
@@ -63,10 +63,13 @@ export class HtmlWindow extends BaseWindow {
   }
 
   /** Postav srcdoc z aktuálního tématu (proměnné na kontejneru screenu) a
-   *  obsahu. Každý nový srcdoc = nový dokument → čeká se znovu na load
-   *  (appendy mezitím do fronty). */
+   *  obsahu. Každý nový srcdoc = nový dokument → čeká se znovu na load;
+   *  fronta zpráv se zahodí – nový dokument už nese vše, co server poslal
+   *  (html_set od serveru je vždy CELÝ aktuální obsah), starší append/patch
+   *  by se po load aplikoval podruhé. */
   _render() {
     this._loaded = false;
+    this._queue.length = 0;
     this.frame.setAttribute('srcdoc', buildSrcdoc({
       themeVars: readThemeVars(this.container), html: this.html,
     }));
@@ -85,21 +88,37 @@ export class HtmlWindow extends BaseWindow {
   appendHtml(html) {
     const clean = sanitizeHtml(html);
     this.html += clean;
-    if (this._loaded) this._post(clean);
-    else this._queue.push(clean);
+    this._send({ type: 'vb-html-append', html: clean });
   }
 
-  _post(html) {
-    this.frame.contentWindow?.postMessage({ type: 'vb-html-append', html }, '*');
+  /** Akce html_patch: nahraď jeden prvek (podle id) – rozepsaný text a fokus
+   *  ostatních polí přežijí. `this.html` (obsah pro applyTheme) se tím
+   *  nemění: po změně tématu server stejně drží pravdu a další html_set
+   *  ji přinese; do té doby by nový srcdoc ukázal stav před patchem. */
+  patchHtml(id, html) {
+    this._send({ type: 'vb-html-patch', id: String(id), html: sanitizeHtml(html) });
   }
 
-  /** Zpráva z iframu (plugin ověřil source): klik na [data-vb-event] nebo
-   *  submit formuláře. `values` je JSON objekt hodnot polí (u kliku {}). */
+  /** Zpráva mostu: po načtení iframu rovnou, jinak do fronty (v pořadí). */
+  _send(msg) {
+    if (this._loaded) this._post(msg);
+    else this._queue.push(msg);
+  }
+
+  _post(msg) {
+    this.frame.contentWindow?.postMessage(msg, '*');
+  }
+
+  /** Zpráva z iframu (plugin ověřil source): klik / změna pole / Enter /
+   *  submit formuláře. `values` = hodnoty všech polí okna s typy, `kind` =
+   *  click|change|submit, `id` = data-vb-id prvku (null u raw HTML). */
   handleBridgeEvent(data) {
     if (!this.onEvent) return;
     const values = data.values && typeof data.values === 'object' ? data.values : {};
-    this.onEvent({ window_id: this.id, event: String(data.event ?? ''),
-      value: data.value == null ? null : String(data.value), values });
+    const kind = ['click', 'change', 'submit'].includes(data.kind) ? data.kind : 'click';
+    this.onEvent({ window_id: this.id, event: String(data.event ?? ''), kind,
+      id: data.id == null ? null : String(data.id),
+      value: data.value === undefined ? null : data.value, values });
   }
 
   applyTheme() {
@@ -151,6 +170,7 @@ export function createHtmlPlugin({ container, windowManager, sendEvent, onThemeC
     actions: {
       html_set: (msg) => target(msg)?.setHtml(msg.html),
       html_append: (msg) => target(msg)?.appendHtml(msg.html),
+      html_patch: (msg) => target(msg)?.patchHtml(msg.id, msg.html),
     },
   };
 }

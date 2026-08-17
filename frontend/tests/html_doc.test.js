@@ -29,8 +29,8 @@ describe('sanitizeHtml – bez JS uživatele, bez navigace', () => {
 describe('BRIDGE_JS – submit formuláře', () => {
   it('most chytá submit, sbírá FormData do values a posílá vb-html-event', () => {
     expect(BRIDGE_JS).toContain('"submit"');
-    expect(BRIDGE_JS).toContain('FormData');
-    expect(BRIDGE_JS).toContain('values');
+    expect(BRIDGE_JS).toContain('collect(f)');      // hodnoty polí formuláře
+    expect(BRIDGE_JS).toContain('vb-html-patch');   // patch prvku podle id
     expect(BRIDGE_JS).toContain('preventDefault');   // nikdy nenaviguje
   });
   it('boilerplate stylizuje input/select/textarea (= pole control okna)', () => {

@@ -79,23 +79,63 @@ describe('HtmlWindow', () => {
     }));
     expect(sendEvent).toHaveBeenCalledWith({
       type: 'event', event: 'html_event',
-      payload: { window_id: 'uzel', event: 'focus', value: 'srv-0', values: {} },
+      payload: { window_id: 'uzel', event: 'focus', kind: 'click', id: null,
+        value: 'srv-0', values: {} },
     });
     // submit formuláře: values = JSON objekt s klíči = name polí
     window.dispatchEvent(new MessageEvent('message', {
-      data: { type: 'vb-html-event', event: 'ulozit', value: null,
+      data: { type: 'vb-html-event', kind: 'submit', event: 'ulozit', id: 'uzel-3', value: null,
         values: { jmeno: 'srv-9', typ: 'server', tagy: ['a', 'b'] } },
       source: cw,
     }));
     expect(sendEvent).toHaveBeenLastCalledWith({
       type: 'event', event: 'html_event',
-      payload: { window_id: 'uzel', event: 'ulozit', value: null,
+      payload: { window_id: 'uzel', event: 'ulozit', kind: 'submit', id: 'uzel-3', value: null,
         values: { jmeno: 'srv-9', typ: 'server', tagy: ['a', 'b'] } },
+    });
+    // změna slideru: value zůstane číslo (nepřevádí se na string)
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'vb-html-event', kind: 'change', event: 'zatez', id: 'uzel-2', value: 42,
+        values: { zatez: 42 } },
+      source: cw,
+    }));
+    expect(sendEvent).toHaveBeenLastCalledWith({
+      type: 'event', event: 'html_event',
+      payload: { window_id: 'uzel', event: 'zatez', kind: 'change', id: 'uzel-2', value: 42,
+        values: { zatez: 42 } },
     });
     window.dispatchEvent(new MessageEvent('message', {
       data: { type: 'vb-html-event', event: 'evil' }, source: {},
     }));
-    expect(sendEvent).toHaveBeenCalledTimes(2);
+    expect(sendEvent).toHaveBeenCalledTimes(3);
+  });
+
+  it('html_patch po načtení iframu pošle vb-html-patch (před load se zahodí)', () => {
+    const { windowManager, plugin } = setup();
+    const win = windowManager.open('html', { window_id: 'p', html: '' });
+    const posted = [];
+    Object.defineProperty(win.frame, 'contentWindow', {
+      value: { postMessage: (m) => posted.push(m) }, configurable: true,
+    });
+    plugin.actions.html_patch({ window_id: 'p', id: 'p-1', html: '<div id="p-1">x</div>' });
+    expect(posted).toEqual([]);                          // před load: fronta
+    win.frame.dispatchEvent(new Event('load'));
+    expect(posted).toEqual([{ type: 'vb-html-patch', id: 'p-1', html: '<div id="p-1">x</div>' }]);
+    plugin.actions.html_patch({ window_id: 'p', id: 'p-1', html: '<div id="p-1"><b onclick="z">y</b></div>' });
+    expect(posted[1]).toEqual({ type: 'vb-html-patch', id: 'p-1', html: '<div id="p-1"><b>y</b></div>' });
+  });
+
+  it('nový srcdoc (html_set) zahodí frontu – nový dokument už vše nese', () => {
+    const { windowManager, plugin } = setup();
+    const win = windowManager.open('html', { window_id: 'p', html: '' });
+    const posted = [];
+    Object.defineProperty(win.frame, 'contentWindow', {
+      value: { postMessage: (m) => posted.push(m) }, configurable: true,
+    });
+    plugin.actions.html_append({ window_id: 'p', html: '<div>a</div>' });
+    plugin.actions.html_set({ window_id: 'p', html: '<div>a</div>' });   // server: celý obsah vč. a
+    win.frame.dispatchEvent(new Event('load'));
+    expect(posted).toEqual([]);                          // žádný duplicitní append
   });
 
   it('změna tématu přestaví srcdoc se stejným obsahem', () => {

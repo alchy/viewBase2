@@ -50,6 +50,13 @@ export const BOILERPLATE_CSS = [
   'input[type=checkbox],input[type=radio]{width:auto;padding:0}',
   'label{color:var(--vb-window-key)}',
   '.vb-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}',
+  // prvky (widgets): obal .vb-el, popisek pole nad polem, checkbox inline
+  '.vb-el{margin:0 0 8px}.vb-el>h1,.vb-el>h2,.vb-el>h3,.vb-el>p{margin:0}',
+  '.vb-field>label{display:block;font-size:11.5px;color:var(--vb-window-key);margin-bottom:2px}',
+  '.vb-field>input[type=text],.vb-field>select,.vb-field>textarea{width:100%}',
+  '.vb-field>input[type=range]{width:calc(100% - 3.5em);vertical-align:middle}.vb-field>output{color:var(--vb-window-key);font-variant-numeric:tabular-nums}',
+  '.vb-check>label{display:inline;font-size:inherit;color:inherit}',
+  '.vb-grid{display:grid;gap:4px 14px;align-items:start}',
   '.vb-key,.small{color:var(--vb-window-key)}.small{font-size:11.5px}',
   '.vb-tag{display:inline-block;padding:0 7px;border:1px solid var(--vb-window-key);border-radius:9px;font-size:11px;line-height:16px;margin-right:4px}',
   // sémantické barvy záměrně MIMO téma – čitelné na světlém i tmavém
@@ -60,44 +67,83 @@ export const BOILERPLATE_CSS = [
 ].join('\n');
 
 /** Most uvnitř iframu – jediný JS, který v okně běží (proto
- *  sandbox="allow-scripts"). Dvě cesty ven, obě jako zpráva rodiči
- *  `vb-html-event` {event, value, values}:
- *  - KLIK na [data-vb-event] → event = data-vb-event, value = data-vb-value
- *    (nebo null), values = {} (kliknutí uvnitř <form> formulář NEodesílá –
- *    to dělá jen submit tlačítko / Enter);
- *  - SUBMIT <form data-vb-event="…"> → values = JSON objekt s klíči podle
- *    `name` polí (opakovaný name → pole hodnot; soubory se vynechají),
- *    event = data-vb-event formuláře (fallback name, pak "submit").
- *  Každý klik na <a> a každý submit je preventDefault – žádná navigace
- *  (sandbox má allow-forms JEN proto, aby submit událost vůbec vznikla).
- *  Zpráva vb-html-append připíše fragment a drží konec, když byl vidět
- *  (stejná „tail" logika jako terminál). */
+ *  sandbox="allow-scripts allow-forms"). Ven jde vždy zpráva rodiči
+ *  `vb-html-event` {kind, event, id, value, values}:
+ *  - kind "click": klik na [data-vb-event] (tlačítko/odkaz/prvek) – event =
+ *    data-vb-event, id = data-vb-id (prvky), value = data-vb-value nebo null;
+ *  - kind "change": změna pole s data-vb-id (input/select/textarea po
+ *    potvrzení, slider po puštění; slider s data-vb-live i při tažení,
+ *    škrceno na ~10×/s) – value = hodnota s typem;
+ *  - kind "submit": Enter v textovém poli s data-vb-id (value = text), nebo
+ *    odeslání <form data-vb-event> (values = pole formuláře).
+ *  `values` = hodnoty VŠECH polí dokumentu podle `name` (checkbox → bool,
+ *  number/range → číslo, select multiple → seznam, soubory se vynechají),
+ *  takže i klik na tlačítko nese aktuální stav polí. Každý klik na <a> a
+ *  každý submit je preventDefault – žádná navigace.
+ *  Dovnitř: `vb-html-append` připíše fragment a drží konec, když byl vidět
+ *  (jako terminál); `vb-html-patch` nahradí prvek podle id (rozepsaný text a
+ *  fokus ostatních polí přežijí). */
 export const BRIDGE_JS = [
   '(function(){',
-  'function send(ev,val,values){parent.postMessage({type:"vb-html-event",event:ev,value:val,values:values||{}},"*");}',
   'function attr(el,n){return el.hasAttribute(n)?el.getAttribute(n):null;}',
+  'function typed(el){',
+  ' var t=(el.type||"").toLowerCase();',
+  ' if(t==="checkbox")return el.checked;',
+  ' if(t==="radio")return el.checked?el.value:undefined;',
+  ' if(t==="number"||t==="range"){var n=parseFloat(el.value);return isNaN(n)?null:n;}',
+  ' if(t==="file")return undefined;',
+  ' if(el.tagName==="SELECT"&&el.multiple){var a=[];for(var i=0;i<el.options.length;i++)if(el.options[i].selected)a.push(el.options[i].value);return a;}',
+  ' return el.value;',
+  '}',
+  'function collect(root){',
+  ' var out={},els=root.querySelectorAll("input[name],select[name],textarea[name]");',
+  ' for(var i=0;i<els.length;i++){var v=typed(els[i]);if(v===undefined)continue;var k=els[i].name;',
+  '  if(els[i].type==="radio"){out[k]=v;continue;}',
+  '  if(k in out){if(!Array.isArray(out[k]))out[k]=[out[k]];out[k].push(v);}else out[k]=v;}',
+  ' return out;',
+  '}',
+  'function send(kind,ev,id,val,values){parent.postMessage({type:"vb-html-event",kind:kind,event:ev,id:id,value:val,values:values||collect(document)},"*");}',
   'document.addEventListener("click",function(e){',
   ' var el=e.target&&e.target.closest?e.target.closest("[data-vb-event]"):null;',
-  ' if(el&&el.tagName!=="FORM"){e.preventDefault();send(el.getAttribute("data-vb-event"),attr(el,"data-vb-value"),{});return;}',
+  ' if(el&&el.tagName!=="FORM"){e.preventDefault();send("click",el.getAttribute("data-vb-event"),attr(el,"data-vb-id"),attr(el,"data-vb-value"));return;}',
   ' if(e.target&&e.target.closest&&e.target.closest("a"))e.preventDefault();',
+  '});',
+  'function fieldEvent(kind,el){send(kind,el.name||attr(el,"data-vb-id"),attr(el,"data-vb-id"),typed(el));}',
+  'document.addEventListener("change",function(e){',
+  ' var el=e.target;if(!el||!el.hasAttribute||!el.hasAttribute("data-vb-id"))return;',
+  ' fieldEvent("change",el);',
+  '});',
+  'var liveTimer=null,livePending=null;',
+  'document.addEventListener("input",function(e){',
+  ' var el=e.target;if(!el||!el.type||el.type!=="range")return;',
+  ' var o=el.parentNode&&el.parentNode.querySelector?el.parentNode.querySelector("output[for=\'"+el.name+"\']"):null;',
+  ' if(o)o.textContent=el.value;',
+  ' if(!el.hasAttribute("data-vb-live"))return;',
+  ' livePending=el;if(liveTimer)return;',
+  ' liveTimer=setTimeout(function(){liveTimer=null;if(livePending){fieldEvent("change",livePending);livePending=null;}},100);',
+  '});',
+  'document.addEventListener("keydown",function(e){',
+  ' var el=e.target;if(e.key!=="Enter"||!el||el.tagName!=="INPUT"||!el.hasAttribute("data-vb-id"))return;',
+  ' if(el.type==="checkbox"||el.type==="range")return;',
+  ' e.preventDefault();fieldEvent("submit",el);',
   '});',
   'document.addEventListener("submit",function(e){',
   ' var f=e.target;e.preventDefault();if(!f||f.tagName!=="FORM")return;',
-  ' var values={};new FormData(f).forEach(function(v,k){',
-  '  if(typeof v!=="string")return;',
-  '  if(k in values){if(!Array.isArray(values[k]))values[k]=[values[k]];values[k].push(v);}else values[k]=v;',
-  ' });',
-  ' send(attr(f,"data-vb-event")||attr(f,"name")||"submit",attr(f,"data-vb-value"),values);',
+  ' send("submit",attr(f,"data-vb-event")||attr(f,"name")||"submit",attr(f,"data-vb-id"),attr(f,"data-vb-value"),collect(f));',
   '});',
   'window.addEventListener("message",function(e){',
-  ' if(!e.data||e.data.type!=="vb-html-append")return;',
-  ' var d=document.scrollingElement||document.documentElement;',
-  ' var pinned=d.scrollTop+d.clientHeight>=d.scrollHeight-4;',
-  ' document.body.insertAdjacentHTML("beforeend",e.data.html);',
-  ' if(pinned)d.scrollTop=d.scrollHeight;',
+  ' var d=e.data;if(!d)return;',
+  ' if(d.type==="vb-html-append"){',
+  '  var s=document.scrollingElement||document.documentElement;',
+  '  var pinned=s.scrollTop+s.clientHeight>=s.scrollHeight-4;',
+  '  document.body.insertAdjacentHTML("beforeend",d.html);',
+  '  if(pinned)s.scrollTop=s.scrollHeight;',
+  ' }else if(d.type==="vb-html-patch"){',
+  '  var el=document.getElementById(d.id);if(el)el.outerHTML=d.html;',
+  ' }',
   '});',
   '})();',
-].join('');
+].join('\n');
 
 /** Odstraň <script>, on* atributy a javascript: URL. Regexy stačí – cíl je
  *  „nehoda", ne obrana; složitější sanitizer by tu byl přes míru. Atribut
