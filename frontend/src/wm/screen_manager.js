@@ -46,7 +46,9 @@ export class ScreenManager {
     // chvíli změřilo 0×0 a canvas by zůstal nesprávně nasetovaný navždy (later
     // setActive(true) sizing nepřepočítává, jen togluje display). Schová se
     // (pokud nemá být rovnou vidět) až POTOM přes _layout().
-    container.style.cssText = 'position:absolute;inset:0';
+    // overflow:hidden – okno vytažené částečně mimo plátno (clampDragPosition
+    // v BaseWindow) se ořízne na hraně screenu, nevyčuhuje přes sousední.
+    container.style.cssText = 'position:absolute;inset:0;overflow:hidden';
     this.rootContainer.appendChild(container);
     return container;
   }

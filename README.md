@@ -308,6 +308,10 @@ vývojáři přes `define_type`/`update_node`.
   čtvereček, tažením za něj se okno zvětší nebo zmenší (levý roh hýbe levou
   hranou, pravá stojí). Pozice **i velikost** oken se pamatují v prohlížeči
   (localStorage, klíč `vb-pos:<window_id>`), takže přežijí obnovení stránky.
+  Tažením za lištu jde okno **částečně vytáhnout mimo plátno** (doleva,
+  doprava i dolů — jako u běžných window managerů), ale vždy zůstane
+  uchopitelný kus lišty, za který se okno vrátí; nahoru se lišta okna nikdy
+  nedostane pod lištu obrazovky s Options.
 - **Toky** — `define_flow_type` + `flow(src, dst | path=[…], type=…)`: světelné
   částice po hranách (pakety, zprávy, provoz); `count=None` je trvalý tok
   (vrací `flow_id`, zastaví ho `stop_flow(flow_id)`; smazání hrany na cestě
@@ -375,8 +379,11 @@ menu bar, kde menu patří aktivní aplikaci: klik na okno grafu → „Fyzika
 běží", „Křivkové hrany (splajn)", **„3D pohled"** (živé přepnutí kamery i
 fyzikální simulace 2D/3D za běhu; volba se pamatuje v `localStorage` napříč
 reconnecty); klik na okno logu → filtry úrovní (debug/info/warning/error)
-a zdrojů. Okna bez vlastních Options (detail, control, terminál) skupinu
-nemění; volba položky (i checkbox) dropdown hned zavře. A pokud něco na
+a zdrojů; klik na terminálové okno → **„Word Wrap"** (zalamovat dlouhé
+řádky výstupu, nebo je nechat celé a scrollovat do strany). Mechanismus je
+pro všechny typy oken týž (`BaseWindow.getOptionsItems`) — nový typ okna
+si Options přidá jednou metodou. Okna bez vlastních Options (detail,
+control) skupinu nemění; volba položky (i checkbox) dropdown hned zavře. A pokud něco na
 frontendu spadne (neodchycená JS chyba), spojení vypadne, nebo backend
 zaloguje `level="error"`, objeví se **Guru Meditation** — homage na Amiga
 crash obrazovku (červeně orámovaný blikající box, zavírá se libovolným

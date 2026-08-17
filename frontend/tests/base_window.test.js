@@ -1,7 +1,48 @@
 import { describe, expect, it } from 'vitest';
 import {
-  MIN_WINDOW_H, MIN_WINDOW_W, posKey, resizeGeometry,
+  DRAG_KEEP_PX, MIN_WINDOW_H, MIN_WINDOW_W, clampDragPosition, posKey,
+  resizeGeometry,
 } from '../src/wm/base_window.js';
+import { SCREEN_BAR_HEIGHT } from '../src/wm/drag_reveal.js';
+
+describe('clampDragPosition (tažení okna za lištu)', () => {
+  const bounds = { width: 800, height: 600 };
+  const w = 300;
+  const headerH = 28;
+
+  it('uvnitř plátna beze změny', () => {
+    expect(clampDragPosition(100, 120, w, headerH, bounds)).toEqual({ x: 100, y: 120 });
+  });
+
+  it('lišta okna nikdy nezajede pod lištu obrazovky (y >= SCREEN_BAR_HEIGHT)', () => {
+    expect(clampDragPosition(100, 0, w, headerH, bounds).y).toBe(SCREEN_BAR_HEIGHT);
+    expect(clampDragPosition(100, -500, w, headerH, bounds).y).toBe(SCREEN_BAR_HEIGHT);
+    expect(clampDragPosition(100, SCREEN_BAR_HEIGHT, w, headerH, bounds).y)
+      .toBe(SCREEN_BAR_HEIGHT);
+  });
+
+  it('doleva smí okno ven, ale DRAG_KEEP_PX lišty zůstane vidět', () => {
+    expect(clampDragPosition(-100, 120, w, headerH, bounds).x).toBe(-100);
+    expect(clampDragPosition(-5000, 120, w, headerH, bounds).x).toBe(DRAG_KEEP_PX - w);
+  });
+
+  it('doprava smí okno ven, ale DRAG_KEEP_PX lišty zůstane vidět', () => {
+    expect(clampDragPosition(700, 120, w, headerH, bounds).x).toBe(700);
+    expect(clampDragPosition(5000, 120, w, headerH, bounds).x)
+      .toBe(bounds.width - DRAG_KEEP_PX);
+  });
+
+  it('dolů smí okno ven, ale celá lišta zůstane vidět (uchopitelná)', () => {
+    expect(clampDragPosition(100, 590, w, headerH, bounds).y).toBe(bounds.height - headerH);
+    expect(clampDragPosition(100, 400, w, headerH, bounds).y).toBe(400);
+  });
+
+  it('okno užší než DRAG_KEEP_PX se nikdy nedostane mimo plátno', () => {
+    const tiny = DRAG_KEEP_PX / 2;
+    expect(clampDragPosition(-50, 120, tiny, headerH, bounds).x).toBe(0);
+    expect(clampDragPosition(5000, 120, tiny, headerH, bounds).x).toBe(bounds.width - tiny);
+  });
+});
 
 describe('posKey (perzistence pozic oken)', () => {
   it('klíč z id okna', () => {

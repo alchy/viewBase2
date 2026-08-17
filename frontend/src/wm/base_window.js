@@ -29,6 +29,29 @@ export function clampToCanvas(x, y, w, h, bounds) {
   };
 }
 
+/** Kolik px lišty okna musí zůstat vidět, když se okno vytáhne mimo plátno
+ *  do stran – aby šlo za lištu chytit a vrátit (uživatelský požadavek:
+ *  okno smí ven z plátna jako u běžných WM, ale nikdy nenávratně). */
+export const DRAG_KEEP_PX = 64;
+
+/** Tažení okna za lištu: kam smí okno na plátně `bounds` (šířka `w`,
+ *  výška lišty `headerH`). Nahoru NIKDY pod lištu obrazovky (tam sedí
+ *  Options; okna mají nižší z-index a lišta by zmizela pod ní). Do stran
+ *  smí okno částečně ven, ale DRAG_KEEP_PX lišty zůstane vidět; dolů smí
+ *  tělo ven, ale celá lišta zůstane na plátně – to je to, za co se okno
+ *  vrací zpět. Okno užší než DRAG_KEEP_PX zůstává celé uvnitř. */
+export function clampDragPosition(x, y, w, headerH, bounds) {
+  const keep = Math.min(DRAG_KEEP_PX, w);
+  const minX = keep - w;
+  const maxX = bounds.width - keep;
+  const minY = SCREEN_BAR_HEIGHT;
+  const maxY = Math.max(minY, bounds.height - headerH);
+  return {
+    x: Math.min(Math.max(minX, x), maxX),
+    y: Math.min(Math.max(minY, y), maxY),
+  };
+}
+
 export function dockLayout(index, slotWidth, gap, canvasHeight, slotHeight) {
   return { x: index * (slotWidth + gap), y: canvasHeight - slotHeight };
 }
@@ -126,8 +149,11 @@ export class BaseWindow {
     const offset = (this.manager.windows.size % 8) * 24;
     const start = clampToCanvas(40 + offset, 40 + offset,
       this._boxW(), this._boxH(), bounds);
+    // uložená pozice smí být částečně mimo plátno (uživatel si ji tam
+    // odtáhl) – jen stejná pojistka jako při tažení, ať je lišta uchopitelná
+    // i po reloadu / na menším okně prohlížeče
     const pos = saved
-      ? clampToCanvas(saved.x, saved.y, this._boxW(), this._boxH(), bounds)
+      ? clampDragPosition(saved.x, saved.y, this._boxW(), this._headerH(), bounds)
       : start;
     this._place(pos.x, pos.y);
     this.el.addEventListener('pointerdown', () => this.bringToFront());
@@ -269,7 +295,7 @@ export class BaseWindow {
         if (this.isMinimized) return;
         const x = e.clientX - drag.contLeft - drag.x;
         const y = e.clientY - drag.contTop - drag.y;
-        const pos = clampToCanvas(x, y, this._boxW(), this._headerH(),
+        const pos = clampDragPosition(x, y, this._boxW(), this._headerH(),
           this._bounds());
         this._place(pos.x, pos.y);
       },
@@ -455,9 +481,9 @@ export class BaseWindow {
 
   /** Options aktivního okna pro screen bar (macOS menu bar model, §3a
    *  handoveru): pole položek ve tvaru pro `ScreenMenuBar.setOptionsGroup`,
-   *  nebo `null` = tenhle typ okna žádné Options nedefinuje (detail/control/
-   *  terminal) a aktivace NEMÁ přepnout skupinu na liště. Podtřída buď
-   *  přepíše metodu (LogWindow), nebo dodá `optionsProvider` v konstruktoru
+   *  nebo `null` = tenhle typ okna žádné Options nedefinuje (detail/control)
+   *  a aktivace NEMÁ přepnout skupinu na liště. Podtřída buď přepíše metodu
+   *  (LogWindow, TerminalWindow), nebo dodá `optionsProvider` v konstruktoru
    *  (GraphWindow – položky staví closure ve screen_instance, které má
    *  přístup k engine/renderer/store). Jedno sdílené rozhraní, žádné
    *  kopírování render-options kódu do každého typu okna (DRY). */
