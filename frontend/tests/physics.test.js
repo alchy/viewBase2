@@ -159,6 +159,51 @@ describe('PhysicsCore', () => {
     expect(mezi).toBeGreaterThan(uvnitr);
   });
 
+  it('setClusters(false) vypne sílu skupin (rychlosti nechá být), zapnutí ji vrátí', () => {
+    const core = new PhysicsCore({ dimensions: 3 });
+    core.applyInit({
+      nodes: [{ id: 'a', group: 'X' }, { id: 'b', group: 'X' },
+        { id: 'c', group: 'Y' }, { id: 'd', group: 'Y' }],
+      links: [{ source: 'a', target: 'c' }],
+    });
+    core.tick();                              // skupiny zaindexované, pozice živé
+    expect(core.groups.size).toBe(2);
+    const groupForce = core.sim.force('groups');
+    const reset = () => core.nodes.forEach((n) => { n.vx = 0; n.vy = 0; n.vz = 0; });
+    const hnuto = () => core.nodes.some((n) => n.vx !== 0 || n.vy !== 0 || n.vz !== 0);
+
+    reset(); groupForce(1);
+    expect(hnuto()).toBe(true);               // zapnuto: síla táhne
+
+    core.setClusters(false);
+    reset(); groupForce(1);
+    expect(hnuto()).toBe(false);              // vypnuto: no-op
+    expect(core.groups.size).toBe(2);         // dělení se dál zná, jen netahá
+
+    core.setClusters(true);
+    reset(); groupForce(1);
+    expect(hnuto()).toBe(true);               // zpět zapnuto
+  });
+
+  it('setClusters ohřeje vychladlou simulaci, ať se graf přeskládá', () => {
+    const core = new PhysicsCore({ dimensions: 3 });
+    core.applyInit({
+      nodes: [{ id: 'a', group: 'X' }, { id: 'b', group: 'Y' }],
+      links: [{ source: 'a', target: 'b' }],
+    });
+    let last = null;
+    for (let i = 0; i < 2000 && (last = core.tick()) !== null; i += 1);
+    expect(last).toBeNull();
+    core.setClusters(false);
+    expect(core.tick()).not.toBeNull();
+    for (let i = 0; i < 2000 && core.tick() !== null; i += 1);
+    core.setClusters(true);
+    expect(core.tick()).not.toBeNull();
+    core.setClusters(true);                  // stejná hodnota = no-op
+    for (let i = 0; i < 2000 && (last = core.tick()) !== null; i += 1);
+    expect(last).toBeNull();
+  });
+
   it('síla skupin drží ve 2D z = 0', () => {
     const core = new PhysicsCore({ dimensions: 2 });
     core.applyInit({

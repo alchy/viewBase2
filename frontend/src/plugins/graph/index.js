@@ -150,6 +150,19 @@ export function createGraphPlugin(ctx) {
           renderOptionsGroup(title, options);
         },
       },
+      {
+        // Shluky (komunity) jako oddělené oblasti (koheze + odpuzování center
+        // ve fyzice); vypnuto = volné „gravitační" rozložení jen pružinami a
+        // odpuzováním – u hub-heavy grafů bez rovných plachet mezi oblastmi.
+        key: 'clusters', label: 'Shluky (oblasti)',
+        checked: options.clusters !== false,
+        onToggle: (checked) => {
+          options.clusters = checked;
+          engine.setClusters(checked);
+          saveOptions(title, options);
+          renderOptionsGroup(title, options);
+        },
+      },
     ];
     // refreshOptions respektuje aktivní okno s vlastními Options (např. log
     // okno) – graf mu rebuild svých položek nesmí přepsat skupinu pod rukama.
@@ -167,6 +180,7 @@ export function createGraphPlugin(ctx) {
       edgeStyle: store.config.edge_style?.style ?? 'line',
       edgeElasticity: store.config.edge_style?.elasticity ?? 0.3,
       dimensions: store.config.dimensions ?? 3,
+      clusters: true,
     };
     const options = loadOptions(title, undefined, liveDefaults);
     userWantsPhysics = options.physicsRunning;
@@ -174,6 +188,7 @@ export function createGraphPlugin(ctx) {
     renderer.setEdgeStyle({ style: options.edgeStyle,
       elasticity: options.edgeElasticity });
     applyDimensions(options.dimensions);
+    engine.setClusters(options.clusters !== false);
     renderOptionsGroup(title, options);
   }
 

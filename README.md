@@ -377,8 +377,11 @@ Na liště každého screenu je vestavěná skupina **„Options"** (view-only,
 skupiny za ní) a její obsah řídí **aktivní okno** — stejný model jako macOS
 menu bar, kde menu patří aktivní aplikaci: klik na okno grafu → „Fyzika
 běží", „Křivkové hrany (splajn)", **„3D pohled"** (živé přepnutí kamery i
-fyzikální simulace 2D/3D za běhu; volba se pamatuje v `localStorage` napříč
-reconnecty); klik na okno logu → filtry úrovní (debug/info/warning/error)
+fyzikální simulace 2D/3D za běhu), **„Shluky (oblasti)"** (zapnuto = komunity
+mají ve fyzice vlastní gravitační centra a graf se rozpadá na oddělené
+oblasti; vypnuto = volné rozložení jen pružinami a odpuzováním – u grafů s
+velkými huby bez rovných „plachet" hran mezi oblastmi); všechny volby se
+pamatují v `localStorage` napříč reconnecty; klik na okno logu → filtry úrovní (debug/info/warning/error)
 a zdrojů; klik na terminálové okno → **„Word Wrap"** (zalamovat dlouhé
 řádky výstupu, nebo je nechat celé a scrollovat do strany). Mechanismus je
 pro všechny typy oken týž (`BaseWindow.getOptionsItems`) — nový typ okna

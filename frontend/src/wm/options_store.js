@@ -1,4 +1,5 @@
-/** Options (§8a designu): view-only volby diváka (fyzika běží, čára/splajn) –
+/** Options (§8a designu): view-only volby diváka (fyzika běží, čára/splajn,
+ *  2D/3D, shluky) –
  *  čistě klientský stav, žádný round-trip na server. Persistuje se do
  *  localStorage klíčované podle `title` screenu (slug), ne podle číselného
  *  id – id se přiděluje znovu od 1 při každém běhu skriptu, takže by
@@ -9,6 +10,7 @@ export const DEFAULT_OPTIONS = Object.freeze({
   edgeStyle: 'line',        // 'line' | 'spline'
   edgeElasticity: 0.3,
   dimensions: 3,            // 2 | 3
+  clusters: true,           // shluky (komunity) jako oblasti – síla skupin
 });
 
 /** Titulek screenu → stabilní klíč pro localStorage (lowercase, jen

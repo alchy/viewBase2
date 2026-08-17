@@ -65,6 +65,7 @@ export class PhysicsCore {
     this.byId = new Map();
     this.degree = new Map();
     this.groups = new Map();
+    this.clusters = true;   // Options „Shluky (oblasti)" – síla skupin zap/vyp
     this.sim = forceSimulation([], dimensions)
       .force('link', forceLink([]).id((d) => d.id)
         .distance(linkDistance).strength((l) => this.linkStrength(l)))
@@ -117,6 +118,20 @@ export class PhysicsCore {
     // svůj vlastní d3-timer navíc k ručnímu tick() z workeru (dvojité tikání).
     this.sim.stop();
     this.sim.alpha(1);
+  }
+
+  /** Options „Shluky (oblasti)": zapnuto = komunity mají gravitační centra
+   *  (koheze + odpuzování center, viz _groupForce) a graf se rozpadá na
+   *  oblasti; vypnuto = síla skupin je no-op a graf drží jen pružinami a
+   *  odpuzováním (normalizace pružin stupněm zůstává – bez ní by se huby
+   *  slily do středu). Dělení na skupiny se počítá dál, jen netahá – po
+   *  zapnutí se tak uplatní hned. Změna simulaci ohřeje, ať se graf
+   *  přeskládá; stejná hodnota je no-op. */
+  setClusters(on) {
+    const want = Boolean(on);
+    if (this.clusters === want) return;
+    this.clusters = want;
+    this.sim.alpha(Math.max(this.sim.alpha(), 0.3));
   }
 
   applyInit({ nodes, links }) {
@@ -289,11 +304,12 @@ export class PhysicsCore {
    *  se to přelaďovat, když se graf mezitím roztáhne.
    *
    *  Uzly bez `group` síla ignoruje; drží je na místě hrany k sousedům. Bez
-   *  skupin je to no-op, takže výchozí chování zůstává nezměněné. */
+   *  skupin (nebo s vypnutou volbou „Shluky", viz setClusters) je to no-op,
+   *  takže výchozí chování zůstává nezměněné. */
   _groupForce() {
     const stred = new Map();
     const force = (alpha) => {
-      if (this.groups.size < 2) return;
+      if (!this.clusters || this.groups.size < 2) return;
       const prostor = this.dimensions === 3;
       for (const [g, cleny] of this.groups) {
         let x = 0; let y = 0; let z = 0;
@@ -373,7 +389,7 @@ export class PhysicsCore {
   tick() {
     const melSkupiny = this.groups.size;
     this._stepGrouping();
-    const zmena = this.groups.size !== melSkupiny;
+    const zmena = this.clusters && this.groups.size !== melSkupiny;
     if (this.sim.alpha() < this.sim.alphaMin() && !zmena) return null;
     if (zmena) this.sim.alpha(Math.max(this.sim.alpha(), 0.3));
     const start = Date.now();

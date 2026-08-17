@@ -40,9 +40,9 @@ describe('loadOptions/saveOptions', () => {
   it('uloží a znovu načte', () => {
     const storage = new FakeStorage();
     saveOptions('Síť', { physicsRunning: false, edgeStyle: 'spline',
-      edgeElasticity: 0.6, dimensions: 2 }, storage);
-    expect(loadOptions('Síť', storage)).toEqual(
-      { physicsRunning: false, edgeStyle: 'spline', edgeElasticity: 0.6, dimensions: 2 });
+      edgeElasticity: 0.6, dimensions: 2, clusters: false }, storage);
+    expect(loadOptions('Síť', storage)).toEqual({ physicsRunning: false,
+      edgeStyle: 'spline', edgeElasticity: 0.6, dimensions: 2, clusters: false });
   });
 
   it('starý záznam bez dimensions doplní default (2D/3D přidáno později)', () => {
@@ -50,6 +50,16 @@ describe('loadOptions/saveOptions', () => {
     saveOptions('Síť', { physicsRunning: false, edgeStyle: 'line',
       edgeElasticity: 0.3 }, storage);
     expect(loadOptions('Síť', storage).dimensions).toBe(3);
+  });
+
+  it('starý záznam bez clusters doplní default true (shluky přidány později)', () => {
+    const storage = new FakeStorage();
+    saveOptions('Síť', { physicsRunning: true, edgeStyle: 'line',
+      edgeElasticity: 0.3, dimensions: 3 }, storage);
+    expect(DEFAULT_OPTIONS.clusters).toBe(true);
+    expect(loadOptions('Síť', storage).clusters).toBe(true);
+    saveOptions('Síť', { ...DEFAULT_OPTIONS, clusters: false }, storage);
+    expect(loadOptions('Síť', storage).clusters).toBe(false);
   });
 
   it('vadný JSON v úložišti spadne zpátky na defaulty', () => {

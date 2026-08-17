@@ -18,6 +18,8 @@ self.onmessage = ({ data }) => {
     core.applyPatch(data);
   } else if (data.type === 'set_dimensions' && core) {
     core.setDimensions(data.dimensions);
+  } else if (data.type === 'set_clusters' && core) {
+    core.setClusters(data.clusters);
   } else if (data.type === 'pause') {
     paused = true;
     return;

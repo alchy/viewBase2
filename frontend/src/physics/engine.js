@@ -36,6 +36,12 @@ export class PhysicsEngine {
     this.worker.postMessage({ type: 'set_dimensions', dimensions });
   }
 
+  /** Options „Shluky (oblasti)": zapni/vypni sílu skupin ve workeru (viz
+   *  `PhysicsCore.setClusters`); pozice se zachovají, simulace se jen ohřeje. */
+  setClusters(clusters) {
+    this.worker.postMessage({ type: 'set_clusters', clusters: Boolean(clusters) });
+  }
+
   /** Ukonči worker a odhlas se ze store (screen destroy – viz manager.js).
    *  Po zavolání je instance nepoužitelná. */
   terminate() {
