@@ -147,6 +147,7 @@ týž graf, jen přepnutý přepínač:
 |---|---|---|
 | `LogWindow` | **systémové** okno — obsah dodává knihovna (proces-wide log, `tail -f`) | `examples/log_window.py` |
 | `TerminalWindow` | **textové/dialogové** okno — píše se do něj a umí poslat string od uživatele | `examples/terminal.py` |
+| `HtmlWindow` | **HTML okno** — formátovaný obsah (nadpisy, tabulky, štítky, tlačítka) poslaný z Pythonu; kliky se vrací eventem | `examples/html_window.py` |
 | `ControlWindow` | **formulářové** okno — typovaná pole, hodnoty tečou zpět do Pythonu | `examples/prototype.py` |
 | `GraphWindow` | **grafové** okno — živý 2D/3D graf, fyzika, eventy, toky | `examples/quickstart.py` |
 | detailní okno | **systémové** okno s metadaty uzlu — otevírá klik do grafu | `examples/log_demo.py` |
@@ -188,6 +189,40 @@ graph.terminal_write("konzole", "vítej!")   # zápis textové části
 `TerminalWindow(…, input=False)` je jen výstupní panel (živý textový
 feed bez vstupního řádku). Kompletní ukázka včetně REST pushování:
 `examples/terminal.py`.
+
+### HTML okno
+
+`HtmlWindow` — „prohlížeč v prohlížeči" jen pro kód, který mu pošle server:
+formátovaný výpis s nadpisy, tabulkami, štítky, odkazy a tlačítky tam, kde
+terminál nabízí jen text. Styl je **sjednocený s ostatními okny** — obsah se
+vysází boilerplate CSS, které bere barvy z proměnných tématu (`--vb-window-*`),
+takže tabulka klíč/hodnota vypadá jako detail okno, tlačítka jako control okno,
+`<pre>/<code>` jako terminál a změna tématu přebarví HTML okno stejně jako ostatní.
+
+```python
+karta = vb.HtmlWindow("karta", title="Uzel", width=420, height=250)
+
+def on_event(event):                    # event.event = data-vb-event, event.value = data-vb-value
+    if event.event == "focus":
+        graph.focus(event.value)
+
+graph.open_html(karta, on_event=on_event)
+graph.html_set("karta", """
+  <h2>Server 0 <span class="vb-tag">server</span></h2>
+  <table class="kv"><tr><td>stav</td><td><span class="vb-ok">● běží</span></td></tr></table>
+  <button data-vb-event="focus" data-vb-value="srv-0">Zaostřit</button>
+""")                                     # nahradí celý obsah
+graph.html_append("udalosti", "<div>09:41 <span class='vb-warn'>warn</span> fps 48</div>")  # připíše
+```
+
+Utility třídy boilerplate: `table.kv` (klíč/hodnota), `.vb-key` (tlumený
+text), `.vb-tag` (štítek), `.vb-ok` / `.vb-warn` / `.vb-err`, `.vb-bar > i`
+(progress), `.vb-actions` (řada tlačítek), `.num` (číslo vpravo), `.small`.
+Vlastní `<style>` v posílaném HTML má poslední slovo. **Hranice:** JS v HTML
+se odstraní (`<script>`, `on*`, `javascript:`), odkazy nenavigují — jediná
+cesta ven je `data-vb-event` → `html_event`. Okno si pamatuje aktuální obsah
+pro replay po reconnectu (strop `HtmlWindow.MAX_HTML`, ořez zepředu).
+Kompletní ukázka: `examples/html_window.py`.
 
 ### Formulářové okno
 
@@ -275,6 +310,8 @@ graph = vb.GraphWindow(screen=screen, theme={
         "key": "#ff8800",             # zvýrazněné klíče (detail, formuláře)
         "dockBg": "#b8c6e8",          # proužek minimalizovaného okna v doku
         "shadow": "0 2px 0 rgba(0,0,0,0.35)",   # stín okna (CSS box-shadow)
+        "htmlAccent": "#ffffff",      # odkazy/tlačítka v HTML okně (default = gadget)
+        "outputBg": "rgba(0,0,0,0.18)",  # výstupní plocha terminálu a <pre>/<code> HTML okna
     },
 })
 ```
@@ -459,6 +496,7 @@ a [architektura WM + pluginy](docs/superpowers/specs/2026-08-02-wm-plugin-archit
 | `examples/prototype.py` | `ControlWindow` jako **formulářový dialog** (přidání uzlu podle zadaných polí), `TerminalWindow` jako log |
 | `examples/showcase.py` | téma cyber, typy uzlů, **živá změna barvy/typu za běhu**, toky, **control okno** (čáry/splajny) |
 | `examples/terminal.py` | **konzole v prohlížeči**: `TerminalWindow`, `on_input`, `terminal_write`, výstupní panel a REST push (`/api/event`) |
+| `examples/html_window.py` | **HTML okno**: `HtmlWindow`, `html_set` (karta uzlu po kliku), `html_append` (živý výpis), `data-vb-event` → `on_event`, utility třídy a vlastní `<style>` |
 | `examples/words.py` | mapa slov z Wikipedie (crawl odkazů) |
 | `examples/stress.py` | zátěžový test (tisíce uzlů) |
 | `examples/log_demo.py` | **multi-screen Workbench**: `vb.log()` → vestavěné okno „Log" (`tail -f` styl AmigaShell, timestampy), Options aktivního okna na liště (graf: fyzika/splajn/3D; log: filtry úrovní a zdrojů) |
@@ -473,6 +511,7 @@ a [architektura WM + pluginy](docs/superpowers/specs/2026-08-02-wm-plugin-archit
 - [Traceroute toky (routery jako uzly, multi-hop)](docs/superpowers/specs/2026-06-16-traceroute-toky-design.md)
 - [Control okna (parametrické GUI) + křivkové hrany](docs/superpowers/specs/2026-06-17-control-okna-design.md)
 - [Multi-screen Workbench (Amiga-style, ve vývoji)](docs/superpowers/specs/2026-08-02-multi-screen-workbench-design.md)
+- [HTML okno (HtmlWindow)](docs/superpowers/specs/2026-08-17-html-okno-design.md)
 
 Implementační plány (krok za krokem) jsou v
 [`docs/superpowers/plans/`](docs/superpowers/plans/).

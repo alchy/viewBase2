@@ -50,7 +50,8 @@ export const BOILERPLATE_CSS = [
   '.vb-tag{display:inline-block;padding:0 7px;border:1px solid var(--vb-window-key);border-radius:9px;font-size:11px;line-height:16px;margin-right:4px}',
   // sémantické barvy záměrně MIMO téma – čitelné na světlém i tmavém
   '.vb-ok{color:#2fa84f}.vb-warn{color:#e8a02f}.vb-err{color:#e8553a}',
-  '.vb-bar{height:6px;background:var(--vb-window-output-bg);border-radius:3px;overflow:hidden}',
+  // inline-block: text za barem ("63 %") zůstane na stejném řádku
+  '.vb-bar{display:inline-block;vertical-align:middle;height:6px;background:var(--vb-window-output-bg);border-radius:3px;overflow:hidden}',
   '.vb-bar>i{display:block;height:100%;background:var(--vb-html-accent)}',
 ].join('\n');
 
