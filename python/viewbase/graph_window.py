@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Callable, Iterator
 
-from .controls import ControlWindow, TerminalWindow, validate_values
+from .controls import ControlWindow, HtmlWindow, TerminalWindow, validate_values
 from .menu import ScreenMenu
 
 if TYPE_CHECKING:
@@ -86,6 +86,8 @@ class GraphWindow:
         self._window_live: dict[str, bool] = {}   # window_id -> live režim
         self._terminals: dict[str, TerminalWindow] = {}
         self._terminal_callbacks: dict[str, Any] = {}   # window_id -> on_input
+        self._html_windows: dict[str, HtmlWindow] = {}
+        self._html_callbacks: dict[str, Any] = {}       # window_id -> on_event
         self._menu: ScreenMenu | None = None   # připnuté ScreenMenu (§8 designu)
         self._seq = 0
         self._batch_depth = 0
@@ -100,6 +102,7 @@ class GraphWindow:
         self._tasks_stop: threading.Event | None = None   # None = neběží
         self._register("window_submit", self._on_window_submit)
         self._register("terminal_input", self._on_terminal_input)
+        self._register("html_event", self._on_html_event)
         self._register("menu_select", self._on_menu_select)
         if screen is not None:
             self._adopt_screen(screen)
@@ -328,9 +331,13 @@ class GraphWindow:
         return window.window_id
 
     def close_window(self, window_id: str) -> None:
-        """Zavři okno: odeber ze stavu a zařaď akci close_window."""
+        """Zavři okno (control i html): odeber ze stavu a zařaď akci close_window."""
         with self._lock:
-            if self._windows.pop(window_id, None) is None:
+            removed = self._windows.pop(window_id, None) is not None
+            if self._html_windows.pop(window_id, None) is not None:
+                removed = True
+                self._html_callbacks.pop(window_id, None)
+            if not removed:
                 raise ValueError(f"Okno '{window_id}' neexistuje")
             self._window_callbacks.pop(window_id, None)
             self._window_live.pop(window_id, None)
@@ -366,6 +373,58 @@ class GraphWindow:
             return
         with self._lock:
             callback = self._terminal_callbacks.get(window_id)
+        if callback is not None:
+            callback(event)
+
+    def open_html(self, window: HtmlWindow, *, on_event=None) -> str:
+        """Otevři/nahraď HTML okno: ulož do stavu (init replay) a zařaď akci
+        open_window (kind:"html"). `on_event` dostane event s `.event`
+        (hodnota `data-vb-event` kliknutého prvku), `.value`
+        (`data-vb-value`, nebo None) a `.window_id`. Do okna se píše přes
+        `html_set` / `html_append`. Nahrazení okna stejného window_id bez
+        `on_event` předchozí callback zruší (stejně jako open_terminal)."""
+        with self._lock:
+            self._html_windows[window.window_id] = window
+            if on_event is not None:
+                self._html_callbacks[window.window_id] = on_event
+            else:
+                self._html_callbacks.pop(window.window_id, None)
+            self._actions.append({**window.spec(), "action": "open_window"})
+        return window.window_id
+
+    def html_set(self, window_id: str, html: str) -> None:
+        """Nahraď celý obsah HTML okna (akce html_set klientům; okno si
+        obsah pamatuje pro replay po reconnectu, viz HtmlWindow.MAX_HTML)."""
+        with self._lock:
+            window = self._html_windows.get(window_id)
+            if window is None:
+                raise ValueError(f"HTML okno '{window_id}' neexistuje")
+            window.set_html(html)
+            self._actions.append({"action": "html_set",
+                                  "window_id": window_id, "html": str(html)})
+
+    def html_append(self, window_id: str, html: str) -> None:
+        """Připiš HTML fragment na konec okna (streamový výpis; klient drží
+        konec jako terminál). Akce html_append klientům."""
+        with self._lock:
+            window = self._html_windows.get(window_id)
+            if window is None:
+                raise ValueError(f"HTML okno '{window_id}' neexistuje")
+            window.append_html(html)
+            self._actions.append({"action": "html_append",
+                                  "window_id": window_id, "html": str(html)})
+
+    def _on_html_event(self, event) -> None:
+        """Interní handler eventu html_event (klik na [data-vb-event] v HTML
+        okně): doplň `.value` (None, když prvek data-vb-value nemá) a zavolej
+        on_event okna."""
+        window_id = getattr(event, "window_id", None)
+        if not isinstance(getattr(event, "event", None), str):
+            return
+        if not hasattr(event, "value"):
+            event.value = None
+        with self._lock:
+            callback = self._html_callbacks.get(window_id)
         if callback is not None:
             callback(event)
 
@@ -731,7 +790,8 @@ class GraphWindow:
                 "windows": [
                     {**w.spec(), "live": self._window_live.get(wid, False)}
                     for wid, w in self._windows.items()]
-                + [t.spec() for t in self._terminals.values()],
+                + [t.spec() for t in self._terminals.values()]
+                + [h.spec() for h in self._html_windows.values()],
                 "menu": self._menu.spec() if self._menu is not None else None,
             }
 
