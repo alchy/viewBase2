@@ -2,7 +2,13 @@
  *  řádek se vstupem. Enter pošle event terminal_input; server připisuje
  *  výstup akcí terminal_append (obsluhuje ji tenhle plugin). Chrome dědí
  *  z BaseWindow (wm/). Vstup je <input>, takže KeyboardControls
- *  (isEditableFocused) při psaní neovládá kameru. */
+ *  (isEditableFocused) při psaní neovládá kameru.
+ *
+ *  Options (přes getOptionsItems – TÝŽ mechanismus jako graf a log okno:
+ *  aktivní okno přepne skupinu Options na liště screenu do svého kontextu):
+ *  „Word Wrap" – zalamovat dlouhé řádky výstupu (výchozí), nebo je nechat
+ *  v jednom řádku a scrollovat do strany. Stav žije v okně (jako filtry
+ *  log okna), nepersistuje se. */
 import { BaseWindow } from '../wm/base_window.js';
 
 const PX_PER_CH = 8;            // hrubý převod šířky v px na znaky (BaseWindow._width)
@@ -25,8 +31,55 @@ export class TerminalWindow extends BaseWindow {
     this.prompt = prompt ?? '> ';
     this.hasInput = input !== false;   // false = jen výstup (živý panel)
     this.onInput = onInput;
+    this.wordWrap = true;
     this._buildBody();
     this._mount();
+  }
+
+  /** Options aktivního terminálu (viz BaseWindow.getOptionsItems). */
+  getOptionsItems() {
+    return [
+      {
+        key: 'word-wrap', label: 'Word Wrap',
+        checked: this.wordWrap,
+        onToggle: (checked) => {
+          this.setWordWrap(checked);
+          this.manager.refreshOptions();
+        },
+      },
+    ];
+  }
+
+  /** Zalamování řádků výstupu: pre-wrap (zalamuj), nebo pre + vodorovný
+   *  scroll (řádek zůstane celý). Tail se drží i po přezalomení. */
+  setWordWrap(on) {
+    this.wordWrap = Boolean(on);
+    const pinned = this._isTailPinned();
+    this.output.style.whiteSpace = this.wordWrap ? 'pre-wrap' : 'pre';
+    this.output.style.wordBreak = this.wordWrap ? 'break-word' : 'normal';
+    this.output.style.overflowX = this.wordWrap ? 'hidden' : 'auto';
+    if (pinned) this._scrollToEnd();
+  }
+
+  /** Je výstup odscrollovaný na konec (uživatel sleduje tail)? Tolerance
+   *  pár px kvůli subpixelovému layoutu. */
+  _isTailPinned() {
+    const o = this.output;
+    return o.scrollTop + o.clientHeight >= o.scrollHeight - 4;
+  }
+
+  _scrollToEnd() {
+    this.output.scrollTop = this.output.scrollHeight;
+  }
+
+  /** Změna velikosti okna (úchyt, maximalizace, obnova z localStorage):
+   *  jiná šířka přezalomí řádky a jiná výška posune okno výstupu – tail,
+   *  který byl vidět, by se ztratil. Když byl výstup na konci, zůstane
+   *  na konci; kdo si odscrolloval nahoru číst historii, tomu se nehýbe. */
+  _applySize(w, h) {
+    const pinned = this._isTailPinned();
+    super._applySize(w, h);
+    if (pinned) this._scrollToEnd();
   }
 
   _buildBody() {
@@ -44,8 +97,8 @@ export class TerminalWindow extends BaseWindow {
       // výchozí výška; po ruční změně velikosti okna výstup dorovná zbytek
       // těla (flex), takže konzole roste s oknem
       `height:${OUTPUT_HEIGHT_PX}px`, 'flex:1 1 auto', 'min-height:0',
-      'overflow-y:auto', 'white-space:pre-wrap',
-      'word-break:break-word',
+      'overflow-y:auto', 'overflow-x:hidden',
+      'white-space:pre-wrap', 'word-break:break-word',   // viz setWordWrap
       'background:var(--vb-window-output-bg, rgba(0,0,0,0.06))',
       'border-radius:4px', 'padding:6px 8px',
     ].join(';');

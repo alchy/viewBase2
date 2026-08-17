@@ -55,8 +55,10 @@ export class WindowManager {
   }
 
   /** Aktivace okna (klik/bringToFront, viz BaseWindow): okno S vlastními
-   *  Options se stává zdrojem skupiny na screen baru; okno BEZ nich
-   *  (detail/control/terminal) skupinu NEMĚNÍ – chová se jako další okno
+   *  Options (graf, log, terminál) se stává zdrojem skupiny na screen baru
+   *  – lišta přepne kontext na aktivní okno (graf: fyzika/splajn/2D-3D,
+   *  terminál: Word Wrap, log: filtry); okno BEZ nich (detail/control)
+   *  skupinu NEMĚNÍ – chová se jako další okno
    *  téže „aplikace", přesně jako na macOS menu pořád patří aplikaci
    *  (rozhodnutí uživatele: nemění se + skrýt na prázdném screenu). */
   _setActive(win) {
