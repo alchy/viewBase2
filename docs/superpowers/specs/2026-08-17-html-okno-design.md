@@ -184,6 +184,17 @@ Je to knihovna — komentované ukázky jsou pro vývojáře nejlepší vysvětl
   strop replay bufferu ořízne zepředu; `html_event` doručí `on_event` s
   `.event/.value`; nahrazení okna bez `on_event` callback zruší.
 
+## Poznámka k tématu workbench-amiga (reference do budoucna)
+
+Uživatel dodal ilustraci WB 1.x **Preferences** (bílé tělo okna, černý text,
+gadgety = modré obdélníky s bílým textem a černým 1px rámem, oranžové
+zvýraznění vybraných stavů, Topaz font). Rozhodnutí: pro HTML okno teď
+**nechat jak je** (bílý akcent podle odsouhlaseného náhledu); ilustrace je
+podklad pro pozdější doladění celého tématu (bitmapový font a vzhled
+gadgetů jsou v multi-screen workbench specu stále TODO). Kdyby se k tomu
+šlo, cesta je stejná jako `htmlAccent`: proměnné `--vb-html-btn-bg/fg/
+border` a `--vb-html-highlight` z `theme.window`, boilerplate je jen čte.
+
 ## Mimo rozsah (YAGNI)
 
 - JS uživatele v okně, `postMessage` API pro aplikace, formuláře s odesláním
