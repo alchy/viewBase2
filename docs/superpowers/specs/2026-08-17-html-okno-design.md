@@ -184,6 +184,41 @@ Je to knihovna — komentované ukázky jsou pro vývojáře nejlepší vysvětl
   strop replay bufferu ořízne zepředu; `html_event` doručí `on_event` s
   `.event/.value`; nahrazení okna bez `on_event` callback zruší.
 
+## Prvky (widgets) — primární API pro vývojáře (doplněno 2026-08-17)
+
+Rozhodnutí uživatele: **vývojáře odstínit od HTML**; cílem je přehlednost a
+jednoduchost i za cenu omezení funkcionality a svobody stylování. Vrstvy:
+
+1. **Prvky na instanci okna** (primární, pro začátečníka):
+   `okno = vb.HtmlWindow(...)`; `okno.heading/label/kv/table/bar/hr` (obsah) a
+   `okno.button/input/number/slider/checkbox/select/textarea` (interakce).
+   Každý prvek dostane stabilní `id` (`<window_id>-<n>`) a volitelné `name`
+   (klíč do `values`); má `.text` / `.value` pro čtení i zápis a handlery
+   `on_click` / `on_change` / `on_submit` (dekorátor i volání). Rozložení:
+   bez `grid()` prvky pod sebou; `okno.grid(cols=2)` + `row=/col=/colspan=`
+   u prvku (Tkinter model). Okno má `on_event(fn)` pro jeden handler na vše.
+2. `vb.Ui` — pomocník pro bohatý text uvnitř prvku (`stav.text =
+   vb.Ui.ok("běží")`) a builder pro pokročilé.
+3. `html_set(str)` / `html_append(str)` — úniková cesta (raw HTML), pokročilí.
+
+**Události:** každý event z okna nese `kind` (`click`/`change`/`submit`),
+`id`, `event` (= name prvku), `value` (aktuální hodnota prvku, u tlačítka
+None) a **`values` = hodnoty všech polí okna podle `name` s typy** (číslo/
+slider → číslo, checkbox → bool, select multiple → seznam). Server nejdřív
+aktualizuje `.value` prvků, teprve pak volá handlery — `jmeno.value` je
+v handleru tlačítka vždy aktuální. Slider: `on_change` po puštění; `live=True`
+posílá při tažení (škrceno ~10×/s). Enter v textovém poli → `on_submit`.
+
+**Překreslování:** změna prvku (`stav.text = …`, `zatez.value = 40`) →
+akce **`html_patch {window_id, id, html}`**, most nahradí jen ten element
+(rozepsaný text a fokus jiných polí přežijí). Přidání prvku → `html_set`
+celého okna (typicky při startu; `with graph.batch()` sloučí). Init replay
+nese `spec()["html"]` = celé vykreslené okno.
+
+**Záměrně mimo:** viditelnost/zakázání prvků, mazání prvků, obrázky,
+odkazy jako prvek, vlastní layout mimo grid, klávesové zkratky — až bude
+potřeba (jde přidat stejným mechanismem).
+
 ## Poznámka k tématu workbench-amiga (reference do budoucna)
 
 Uživatel dodal ilustraci WB 1.x **Preferences** (bílé tělo okna, černý text,
