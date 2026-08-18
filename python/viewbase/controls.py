@@ -7,7 +7,8 @@ podle field descriptorů (bezpečnost: klient může poslat cokoli)."""
 from __future__ import annotations
 
 import math
-from typing import Any
+import secrets
+from typing import Any, Sequence
 
 from .widgets import (Bar, Button, Checkbox, Field, Image, Input, Kv, ListElement,
                       Number, Radio, Rule, Select, Slider, Table, TextElement,
@@ -377,6 +378,82 @@ class HtmlWindow:
             el._fire(event.kind, event)
         for fn in self._handlers:
             fn(event)
+
+
+class ShellWindow:
+    """Shell okno: v okně běží SKUTEČNÝ proces na pseudo-terminálu (bash/zsh,
+    `htop`, `vim` – frontend je vykreslí přes xterm.js).
+
+    Na rozdíl od `TerminalWindow` (aplikační konzole: řádky textu, `on_input`)
+    je tohle emulace terminálu nad procesem operačního systému: chodí klávesy
+    (ne řádky), barvy, kurzor, Ctrl-C i celoobrazovkový režim.
+
+    BEZPEČNOST (spec 2026-08-18): okno startuje ZAMČENÉ. PTY se spustí až
+    poté, co klient pošle odemykací kód, který server vypsal do SVÉ konzole –
+    důkaz, že člověk má přístup ke stroji, kde viewbase běží (Jupyter model).
+    Systémový `login` se nepoužívá: bez rootu stejně nemůže přepnout
+    uživatele (na Linuxu selže, na macOS jen znovu přihlásí téhož, na Windows
+    neexistuje). Kdo chce jiného uživatele, řekne si o něj příkazem:
+    `ShellWindow("sh", command=["su", "-", "jina"])`. `unlock=None` zámek
+    vypne – jen pro loopback a vědomě.
+
+    Proces se zabíjí při zavření okna i při `GraphWindow.close()`."""
+
+    MAX_SCROLLBACK = 256 * 1024   # znaků historie pro init replay (ořez zepředu)
+
+    def __init__(self, window_id: str, *, title: str = "",
+                 command: Sequence[str] | None = None, cwd: str | None = None,
+                 env: dict[str, str] | None = None,
+                 cols: int = 80, rows: int = 24,
+                 width: int = 720, height: int = 420,
+                 closable: bool = True, unlock: str | None = "code") -> None:
+        if width <= 0 or height <= 0:
+            raise ValueError("width i height musí být kladné")
+        if cols <= 0 or rows <= 0:
+            raise ValueError("cols i rows musí být kladné")
+        self.window_id = window_id
+        self.title = title
+        self.command = list(command) if command else None
+        self.cwd = cwd
+        self.env = env
+        self.cols = int(cols)
+        self.rows = int(rows)
+        self.width = int(width)
+        self.height = int(height)
+        self.closable = bool(closable)
+        # zámek: kód se generuje hned, ale klientovi se NIKDY neposílá
+        self.unlock_code = secrets.token_hex(4) if unlock else None
+        self.state = "locked" if unlock else "running"
+        self.scrollback = ""
+        self.pty: Any = None          # PtyShell po odemčení
+        self._owner: Any = None       # GraphWindow po open_shell
+
+    def spec(self) -> dict[str, Any]:
+        """Popis okna pro frontend (akce open_window i init replay). `state`
+        říká, jestli je okno zamčené; `scrollback` je historie výstupu pro
+        obnovu po reconnectu. Odemykací kód ve specu NENÍ."""
+        return {
+            "window_id": self.window_id,
+            "title": self.title,
+            "kind": "shell",
+            "cols": self.cols,
+            "rows": self.rows,
+            "width": self.width,
+            "height": self.height,
+            "closable": self.closable,
+            "state": self.state,
+            "scrollback": self.scrollback,
+        }
+
+    def append_scrollback(self, text: str) -> None:
+        """Přidej výstup do historie a ořízni na strop (init nesmí růst)."""
+        self.scrollback = (self.scrollback + text)[-self.MAX_SCROLLBACK:]
+
+    def unlocks_with(self, code: Any) -> bool:
+        """Souhlasí odemykací kód? (konstantní čas – kód je krátký)."""
+        if self.unlock_code is None:
+            return True
+        return isinstance(code, str) and secrets.compare_digest(code, self.unlock_code)
 
 
 _DROP = object()   # sentinel: hodnotu zahodit (None je validní string/enum)
