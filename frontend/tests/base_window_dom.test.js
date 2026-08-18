@@ -168,8 +168,8 @@ describe('BaseWindow — změna velikosti za rohový úchyt', () => {
 
   it('minimalizované okno úchyty schová a po obnově má svou velikost', () => {
     const win = makeWindow('aktivace');
-    win.manager._assignDockSlot = () => 0;
-    win.manager._releaseDockSlot = () => {};
+    win.manager.dockPlace = () => ({ x: 4, y: 568 });
+    win.manager._dockZ = () => 101;
     drag(win, 'se', { x: 340, y: 240 }, { x: 440, y: 300 });
     win.minimize();
     expect(grip(win, 'se').style.display).toBe('none');
@@ -250,8 +250,8 @@ describe('BaseWindow — rám se scrollbary podle tématu (Workbench)', () => {
   it('minimalizace rám schová, obnova ho vrátí', () => {
     const win = makeWindow('ram2');
     // stub manageru: dok (makeWindow má jen minimum WindowManager kontraktu)
-    win.manager._assignDockSlot = () => 0;
-    win.manager._releaseDockSlot = () => {};
+    win.manager.dockPlace = () => ({ x: 4, y: 568 });
+    win.manager._dockZ = () => 101;
     win.manager._nextZ = () => 1001;
     win.container.style.setProperty('--vb-window-frame', '1');
     win.applyTheme();

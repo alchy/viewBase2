@@ -9,6 +9,8 @@
  *  Sémantiku „co udělat, když okno s tímhle id už existuje" (nahradit /
  *  fokusnout / vrátit) si řeší factory daného typu – různé typy ji mají
  *  různou a manager ji nemá co diktovat. */
+import { findFreeSlot, overlaps } from './dock.js';
+
 export class WindowManager {
   constructor(container, onOptionsChange = () => {}) {
     this.container = container;
@@ -22,7 +24,7 @@ export class WindowManager {
     // píše do terminálu vedle.
     this.activeWindow = null;
     this.z = 900;
-    this.dockSlots = [];
+    this.dockZ = 100;               // proužky doku: vždy pod okny (ta začínají na 900)
   }
 
   /** Plugin registruje typ okna. `factory(spec)` okno vytvoří (nebo vrátí
@@ -93,7 +95,7 @@ export class WindowManager {
    *  základu (900), pořadí ostatních zůstane – žádné klesání do záporu ani
    *  nekonečný růst; další bringToFront dostane zase nejvyšší Z. */
   sendToBack(win) {
-    const others = [...this.windows.values()].filter((w) => w !== win)
+    const others = [...this.windows.values()].filter((w) => w !== win && !w.isMinimized)
       .sort((a, b) => Number(a.el.style.zIndex) - Number(b.el.style.zIndex));
     let z = 900;
     win.setZ(z);
@@ -101,18 +103,36 @@ export class WindowManager {
     this.z = z;
   }
 
-  _assignDockSlot(win) {
-    let i = this.dockSlots.indexOf(null);
-    if (i === -1) { i = this.dockSlots.length; this.dockSlots.push(win); }
-    else this.dockSlots[i] = win;
-    win._dockSlot = i;
-    return i;
+  /** Obdélníky proužků ostatních minimalizovaných oken (kolize v doku). */
+  dockRects(exclude) {
+    const rects = [];
+    for (const w of this.windows.values()) {
+      if (w === exclude || !w.isMinimized) continue;
+      rects.push({ x: w.x, y: w.y, w: w.el.offsetWidth || 160, h: w.el.offsetHeight || 28 });
+    }
+    return rects;
   }
 
-  _releaseDockSlot(win) {
-    const i = win._dockSlot;
-    if (i != null && this.dockSlots[i] === win) this.dockSlots[i] = null;
-    win._dockSlot = null;
+  /** Kam s proužkem minimalizovaného okna: pamatovaná pozice, je-li celá na
+   *  plátně a nekoliduje s ostatními proužky; jinak první volné místo v
+   *  řadách odspodu (wm/dock.js). */
+  dockPlace(win, w, h) {
+    const bounds = { width: this.container.clientWidth || 800,
+      height: this.container.clientHeight || 600 };
+    const others = this.dockRects(win);
+    const p = win.dockPos;
+    if (p && p.x >= 0 && p.y >= 0 && p.x + w <= bounds.width && p.y + h <= bounds.height
+        && !others.some((o) => overlaps({ x: p.x, y: p.y, w, h }, o))) {
+      return { x: p.x, y: p.y };
+    }
+    return findFreeSlot(others, w, h, bounds);
+  }
+
+  /** Z pro proužek doku – vždy pod okny; proužky se nepřekrývají, pořadí
+   *  mezi nimi je jedno. */
+  _dockZ() {
+    this.dockZ += 1;
+    return this.dockZ;
   }
 
   _forget(id) {

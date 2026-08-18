@@ -16,6 +16,7 @@
 import { wirePointerDrag } from './drag.js';
 import { CLOSE_ICON, DEPTH_ICON, MINIMIZE_ICON, RESIZE_ICON } from './gadget_icons.js';
 import { SCREEN_BAR_HEIGHT } from './drag_reveal.js';
+import { findFreeSlot, resolveDockDrag } from './dock.js';
 import { FRAME_PX, WindowFrame } from './frame.js';
 
 export function clampToCanvas(x, y, w, h, bounds) {
@@ -50,13 +51,8 @@ export function clampDragPosition(x, y, w, headerH, bounds) {
   };
 }
 
-export function dockLayout(index, slotWidth, gap, canvasHeight, slotHeight) {
-  return { x: index * (slotWidth + gap), y: canvasHeight - slotHeight };
-}
-
-const DOCK_SLOT_WIDTH = 160;
-const DOCK_GAP = 8;
-const DOCK_SLOT_HEIGHT = 28;
+const DOCK_SLOT_HEIGHT = 28;       // fallback výšky lišty (happy-dom bez layoutu)
+const DOCK_TITLE_GAP = '10ch';     // odstup titulku proužku od gadgetu = 2× šířka pěti znaků
 
 const POS_PREFIX = 'vb-pos:';   // localStorage klíč perzistence pozic/velikostí
 
@@ -146,6 +142,10 @@ export class BaseWindow {
     if (saved && Number.isFinite(saved.w) && Number.isFinite(saved.h)) {
       this._applySize(saved.w, saved.h);
     }
+    // pozice proužku v doku si okno pamatuje zvlášť (kam si ho uživatel odtáhl)
+    if (saved && Number.isFinite(saved.dx) && Number.isFinite(saved.dy)) {
+      this.dockPos = { x: saved.dx, y: saved.dy };
+    }
     const bounds = this._bounds();
     const offset = (this.manager.windows.size % 8) * 24;
     const start = clampToCanvas(40 + offset, 40 + offset,
@@ -178,8 +178,12 @@ export class BaseWindow {
   _savePos() {
     const key = this._posKey();
     if (!key) return;
-    const record = { x: this.x, y: this.y };
+    // pozice OKNA (při minimalizaci ta uložená před ní) + zvlášť pozice
+    // proužku v doku (dx/dy), obojí přežije reload
+    const pos = this.isMinimized ? (this.saved ?? { x: this.x, y: this.y }) : { x: this.x, y: this.y };
+    const record = { x: pos.x, y: pos.y };
     if (this.size) { record.w = this.size.w; record.h = this.size.h; }
+    if (this.dockPos) { record.dx = this.dockPos.x; record.dy = this.dockPos.y; }
     try {
       localStorage.setItem(key, JSON.stringify(record));
     } catch { /* localStorage nedostupný → záznam se prostě neuloží */ }
@@ -248,7 +252,8 @@ export class BaseWindow {
       this.sendToBack();
     });
 
-    this.restoreGadget = this._gadget('restore', DEPTH_ICON);
+    // v doku svítí gadget minimalizace (= „zvětšit zpět"), ne depth
+    this.restoreGadget = this._gadget('restore', MINIMIZE_ICON);
     this.restoreGadget.addEventListener('click', (e) => {
       e.stopPropagation();
       this.restore();
@@ -303,16 +308,24 @@ export class BaseWindow {
         return this.dragOffset;
       },
       onMove: (e, drag) => {
-        if (this.isMinimized) return;
         const x = e.clientX - drag.contLeft - drag.x;
         const y = e.clientY - drag.contTop - drag.y;
+        if (this.isMinimized) {
+          // proužek v doku: celý na plátně, do jiných proužků „narazí"
+          // (4px mezera), viz wm/dock.js
+          const prev = { x: this.x, y: this.y, w: this.el.offsetWidth, h: this.el.offsetHeight };
+          const pos = resolveDockDrag(prev, { x, y }, this.manager.dockRects(this), this._bounds());
+          this._place(pos.x, pos.y);
+          return;
+        }
         const pos = clampDragPosition(x, y, this._boxW(), this._headerH(),
           this._bounds());
         this._place(pos.x, pos.y);
       },
       onEnd: () => {
         this.dragOffset = null;
-        if (!this.isMinimized) this._savePos();   // pozice přežije reload
+        if (this.isMinimized) this.dockPos = { x: this.x, y: this.y };   // proužek si pamatuje místo
+        this._savePos();                           // pozice přežije reload
       },
     });
   }
@@ -503,25 +516,34 @@ export class BaseWindow {
     this.restoreGadget.style.display = '';
     this.el.dataset.role = 'vb-dock-strip';
     this.el.style.background = 'var(--vb-window-dock-bg, #c2c9d4)';
-    this.el.style.width = `${DOCK_SLOT_WIDTH}px`;
     this.el.style.height = '';                  // proužek v doku má výšku dle obsahu
     for (const grip of this.grips) grip.style.display = 'none';
     this.titleEl.style.fontSize = '11px';
-    const slot = this.manager._assignDockSlot(this);
-    const bounds = this._bounds();
-    const pos = dockLayout(slot, DOCK_SLOT_WIDTH, DOCK_GAP,
-      bounds.height, DOCK_SLOT_HEIGHT);
+    // Šířka proužku podle textu titulku (celý text vždy vidět) + odstup od
+    // gadgetu 2× šířka pěti znaků – proužky jsou různě široké (uživatelské
+    // rozhodnutí); změřit a zafixovat, ať se při tažení nepřepočítává.
+    this.titleEl.style.paddingRight = DOCK_TITLE_GAP;
+    this.titleEl.style.overflow = 'visible';
+    this.el.style.width = 'max-content';
+    const w = this.el.offsetWidth || 160;
+    const h = this.el.offsetHeight || DOCK_SLOT_HEIGHT;
+    this.el.style.width = `${w}px`;
+    // místo: pamatovaná pozice (je-li volná a na plátně), jinak první volné
+    // v řadách odspodu; Z úplně vzadu za všemi okny
+    const pos = this.manager.dockPlace(this, w, h);
     this._place(pos.x, pos.y);
+    this.setZ(this.manager._dockZ());
   }
 
   restore() {
     if (!this.isMinimized) return;
     this.isMinimized = false;
-    this.manager._releaseDockSlot(this);
     this.el.dataset.role = 'vb-window';
     this.el.style.background = 'var(--vb-window-body-bg, rgba(255,255,255,0.97))';
     this.el.style.width = '';
     this.titleEl.style.fontSize = '';
+    this.titleEl.style.paddingRight = '';
+    this.titleEl.style.overflow = '';
     this.body.style.display = '';
     this.minGadget.style.display = '';
     this.depthGadget.style.display = '';
@@ -550,7 +572,7 @@ export class BaseWindow {
   /** Klik kamkoli do okna (pointerdown v _mount) = přenes dopředu A aktivuj
    *  (aktivní okno řídí Options skupinu na screen baru, viz getOptionsItems). */
   bringToFront() {
-    this.setZ(this.manager._nextZ());
+    if (!this.isMinimized) this.setZ(this.manager._nextZ());   // proužky zůstávají vzadu
     this.manager._setActive(this);
   }
 
@@ -567,7 +589,6 @@ export class BaseWindow {
   }
 
   close() {
-    if (this.isMinimized) this.manager._releaseDockSlot(this);
     this.el.remove();
     this.manager._forget(this.id);
   }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildRows, windowsToRefresh } from '../src/plugins/detail.js';
-import { clampToCanvas, dockLayout } from '../src/wm/base_window.js';
+import { clampToCanvas } from '../src/wm/base_window.js';
 
 const patch = (over = {}) => ({
   add_nodes: [], update_nodes: [], remove_nodes: [],
@@ -56,16 +56,6 @@ describe('clampToCanvas', () => {
   it('okno širší než canvas → x clamp na 0 (nikdy záporné)', () => {
     expect(clampToCanvas(50, 50, 1000, 40, { width: 800, height: 600 }))
       .toEqual({ x: 0, y: 50 });
-  });
-});
-
-describe('dockLayout', () => {
-  it('index 0 → vlevo dole', () => {
-    expect(dockLayout(0, 160, 8, 600, 28)).toEqual({ x: 0, y: 572 });
-  });
-
-  it('index 2 → posun doprava o 2 sloty s mezerou', () => {
-    expect(dockLayout(2, 160, 8, 600, 28)).toEqual({ x: 336, y: 572 });
   });
 });
 
