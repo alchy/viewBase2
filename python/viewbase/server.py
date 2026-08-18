@@ -423,6 +423,7 @@ class Project:
                  tls: "Tls | bool | None" = None,
                  tls_hosts: "list[str] | tuple[str, ...] | None" = None,
                  http_redirect: "bool | int" = False,
+                 forwarded_allow_ips: str | None = None,
                  log_level: str = DEFAULT_LEVEL,
                  session_ttl: float | None = None,
                  session_max_age: float | None = None) -> None:
@@ -437,6 +438,12 @@ class Project:
         # Přesměrování plaintextu na TLS: na TÉMŽE portu nejde (viz
         # _redirect_app), proto druhý listener – True = port+1, nebo číslo.
         self.http_redirect = http_redirect
+        # Za reverzní proxy (nginx, Traefik) je protistranou proxy: bez
+        # tohohle je v auditu její IP místo skutečného zdroje. Hodnota je
+        # seznam adres, KTERÝM SE VĚŘÍ hlavička X-Forwarded-For – ne seznam
+        # klientů. Věřit komukoli („*") znamená, že si zdroj v logu přepíše
+        # kdokoli hlavičkou, takže sem patří jen adresa vaší proxy.
+        self.forwarded_allow_ips = forwarded_allow_ips
         # CO aplikace loguje (ne co ukazuje log okno – to je pohledový filtr
         # v prohlížeči). Výchozí `warning`: provozní server mlčí o rutině.
         # Bezpečnostní audit tím utišit NEJDE, viz logger.Logger.audit.
@@ -474,7 +481,9 @@ class Project:
             windows.append(graph)
         handle = serve(*windows, host=self.host, port=self.port,
                        open_browser=open_browser, tls=self.tls,
-                       http_redirect=self.http_redirect, block=block)
+                       http_redirect=self.http_redirect,
+                       forwarded_allow_ips=self.forwarded_allow_ips,
+                       block=block)
         self._handle = handle
         return handle
 
@@ -579,15 +588,22 @@ def _start_redirect(host: str, port: int,
 
 
 def _make_server(windows: tuple[GraphWindow, ...], host: str,
-                 port: int, tls: Tls | None = None) -> uvicorn.Server:
+                 port: int, tls: Tls | None = None,
+                 forwarded_allow_ips: str | None = None) -> uvicorn.Server:
     # ws_ping_interval=None vypíná serverový keepalive ping knihovny
     # websockets: jeho samostatná úloha jinak souběžně "draina" stejné
     # spojení jako náš broadcast a při velkém provozu spadne na interním
     # assertu. Mrtvá spojení odhalí selhání dalšího patche (klient se
     # reconnectne), keepalive proto nepotřebujeme.
+    # `forwarded_allow_ips`: komu se věří hlavička `X-Forwarded-For`. Za
+    # reverzní proxy je protistranou proxy, takže bez tohohle vidí audit její
+    # IP místo skutečného zdroje; a naopak — věřit komukoli by znamenalo, že
+    # si zdroj v logu přepíše hlavičkou kdokoli. Výchozí (uvicorn) 127.0.0.1.
     config = uvicorn.Config(create_app(*windows), host=host, port=port,
                             log_level="warning",
                             ws_ping_interval=None, ws_ping_timeout=None,
+                            **({"forwarded_allow_ips": forwarded_allow_ips}
+                               if forwarded_allow_ips else {}),
                             **(tls.uvicorn_kwargs() if tls else {}))
     return uvicorn.Server(config)
 
@@ -595,6 +611,7 @@ def _make_server(windows: tuple[GraphWindow, ...], host: str,
 def serve(*windows: GraphWindow, host: str = "127.0.0.1", port: int = 8080,
           open_browser: bool = False, tls: Tls | None = None,
           http_redirect: "bool | int" = False,
+          forwarded_allow_ips: str | None = None,
           block: bool = True) -> ServerHandle | None:
     """Spustí server nad jedním nebo víc GraphWindow (multi-screen – víc
     grafových oken vyžaduje, aby mělo každé svůj `screen=`, viz `create_app`).
@@ -617,7 +634,9 @@ def serve(*windows: GraphWindow, host: str = "127.0.0.1", port: int = 8080,
                     "plain http:// will NOT answer on this port)")
     else:
         _system_log(f"listening on {adresa}")
-    server = _make_server(windows, host, port, tls)
+    server = _make_server(windows, host, port, tls, forwarded_allow_ips)
+    if forwarded_allow_ips:
+        _system_log(f"trusting X-Forwarded-For from {forwarded_allow_ips}")
     if tls is not None and http_redirect:
         # `http_redirect=True` → port+1, nebo konkrétní číslo portu
         rport = port + 1 if http_redirect is True else int(http_redirect)

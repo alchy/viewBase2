@@ -23,6 +23,7 @@ upovídaná část, která na provozním serveru nikoho nezajímá.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from .log import LOG_LEVELS, bus
@@ -48,9 +49,12 @@ def _ensure_handler() -> None:
     if _stdlib.handlers or logging.getLogger().handlers:
         return
     handler = logging.StreamHandler()          # stderr = stdout kontejneru
+    # CELÉ razítko `YYYY-MM-DD HH:MM:SS` (uživatelský požadavek): log
+    # instance, která běží dny, se vyhodnocuje zpětně – bez data se nepozná,
+    # jestli „14:03:22 invalid code" bylo dnes, nebo předevčírem.
     handler.setFormatter(logging.Formatter(
         "%(asctime)s %(levelname)-7s viewbase %(message)s",
-        datefmt="%Y-%m-%dT%H:%M:%S"))
+        datefmt="%Y-%m-%d %H:%M:%S"))
     _stdlib.addHandler(handler)
     # Prahem je NÁŠ `level` (audit ho obchází), stdlib proto pustí všechno.
     _stdlib.setLevel(logging.DEBUG)
@@ -144,8 +148,10 @@ class Logger:
 
         Do konzole proto, že log bus nemá historii (čistý tail) – co padne
         před připojením prvního klienta, by jinak nikdo neviděl. Konzole
-        prahem neprochází: kdo spustil instanci, má vidět, s čím naběhla."""
-        print(f"viewbase: {message}", flush=True)
+        prahem neprochází: kdo spustil instanci, má vidět, s čím naběhla.
+        Razítko je i tady celé, ať jde startovní řádek srovnat s auditem."""
+        print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} viewbase: {message}",
+              flush=True)
         bus.publish(level, "backend_program", message, component="server")
 
 

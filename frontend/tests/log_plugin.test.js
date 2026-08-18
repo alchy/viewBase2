@@ -62,12 +62,14 @@ describe('formatLogLine', () => {
     expect(line).toBe('[error] frontend: boom');
   });
 
-  it('s timestampem (main.js razítkuje při příjmu) – HH:MM:SS na začátku', () => {
+  it('s timestampem: CELÉ razítko YYYY-MM-DD HH:MM:SS', () => {
+    // instance běží dny a log se vyhodnocuje zpětně – bez data se nepozná,
+    // jestli „09:05:03 invalid code" bylo dnes, nebo předevčírem
     const line = formatLogLine(rec({
       level: 'info', source: 'backend_user', component: null, message: 'ahoj',
       timestamp: new Date(2026, 0, 1, 9, 5, 3),
     }));
-    expect(line).toBe('09:05:03 [info] backend_user: ahoj');
+    expect(line).toBe('2026-01-01 09:05:03 [info] backend_user: ahoj');
   });
 
   it('bez timestampu (přímé volání, testy) beze změny – žádný čas navíc', () => {

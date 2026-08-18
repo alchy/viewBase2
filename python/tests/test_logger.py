@@ -101,3 +101,57 @@ def test_redakce_zvlada_prazdny_payload():
 
     assert redacted({}) == "{}"
     assert redacted(None) == "{}"
+
+
+def test_startovni_hlaska_ma_cele_razitko(capsys):
+    """Log instance, která běží dny, se vyhodnocuje zpětně – bez data se
+    nepozná, jestli řádek patří k dnešku, nebo k předevčírku."""
+    import re
+
+    from viewbase.logger import Logger
+
+    Logger().system("listening on https://127.0.0.1:60000/")
+    out = capsys.readouterr().out
+    assert re.match(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} viewbase: listening", out)
+
+
+def test_handler_pro_kontejner_ma_cele_razitko(monkeypatch):
+    """Bez handleru by Python zahodil všechno pod WARNING a v `docker logs`
+    by audit nebyl vidět. (Pod pytestem má handler root logger, proto se
+    testuje `_ensure_handler` přímo.)"""
+    import logging
+
+    from viewbase import logger as modul
+
+    monkeypatch.setattr(modul._stdlib, "handlers", [])
+    monkeypatch.setattr(logging.getLogger(), "handlers", [])
+    modul._ensure_handler()
+    (handler,) = modul._stdlib.handlers
+    assert handler.formatter.datefmt == "%Y-%m-%d %H:%M:%S"
+    assert "%(asctime)s" in handler.formatter._fmt
+
+
+def test_knihovna_neprebiji_logovani_hostitelske_aplikace(monkeypatch):
+    """Když si logování nastavuje aplikace sama, knihovna na to nesahá."""
+    import logging
+
+    from viewbase import logger as modul
+
+    monkeypatch.setattr(modul._stdlib, "handlers", [])
+    monkeypatch.setattr(logging.getLogger(), "handlers", [logging.NullHandler()])
+    modul._ensure_handler()
+    assert modul._stdlib.handlers == []
+
+
+def test_forwarded_allow_ips_se_predava_serveru():
+    """Za reverzní proxy je protistranou proxy – bez tohohle je v auditu její
+    IP místo skutečného zdroje (docs/zabezpeceni.md)."""
+    from viewbase.server import _make_server
+
+    graph = vb.GraphWindow()
+    graph.add_node("a")
+    server = _make_server((graph,), "127.0.0.1", 0, None, "10.0.0.2")
+    assert server.config.forwarded_allow_ips == "10.0.0.2"
+    vychozi = _make_server((graph,), "127.0.0.1", 0)
+    assert vychozi.config.forwarded_allow_ips == "127.0.0.1"     # uvicorn default
+    graph.close()

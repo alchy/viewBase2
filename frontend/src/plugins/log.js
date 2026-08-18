@@ -36,13 +36,18 @@ export function filterRecords(records, filters) {
   return records.filter((r) => matchesFilters(r, filters));
 }
 
+/** CELÉ razítko `YYYY-MM-DD HH:MM:SS` (uživatelský požadavek). Jen čas
+ *  stačil, dokud se log četl za běhu; u instance, která běží dny a jejíž
+ *  log se vyhodnocuje zpětně, je datum nutné – jinak se nedá poznat, jestli
+ *  „14:03:22 invalid code" bylo dnes, nebo předevčírem. */
 function formatTime(value) {
   const d = value instanceof Date ? value : new Date(value);
   const pad = (n) => String(n).padStart(2, '0');
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  const den = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return `${den} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
-/** Jeden řádek do log okna: `HH:MM:SS [level] source/component: message`.
+/** Jeden řádek do log okna: `YYYY-MM-DD HH:MM:SS [level] source/comp: zpráva`.
  *  component chybí u frontend/backend_user – nejsou jeden ze čtyř modulů.
  *  `record.timestamp` (Date/ISO string) je nepovinný – main.js ho razítkuje
  *  při příjmu (uživatelský požadavek: „log má vždy timestamp"); bez něj

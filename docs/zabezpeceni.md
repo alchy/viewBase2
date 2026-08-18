@@ -136,18 +136,63 @@ stroji přehodit úroveň a zamést za sebou. Pozná se podle komponenty
 `warning`):
 
 ```
-INFO    viewbase [security] client 86ce512d connected from 89.24.x.x (session P5wz2aVD…)
-DEBUG   viewbase [server]   event 'window_unlock' from 89.24.x.x: {'window_id': 'mzdy', 'code': '<6 znaků>'}
-WARNING viewbase [security] invalid code for window 'mzdy' from 89.24.x.x, session P5wz2aVD…
-INFO    viewbase [security] window 'mzdy' unlocked – token of user 'workbench' from 89.24.x.x
-WARNING viewbase [security] REST attempt to call 'shell_input' from 89.24.x.x – refused
-INFO    viewbase [security] client 86ce512d from 89.24.x.x disconnected
+2026-08-18 15:50:57 INFO    viewbase [security] client 8b5bd7d6 connected from 89.24.x.x (session xzFBo_ya…)
+2026-08-18 15:50:57 DEBUG   viewbase [server]   event 'window_unlock' from 89.24.x.x: {'window_id': 'mzdy', 'code': '<6 znaků>'}
+2026-08-18 15:50:57 WARNING viewbase [security] invalid code for window 'mzdy' from 89.24.x.x, session xzFBo_ya…
+2026-08-18 15:51:04 INFO    viewbase [security] window 'mzdy' unlocked – token of user 'workbench' from 89.24.x.x
+2026-08-18 15:51:09 WARNING viewbase [security] REST attempt to call 'shell_input' from 89.24.x.x – refused
+2026-08-18 15:51:12 INFO    viewbase [security] client 8b5bd7d6 from 89.24.x.x disconnected
 ```
 
+Razítko je vždy celé, `YYYY-MM-DD HH:MM:SS` — v konzoli serveru, v `docker
+logs` i v log okně v prohlížeči. U instance, která běží dny a jejíž log se
+vyhodnocuje zpětně, je bez data řádek k ničemu.
+
 Do auditu jde **zdroj (IP)** u každé události; IP doplňuje server, ne klient,
-takže si ji nikdo nepřepíše. Za reverzní proxy je protistranou proxy —
-uvicorn věří `X-Forwarded-For` jen od adres v `forwarded_allow_ips`
-(výchozí `127.0.0.1`), jinak by si zdroj mohl kdokoli nastavit hlavičkou.
+takže si ji nikdo nepřepíše payloadem.
+
+### Za reverzní proxy (nginx, Traefik)
+
+Když před viewbase postavíte proxy, je pro server **protistranou proxy** — a
+v auditu byste místo skutečného zdroje viděli pořád tutéž adresu. Potřeba je
+obojí: proxy musí zdroj poslat a viewbase jí to musí věřit.
+
+**Na straně viewbase** — komu se hlavička `X-Forwarded-For` věří:
+
+```python
+vb.Project(port=8443, tls=True,
+           forwarded_allow_ips="10.0.0.2")     # IP vaší proxy, ne "*"
+```
+
+Je to seznam adres, **kterým se věří**, ne seznam klientů. `"*"` znamená, že
+si zdroj v logu přepíše kdokoli obyčejnou hlavičkou — na vystavené instanci
+tím audit ztratí smysl. Bez parametru platí uvicorní výchozí `127.0.0.1`
+(proxy na témže stroji). Zapnutí se vypíše při startu:
+`trusting X-Forwarded-For from 10.0.0.2`.
+
+**Na straně nginx** — hlavičky musí proxy skutečně poslat, včetně těch pro
+WebSocket (bez `Upgrade`/`Connection` spojení neprojde vůbec):
+
+```nginx
+location / {
+    proxy_pass https://viewbase:8443;
+
+    proxy_set_header X-Real-IP        $remote_addr;
+    proxy_set_header X-Forwarded-For  $proxy_add_x_forwarded_for;   # ← zdroj do auditu
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Host             $host;
+
+    proxy_http_version 1.1;                      # WebSocket (/ws)
+    proxy_set_header Upgrade    $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_read_timeout 3600s;                    # živý tail nesmí vypršet
+}
+```
+
+Pokud proxy TLS ukončuje sama, může viewbase za ní běžet bez certifikátu —
+ale jen když je mezi nimi uzavřená síť (kontejnerová síť, localhost).
+Loopback povinné TLS nevyžaduje; jinak je potřeba `tls=…`, aby úsek
+proxy → viewbase nešel plaintextem.
 
 **Tajemství se do logu nedostane.** Hodnoty klíčů `code`, `data` (klávesy do
 shellu, tedy i hesla, která tam někdo píše), `sid`, `password`, `secret` a
