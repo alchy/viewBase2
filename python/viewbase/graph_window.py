@@ -339,8 +339,7 @@ class GraphWindow:
                 self._window_callbacks[window.window_id] = on_submit
             else:
                 self._window_callbacks.pop(window.window_id, None)
-            self._actions.append(
-                {**window.public_spec(), "action": "open_window", "live": bool(live)})
+            self._emit_open(window, live=bool(live))
         if window.locked:
             window.announce_lock()
         return window.window_id
@@ -374,7 +373,7 @@ class GraphWindow:
                 self._terminal_callbacks[window.window_id] = on_input
             else:
                 self._terminal_callbacks.pop(window.window_id, None)
-            self._actions.append({**window.public_spec(), "action": "open_window"})
+            self._emit_open(window)
         if window.locked:
             window.announce_lock()
         return window.window_id
@@ -414,7 +413,7 @@ class GraphWindow:
                 self._html_callbacks[window.window_id] = on_event
             else:
                 self._html_callbacks.pop(window.window_id, None)
-            self._actions.append({**window.public_spec(), "action": "open_window"})
+            self._emit_open(window)
         if window.locked:
             window.announce_lock()
         return window.window_id
@@ -494,7 +493,7 @@ class GraphWindow:
         with self._lock:
             self._shell_windows[window.window_id] = window
             window._owner = self
-            self._actions.append({**window.public_spec(), "action": "open_window"})
+            self._emit_open(window)
         if window.locked:
             window.announce_lock()          # TOTP registrace / jednorázový kód
         else:
@@ -546,6 +545,16 @@ class GraphWindow:
             wid = f"cli-{self._shell_seq}"
         self.open_shell(ShellWindow(wid, title=f"Shell CLI {self._shell_seq}",
                                     cols=100, rows=28, width=820, height=440))
+
+    def _emit_open(self, window: Any, **extra: Any) -> None:
+        """Zařaď `open_window` a u zabezpečeného okna ohlas zámek.
+
+        Čtyři `open_*` metody (control, terminál, HTML, shell) tenhle blok
+        měly každá zvlášť – při každé změně zámku se musel opravit čtyřikrát.
+        Volá se UVNITŘ `self._lock`, `announce_lock` až po něm (tiskne a
+        registruje TOTP, což pod zámkem být nemusí)."""
+        self._actions.append({**window.public_spec(), "action": "open_window",
+                              **extra})
 
     def has_secured_window(self) -> bool:
         """Je na screenu okno se `secured=True`? (Rozhoduje o povinném TLS
@@ -1001,6 +1010,20 @@ class GraphWindow:
 
     # ---- snapshot ------------------------------------------------------
 
+    def _window_specs(self, sid: str | None) -> list[dict[str, Any]]:
+        """Specifikace VŠECH oken pro init snapshot jedné relace.
+
+        Čtyři kolekce oken (control, terminál, HTML, shell) se tu dřív
+        procházely čtyřmi skoro totožnými comprehension – jediný rozdíl je
+        `live` u control oken. Volá se pod `self._lock` (viz snapshot)."""
+        out = [{**w.public_spec(self._unlocked(sid, wid)),
+                "live": self._window_live.get(wid, False)}
+               for wid, w in self._windows.items()]
+        for kolekce in (self._terminals, self._html_windows, self._shell_windows):
+            out += [w.public_spec(self._unlocked(sid, wid))
+                    for wid, w in kolekce.items()]
+        return out
+
     def _unlocked(self, sid: str | None, window_id: str) -> bool:
         """Má tahle relace grant k tomuhle oknu? (Jediná otázka, podle které
         se rozhoduje, co uvidí – viz sessions.py.)"""
@@ -1026,16 +1049,7 @@ class GraphWindow:
                 "flows": [dict(f) for f in self._flows.values()],
                 # public_spec(sid): zabezpečené okno jde klientovi jako
                 # prázdný rám, dokud TAHLE RELACE nemá grant (sessions.py)
-                "windows": [
-                    {**w.public_spec(self._unlocked(sid, wid)),
-                     "live": self._window_live.get(wid, False)}
-                    for wid, w in self._windows.items()]
-                + [t.public_spec(self._unlocked(sid, wid))
-                   for wid, t in self._terminals.items()]
-                + [h.public_spec(self._unlocked(sid, wid))
-                   for wid, h in self._html_windows.items()]
-                + [sh.public_spec(self._unlocked(sid, wid))
-                   for wid, sh in self._shell_windows.items()],
+                "windows": self._window_specs(sid),
                 "menu": self._menu.spec() if self._menu is not None else None,
             }
 

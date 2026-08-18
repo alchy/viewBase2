@@ -93,6 +93,62 @@ python examples/quickstart.py     # otevře http://127.0.0.1:8080
 Frontend je v repu už sestavený (`python/viewbase/static`) — Node.js je
 potřeba jen při vývoji frontendu. **Požadavky:** Python ≥ 3.10.
 
+### Do vlastního projektu
+
+viewbase je **knihovna**: přidá se do existující aplikace, nespouští se jako
+samostatná služba. Vlastní projekt si ji přidá jako závislost:
+
+```bash
+# z lokálního klonu (editable – změny v repu jsou hned vidět)
+pip install -e /cesta/k/viewBase2/python
+
+# nebo přímo z gitu
+pip install "viewbase @ git+https://github.com/alchy/viewBase2#subdirectory=python"
+```
+
+…a v `pyproject.toml` vlastního projektu:
+
+```toml
+[project]
+dependencies = ["viewbase @ git+https://github.com/alchy/viewBase2#subdirectory=python"]
+```
+
+**Co se tím doinstaluje** (řídí `python/pyproject.toml`, hlídá
+`tests/test_requirements.py` — každý import musí mít svou závislost a žádná
+nesmí zbýt):
+
+| balíček | proč |
+|---|---|
+| `fastapi` ≥ 0.110 | HTTP server, WebSocket endpoint, REST `/api/event` |
+| `uvicorn[standard]` ≥ 0.29 | ASGI runtime (`[standard]` přináší websockets a uvloop) |
+| `pyotp` ≥ 2.9 | ověření kódu z autentikátoru pro zabezpečená okna |
+| `qrcode` ≥ 7.4 | QR pro registraci autentikátoru (ASCII + SVG, **bez** Pillow) |
+| `cryptography` *(volitelné)* | vygenerování self-signed certifikátu pro `tls=True`; když chybí, použije se binárka `openssl` |
+
+Nic dalšího: **žádný Node.js** (frontend je v balíčku sestavený), žádná
+databáze, žádný externí broker. Vývojové nástroje (`pytest`, `httpx`) jsou
+v extra `[dev]`.
+
+**Co knihovna potřebuje za běhu:** volný TCP port (`vb.Project(port=…)`) a
+zapisovatelný domovský adresář — při prvním spuštění vznikne `~/.viewbase/`
+s uživatelem, TOTP tajemstvím a (u `tls=True`) certifikátem; cestu přesměruje
+proměnná `VIEWBASE_HOME` (kontejnery, CI). Zabezpečená okna mimo loopback
+vyžadují TLS, viz [První spuštění](#první-spuštění).
+
+Minimální integrace do cizí aplikace vypadá takhle — knihovna si nebere
+kontrolu nad procesem, `serve(block=False)` vrátí handle a běží v vlákně:
+
+```python
+import viewbase as vb
+
+project = vb.Project(port=8080)          # + user=, tls=, session_ttl=…
+screen = vb.Screen(title="Moje appka")
+graph = vb.GraphWindow(screen=screen, title="Data")
+handle = project.serve(screen, block=False)   # neblokuje – appka běží dál
+...                                            # graph.add_node(…) kdykoli
+project.stop()                                 # úklid (zavře port i okna)
+```
+
 <details>
 <summary>Vývoj frontendu (vyžaduje Node.js ≥ 20)</summary>
 
@@ -303,7 +359,19 @@ tlačítka `None`) a `.values` (hodnoty **všech** polí okna podle `name`,
 s typy: číslo/slider → číslo, checkbox → `True`/`False`). Server nejdřív
 aktualizuje `.value` prvků, teprve pak volá handlery — takže v handleru
 tlačítka čteš rovnou `jmeno.value`. Bohatý text uvnitř prvku:
-`stav.text = vb.Ui.ok("běží")` (`vb.Ui.ok/warn/err/tag/code/bar`).
+`stav.text = vb.Ui.ok("běží")`. Inline pomocníci `vb.Ui` vrací hotový
+fragment, který se dá vložit do `.text` kteréhokoli prvku:
+
+| volání | k čemu |
+|---|---|
+| `Ui.ok(text)` / `Ui.warn(text)` / `Ui.err(text)` | stavová barva podle tématu |
+| `Ui.tag(text)` | štítek (badge) |
+| `Ui.code(text)` | monospace úsek |
+| `Ui.bar(value, max=100)` | vodorovný ukazatel |
+| `Ui.muted(text)` | tlumený text v barvě klíčů |
+| `Ui.link_inline(text, event, value=None)` | odkaz, který pošle `on_click` |
+| `Ui.button_inline(label, event, value=None)` | tlačítko uvnitř textu |
+| `Ui.raw(html)` | vlastní HTML, když nic z výše uvedeného nestačí |
 
 Styl je **sjednocený s ostatními okny**: prvky se vysází stylem z proměnných
 tématu (popisky v barvě klíčů jako detail okno, tlačítka jako control okno),
@@ -773,6 +841,28 @@ a [architektura WM + pluginy](docs/superpowers/specs/2026-08-02-wm-plugin-archit
 | `examples/screen_menu.py` | **multi-screen Workbench**: `ScreenMenu` (autorské pull-down menu), `Screen.pin_menu()` volané před vznikem GraphWindow |
 | `examples/multiscreen.py` | **multi-screen Workbench**: dva `Screen`/`GraphWindow` s tab přepínačem a drag-reveal, explicitní `Screen.destroy()` přes REST |
 | [`examples/wireshark/`](examples/wireshark/README.md) | **síťové toky**: přehrání pcap, živý odposlech a cesta paketu (traceroute) |
+
+**Veřejné API vs. vnitřek.** Pro vývojáře je to, co vyleze z `import viewbase as vb`:
+
+| jméno | k čemu |
+|---|---|
+| `vb.Project` | služba: port, uživatel, TLS, relace; `serve()` / `stop()` |
+| `vb.Screen` | plocha (screen) s titulkem, tématem a menu |
+| `vb.GraphWindow` | grafové okno + API grafu (`add_node/add_edge/…`), otevírání ostatních oken |
+| `vb.ControlWindow` | formulářové okno (typovaná pole) |
+| `vb.TerminalWindow` | konzole (řádky textu, `on_input`) |
+| `vb.HtmlWindow` + `vb.Ui` | okno z prvků (grid, inputy, tlačítka) a inline pomocníci |
+| `vb.ShellWindow` | skutečný terminál na PTY |
+| `vb.LogWindow`, `vb.log` | systémové log okno a zápis do něj |
+| `vb.ScreenMenu` | autorské pull-down menu na liště screenu |
+| `vb.Tls` | certifikát a klíč pro TLS |
+| `vb.serve`, `vb.create_app`, `vb.ServerHandle` | nižší vrstva (vlastní hostování, REPL) |
+
+Moduly `viewbase.mfa`, `viewbase.sessions`, `viewbase.tls` (kromě `Tls`),
+`viewbase.protocol`, `viewbase.widgets` a metody jako `lock_spec()`,
+`announce_lock()`, `peek_actions()` nebo `start_periodic_tasks()` jsou
+**vnitřek knihovny** — používá je server a testy, ne aplikace, a můžou se
+změnit bez ohlášení.
 
 **Návrhové dokumenty** (`docs/superpowers/specs/`) — architektura a rozhodnutí:
 

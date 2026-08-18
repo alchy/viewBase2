@@ -142,6 +142,11 @@ class SessionStore:
         for sid in mrtve:
             del self._sessions[sid]
 
+    def clear(self) -> None:
+        """Zapomeň všechny relace (restart serveru, testy)."""
+        with self._lock:
+            self._sessions.clear()
+
     def stats(self) -> dict[str, int]:
         """Pro log a testy: kolik relací a kolik grantů drží."""
         with self._lock:
@@ -165,5 +170,4 @@ def configure(*, ttl: float | None = None, max_age: float | None = None) -> None
 
 def reset() -> None:
     """Zapomeň všechny relace (testy, nový běh serveru)."""
-    with store._lock:                                    # noqa: SLF001
-        store._sessions.clear()                          # noqa: SLF001
+    store.clear()

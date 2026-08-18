@@ -116,7 +116,7 @@ class SecuredMixin:
                                      "pip install pyotp qrcode")
         message = (f"window '{self.window_id}' is locked, {why} – "
                    f"one-time code: cat {path}")
-        mfa._log(level, message)
+        mfa.system_log(level, message)
         print(f"viewbase: {message}", flush=True)
 
     def on_unlocked(self) -> None:

@@ -58,8 +58,11 @@ WINDOW_S = 30.0           # …za tolik sekund (pak se čeká)
 TOTP_VALID_WINDOW = 1     # ±30 s kvůli rozjetým hodinám
 
 
-def _log(level: str, message: str) -> None:
-    """Systémová hláška do log okna i do logu serveru – NIKDY s tajemstvím."""
+def system_log(level: str, message: str) -> None:
+    """Systémová hláška do log okna i do logu serveru – NIKDY s tajemstvím.
+
+    Veřejná schválně: volá ji i `controls.SecuredMixin` (jedna cesta, jak se
+    o zámcích hlásí, místo dvou různých)."""
     from .log import bus
 
     bus.publish(level, "backend_program", message, component="server")
@@ -225,7 +228,7 @@ def ensure_user(user: str | None = None, *,
             # NEMĚNÍ, jen se z něj znovu vyrobí QR – jinak by si ho nešlo
             # naskenovat na druhé zařízení, aniž by se musel registrovat znovu.
             _write_artifacts(user, rec["totp_secret"])
-            _log("info", f"QR for user '{user}' regenerated from the existing "
+            system_log("info", f"QR for user '{user}' regenerated from the existing "
                          f"secret: cat {qr_text_path(user)}")
         return rec
 
@@ -252,7 +255,7 @@ def _announce_enrollment(user: str, secret: str,
     # Do logu jen UKAZATEL, kde si registraci vyzvednout – žádné tajemství.
     message = (f"new TOTP enrollment for user '{user}' – scan it: "
                f"cat {txt}" + (f" (or open {svg})" if svg else ""))
-    _log("info", message)
+    system_log("info", message)
     (announce or (lambda text: print(f"viewbase: {text}", flush=True)))(message)
 
 
