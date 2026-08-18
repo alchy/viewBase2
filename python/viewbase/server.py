@@ -23,7 +23,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import protocol
+from . import mfa, protocol
 from .graph_window import GraphWindow
 from .log import LogRecord, bus as log_bus
 
@@ -304,9 +304,13 @@ class Project:
     přímo GraphWindow. Context manager: `with vb.Project(port=…) as p:`
     zavře port po bloku."""
 
-    def __init__(self, *, host: str = "127.0.0.1", port: int = 8080) -> None:
+    def __init__(self, *, host: str = "127.0.0.1", port: int = 8080,
+                 user: str = mfa.DEFAULT_USER) -> None:
         self.host = host
         self.port = port
+        # Uživatel TÉTO instance: proti jeho tajemství se ověřují zamčená okna
+        # a do jeho adresáře (`~/.viewbase/user-<jméno>/`) jde QR.
+        self.user = mfa.set_active_user(user)
         self._handle: ServerHandle | None = None
 
     def serve(self, *surfaces, open_browser: bool = False,
@@ -316,6 +320,11 @@ class Project:
         drátě nese přes skrytého hostitele (interní GraphWindow s
         `config["graph_window"] = False`; frontend pro něj grafové okno
         ani pipeline vůbec nevytvoří)."""
+        # Registrace při PRVNÍM spuštění instance (uživatelské rozhodnutí):
+        # tajemství + QR vzniknou tady, na jednom očekávatelném místě hned po
+        # startu, ne až u prvního zamčeného okna uprostřed výpisu aplikace.
+        # Podruhé je to no-op – tajemství už v users.json je.
+        mfa.ensure_user(self.user)
         windows = []
         for surface in surfaces:
             if hasattr(surface, "snapshot"):     # přímo GraphWindow

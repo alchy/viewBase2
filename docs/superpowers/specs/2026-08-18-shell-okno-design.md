@@ -123,9 +123,14 @@ Zámek se z shell okna zobecnil na **kterékoli okno** (`secured=True`, jako
   `window_lock {window_id}` (zamkne zpět; hook `on_locked()`, shellu proces
   běží dál); REST `/api/event` odmítá `shell_*` **i** obojí `window_*lock`.
 - Ověření: **TOTP** (`viewbase/mfa.py`, `pyotp`) proti tajemství v
-  `~/.viewbase/users.json` (0600, uživatel `workbench`); registrace v procesu
-  při startu – QR do konzole serveru (ASCII) + `<user>-totp.svg`, **žádný
-  `/api/mfa/setup` endpoint** (kdo vidí QR, může se zaregistrovat). Rate limit
+  `~/.viewbase/users.json` (0600); uživatele instance volí vývojář
+  (`vb.Project(user="jindrich")`, jinak `workbench`). Registrace běží v procesu
+  při **startu instance** (`Project.serve` → `mfa.ensure_user`): QR do konzole
+  serveru (ASCII) a do `~/.viewbase/user-<jméno>/` jako `totp-<jméno>.svg`
+  (obrázek) i `totp-<jméno>.txt` (týž ASCII QR ke `cat` – konzole ho ukáže jen
+  jednou, přes SSH je to jediná varianta, co funguje vždycky); vše 0600,
+  adresář 0700, **žádný `/api/mfa/setup` endpoint** (kdo vidí QR, může se
+  zaregistrovat). Jméno je součástí názvu adresáře, takže se validuje. Rate limit
   5 pokusů/30 s a odmítnutí už použitého kódu. Bez extra `viewbase[mfa]`
   fallback na jednorázový kód vypsaný do konzole.
 - Frontend: `wm/locked_window.js` (prázdný rám) + `core/unlock_prompt.js`

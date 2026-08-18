@@ -446,8 +446,7 @@ vývojáři přes `define_type`/`update_node`.
 - **Zabezpečená okna** — `secured=True` na kterémkoli okně (jako `closable=`):
   okno se do prohlížeče pošle jen jako **prázdný rám**, obsah (HTML, hodnoty
   polí, scrollback, shell) po drátě neputuje, dokud divák nezadá kód v zelené
-  výzvě ve stylu Guru Meditation. Kód je **TOTP z autentikátoru** (QR se při
-  prvním startu vypíše do konzole serveru a uloží do `~/.viewbase/`), s rate
+  výzvě ve stylu Guru Meditation. Kód je **TOTP z autentikátoru**, s rate
   limitem a ochranou proti opakovanému použití; bez extra
   `pip install viewbase[mfa]` se použije jednorázový kód z konzole. Shell okno
   je zabezpečené vždy. Zamčené okno **nic nevyskakuje**: ukáže se jako rám s
@@ -458,6 +457,24 @@ vývojáři přes `define_type`/`update_node`.
   **`Options → Lock Window`**: obsah se zase schová a příště si okno řekne o kód
   znovu; u shellu proces mezitím běží dál (zámek je jako zamčená obrazovka, ne
   zabité sezení). Ukázka: `examples/secured_windows.py`.
+- **Registrace autentikátoru** — uživatele instance zvolí vývojář:
+  `vb.Project(port=8080, user="jindrich")` (bez toho `workbench`). Při **prvním
+  spuštění instance** se mu vygeneruje tajemství a QR — vypíše se do konzole
+  serveru (ASCII, funguje i přes SSH) a uloží jako SVG do jeho adresáře:
+
+  ```
+  ~/.viewbase/users.json                        (0600) tajemství všech
+  ~/.viewbase/user-jindrich/totp-jindrich.svg   (0600) QR jako obrázek
+  ~/.viewbase/user-jindrich/totp-jindrich.txt   (0600) tentýž QR v ASCII
+  ```
+
+  (adresář uživatele 0700). Konzole registraci ukáže jen jednou, `.txt` je
+  tentýž QR k naskenování kdykoli později — `cat ~/.viewbase/user-jindrich/
+  totp-jindrich.txt` funguje i přes SSH, kde obrázek neotevřete. Uvnitř je i
+  ruční kód a `otpauth://` URI. Další start už mlčí (tajemství existuje). QR jde **jen do konzole a na disk**,
+  nikdy přes HTTP — kdo ho uvidí, zaregistruje si vlastní autentikátor, takže
+  ho vidí jedině ten, kdo na stroj už vidí; `/api/mfa/setup` proto neexistuje.
+  Cestu k domovu přesměruje `VIEWBASE_HOME` (kontejnery, testy).
 - **Indikátor fokusu** — v liště hned **za textem titulku** svítí drobná
   plná značka na okně, které je aktivní (patří mu Options i klávesnice).
   Je to jediný vyplněný prvek v jinak linkovém chrome, takže se neplete s

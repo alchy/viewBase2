@@ -28,7 +28,17 @@ def test_ensure_user_vytvori_secret_s_pravy_0600_a_je_idempotentni(domov, capsys
     out = capsys.readouterr().out
     assert "otpauth://totp/viewbase:workbench" in out       # URI pro autentikátor
     assert rec["totp_secret"] in out                        # i ruční zadání
-    assert (domov / "workbench-totp.svg").exists()          # QR jako obrázek
+    qr = domov / "user-workbench" / "totp-workbench.svg"    # artefakty per uživatel
+    assert qr.exists()                                      # QR jako obrázek
+    assert stat.S_IMODE(qr.stat().st_mode) == 0o600         # …jen pro majitele
+    assert stat.S_IMODE(qr.parent.stat().st_mode) == 0o700
+
+    txt = domov / "user-workbench" / "totp-workbench.txt"   # a QR ke `cat`
+    assert stat.S_IMODE(txt.stat().st_mode) == 0o600
+    obsah = txt.read_text()
+    assert "█" in obsah                                     # ASCII QR k naskenování
+    assert rec["totp_secret"] in obsah and "otpauth://" in obsah
+    assert obsah.split("\n")[0] in out                      # totéž, co viděla konzole
 
     znovu = mfa.ensure_user()                               # druhý start nic nemění
     assert znovu["totp_secret"] == rec["totp_secret"]
@@ -88,3 +98,35 @@ def test_bez_pyotp_se_mfa_neuplatni(domov, monkeypatch):
     monkeypatch.setattr(mfa, "available", lambda: False)
     assert mfa.verify("123456") is False
     assert mfa.ensure_user() == {}
+
+
+def test_uzivatel_instance_ma_vlastni_adresar_i_tajemstvi(domov, capsys):
+    """`vb.Project(user="jindrich")`: registruje se ON, ne výchozí workbench,
+    a QR mu padne do jeho adresáře."""
+    assert mfa.set_active_user("jindrich") == "jindrich"
+    rec = mfa.ensure_user()
+    assert (domov / "user-jindrich" / "totp-jindrich.svg").exists()
+    assert not (domov / "user-workbench").exists()
+    assert "otpauth://totp/viewbase:jindrich" in capsys.readouterr().out
+    assert list(json.loads((domov / "users.json").read_text())) == ["jindrich"]
+    # ověřuje se proti uživateli instance, bez opakování jména na volajícím
+    assert mfa.verify(pyotp.TOTP(rec["totp_secret"]).now()) is True
+
+
+@pytest.mark.parametrize("jmeno", ["", "  ", ".", "..", "../..", "a/b", "a\\b"])
+def test_jmeno_uzivatele_nesmi_utect_z_domova(domov, jmeno):
+    """Jméno je součástí názvu adresáře – cesta ven se musí odmítnout."""
+    with pytest.raises(ValueError):
+        mfa.set_active_user(jmeno)
+
+
+def test_qr_ze_stareho_plocheho_rozvrzeni_se_presune(domov):
+    """Aktualizace knihovny: QR ležící vedle users.json se přestěhuje do
+    adresáře uživatele, ať nezůstanou dvě kopie."""
+    mfa.ensure_user()
+    novy = domov / "user-workbench" / "totp-workbench.svg"
+    stary = domov / "workbench-totp.svg"
+    novy.replace(stary)                       # nasimuluj stav před aktualizací
+    assert not novy.exists()
+    mfa.ensure_user()                         # další start knihovny
+    assert novy.exists() and not stary.exists()

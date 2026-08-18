@@ -81,3 +81,28 @@ def test_project_serves_screen_and_closes_port_like_a_file():
         assert handle.port > 0
     # po with bloku je port zavřený a graf uklizený
     assert graph._closed is True
+
+
+def test_project_zaregistruje_uzivatele_pri_prvnim_startu(tmp_path, monkeypatch, capsys):
+    """`vb.Project(user=…)` = uživatel instance: tajemství a QR vzniknou při
+    PRVNÍM startu (jedno očekávatelné místo), podruhé už se netisknou."""
+    pytest.importorskip("pyotp")
+    from viewbase import mfa
+
+    monkeypatch.setenv("VIEWBASE_HOME", str(tmp_path))
+    mfa.reset_state()
+    try:
+        screen = vb.Screen(title="Provoz")
+        vb.GraphWindow(screen=screen)
+        with vb.Project(port=0, user="hana") as project:
+            project.serve(screen, block=False)
+        assert (tmp_path / "user-hana" / "totp-hana.svg").exists()
+        assert "otpauth://totp/viewbase:hana" in capsys.readouterr().out
+
+        screen2 = vb.Screen(title="Provoz")
+        vb.GraphWindow(screen=screen2)
+        with vb.Project(port=0, user="hana") as project:
+            project.serve(screen2, block=False)
+        assert capsys.readouterr().out == ""          # druhý start mlčí
+    finally:
+        mfa.reset_state()

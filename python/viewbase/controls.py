@@ -77,7 +77,7 @@ class SecuredMixin:
         """Ověř kód: TOTP uživatele, jinak jednorázový kód z konzole."""
         from . import mfa
 
-        if mfa.available() and mfa.load_users().get(mfa.DEFAULT_USER):
+        if mfa.available() and mfa.load_users().get(mfa.active_user()):
             return mfa.verify(code)
         return (isinstance(code, str) and self.fallback_code is not None
                 and secrets.compare_digest(code.strip(), self.fallback_code))

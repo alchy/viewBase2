@@ -72,7 +72,7 @@ něj (klik okno jen aktivuje) – jedinou cestou je `Options → Unlock Window`.
 cfg = vb.Config(
     host="0.0.0.0", port=8443, tls=vb.Tls(cert="cert.pem", key="key.pem"),
     users_file="./secrets/users.json",        # default ~/.viewbase/users.json (0600)
-    qr_dir="./secrets/qr",                    # <user>-totp.svg
+    qr_dir="./secrets/qr",                    # default ~/.viewbase/user-<jméno>/
     auth_modules={
         "totp": vb.auth.Totp(issuer="ACME Monitoring"),
         "sso":  vb.auth.External(verify=over_v_sso, label="Firemní SSO",
@@ -136,7 +136,8 @@ odhlášení jsou samostatné log události (audit stopa).
 ## 9. Rozsah
 
 **Hotovo (nezávisle na multiuseru, funguje i v dnešním jednouživatelském
-režimu):** `Options → Unlock Window` u zamčeného okna a `Options → Lock
+režimu):** `vb.Project(user=…)` = uživatel instance, jeho registrace při
+prvním startu a artefakty v `~/.viewbase/user-<jméno>/totp-<jméno>.svg`; `Options → Unlock Window` u zamčeného okna a `Options → Lock
 Window` u odemčeného zabezpečeného (událost `window_lock`, hook `on_locked()`,
 u shellu proces běží dál), Esc výzvu jen odloží místo zavření okna.
 
