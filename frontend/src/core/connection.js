@@ -66,7 +66,7 @@ export class Connection {
     try {
       msg = decode(raw);
     } catch (err) {
-      console.warn('viewbase: vadná zpráva ze serveru', err);
+      console.warn('viewbase: malformed message from server', err);
       return;
     }
     if (msg.type === 'init') {

@@ -70,7 +70,7 @@ export class GraphStore {
     for (const node of msg.update_nodes) this.nodes.set(node.id, node);
     for (const edge of msg.add_edges) {
       if (!this.nodes.has(edge.source) || !this.nodes.has(edge.target)) {
-        console.warn('viewbase: hrana s neznámým koncem přeskočena',
+        console.warn('viewbase: edge with unknown endpoint skipped',
           edge.source, edge.target);
         continue;
       }

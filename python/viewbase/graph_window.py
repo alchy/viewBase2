@@ -516,7 +516,7 @@ class GraphWindow:
         except Exception as chyba:                       # noqa: BLE001
             window.pty = None
             self._emit_html("shell_state", wid, state="failed", error=str(chyba))
-            logger.exception("Shell okno '%s' se nepodařilo spustit", wid)
+            logger.exception("Shell window '%s' failed to start", wid)
             return
         self._emit_html("shell_state", wid, state="running")
 
@@ -555,12 +555,12 @@ class GraphWindow:
             return
         if not window.unlocks_with(getattr(event, "code", None)):
             # AUDIT: co se stalo, ne čím se to zkoušelo – kód do logu nepatří
-            self._log_auth("warning", f"neplatný kód k oknu '{window.window_id}'")
+            self._log_auth("warning", f"invalid code for window '{window.window_id}'")
             self._emit_html("window_state", window.window_id, state="locked",
-                            error="Neplatný kód")
+                            error="Invalid code")
             return
         window.state = "open"
-        self._log_auth("info", f"okno '{window.window_id}' odemčeno – "
+        self._log_auth("info", f"window '{window.window_id}' unlocked – "
                                f"{self._auth_kind(window)}")
         with self._lock:
             live = self._window_live.get(window.window_id)
@@ -586,7 +586,7 @@ class GraphWindow:
         with self._lock:
             self._actions.append({**window.public_spec(), "action": "open_window"})
         window.on_locked()
-        self._log_auth("info", f"okno '{window.window_id}' zamčeno uživatelem")
+        self._log_auth("info", f"window '{window.window_id}' locked by the user")
         window.announce_lock()
 
     @staticmethod
@@ -595,8 +595,8 @@ class GraphWindow:
         from . import mfa
 
         if mfa.available() and mfa.load_users().get(mfa.active_user()):
-            return f"token uživatele '{mfa.active_user()}'"
-        return "jednorázový kód"
+            return f"token of user '{mfa.active_user()}'"
+        return "one-time code"
 
     @staticmethod
     def _log_auth(level: str, message: str) -> None:
@@ -893,7 +893,7 @@ class GraphWindow:
             for a, b, data in graph.edges(data=True):
                 sa, sb = str(a), str(b)
                 if sa == sb:
-                    logger.warning("add_graph: self-loop '%s' přeskočen", sa)
+                    logger.warning("add_graph: self-loop '%s' skipped", sa)
                     continue
                 self._ensure_edge(sa, sb, dict(data))
 
@@ -958,7 +958,7 @@ class GraphWindow:
             if key in node["meta"]:
                 return str(node["meta"][key])
             logger.warning(
-                "Uzel '%s': klíč '%s' z label šablony chybí v metadatech",
+                "Node '%s': key '%s' from the label template is missing in metadata",
                 node["id"], key)
             return ""
 
@@ -1047,8 +1047,8 @@ class GraphWindow:
             with self._lock:
                 if self._tasks_stop is not None:
                     logger.warning(
-                        "every(): úloha '%s' registrována po startu serveru"
-                        " – ignoruje se", task_name)
+                        "every(): task '%s' registered after the server started"
+                        " – ignored", task_name)
                     return func
                 self._tasks.append(
                     {"interval": interval, "name": task_name, "func": func})
@@ -1076,7 +1076,7 @@ class GraphWindow:
             try:
                 task["func"]()
             except Exception:
-                logger.exception("Výjimka v every() úloze '%s'", task["name"])
+                logger.exception("Exception in every() task '%s'", task["name"])
 
     # ---- eventy ----------------------------------------------------------
 
@@ -1131,7 +1131,7 @@ class GraphWindow:
         try:
             handler(event)
         except Exception:
-            logger.exception("Výjimka v handleru eventu '%s'", name)
+            logger.exception("Exception in handler for event '%s'", name)
 
     def close(self) -> None:
         """Ukonči thread-pool handlerů i every() úlohy. Idempotentní; další

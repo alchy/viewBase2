@@ -164,7 +164,7 @@ export function createDesktop({ container, screenId, connection }) {
     handleAction(msg) {
       const handler = findAction(msg.action);
       if (handler) handler(msg);
-      else console.warn('viewbase: neznámá akce', msg.action);
+      else console.warn('viewbase: unknown action', msg.action);
     },
 
     /** Log okno je průřezová věc (ScreenManager routuje záznamy napříč

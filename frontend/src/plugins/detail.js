@@ -107,7 +107,7 @@ export class DetailWindow extends BaseWindow {
       document.execCommand('copy');
       document.body.removeChild(ta);
     } catch {
-      console.warn('viewbase: kopírování do schránky selhalo');
+      console.warn('viewbase: copy to clipboard failed');
     }
   }
 

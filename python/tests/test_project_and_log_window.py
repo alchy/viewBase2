@@ -101,8 +101,8 @@ def test_project_zaregistruje_uzivatele_pri_prvnim_startu(tmp_path, monkeypatch,
         assert (tmp_path / "user-hana" / "totp-hana.svg").exists()
         out = capsys.readouterr().out
         tajemstvi = json.loads((tmp_path / "users.json").read_text())["hana"]["totp_secret"]
-        assert "uživatel instance: hana" in out           # systémový text
-        assert "registrovaní: hana (TOTP)" in out
+        assert "instance user: hana" in out               # systémový text
+        assert "registered: hana (TOTP)" in out
         assert tajemstvi not in out and "otpauth://" not in out   # tajemství ne
 
         screen2 = vb.Screen(title="Provoz")
@@ -110,8 +110,8 @@ def test_project_zaregistruje_uzivatele_pri_prvnim_startu(tmp_path, monkeypatch,
         with vb.Project(port=0, user="hana") as project:
             project.serve(screen2, block=False)
         druhy = capsys.readouterr().out               # druhý start: jen systém
-        assert "uživatel instance: hana" in druhy
-        assert "registrace" not in druhy and tajemstvi not in druhy
+        assert "instance user: hana" in druhy
+        assert "enrollment" not in druhy and tajemstvi not in druhy
     finally:
         mfa.reset_state()
 
@@ -134,7 +134,7 @@ def test_prvni_instanciace_pripravi_domov_i_pres_stare_api(tmp_path, monkeypatch
             assert mfa.registered("workbench")
             assert oct((tmp_path / "users.json").stat().st_mode)[-3:] == "600"
             assert oct(tmp_path.stat().st_mode)[-3:] == "700"
-            assert "uživatel instance: workbench" in capsys.readouterr().out
+            assert "instance user: workbench" in capsys.readouterr().out
         finally:
             handle.stop()
     finally:

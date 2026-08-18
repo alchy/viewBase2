@@ -79,7 +79,7 @@ def describe_users() -> list[str]:
     out = []
     for name, rec in sorted(load_users().items()):
         ok = bool(rec.get("totp_secret")) and rec.get("is_mfa_enabled", True)
-        out.append(f"{name} ({'TOTP' if ok else 'bez TOTP'})")
+        out.append(f"{name} ({'TOTP' if ok else 'no TOTP'})")
     return out
 
 
@@ -225,8 +225,8 @@ def ensure_user(user: str | None = None, *,
             # NEMĚNÍ, jen se z něj znovu vyrobí QR – jinak by si ho nešlo
             # naskenovat na druhé zařízení, aniž by se musel registrovat znovu.
             _write_artifacts(user, rec["totp_secret"])
-            _log("info", f"QR uživatele '{user}' obnoven ze stávajícího "
-                         f"tajemství: cat {qr_text_path(user)}")
+            _log("info", f"QR for user '{user}' regenerated from the existing "
+                         f"secret: cat {qr_text_path(user)}")
         return rec
 
 
@@ -250,8 +250,8 @@ def _announce_enrollment(user: str, secret: str,
     """Vypiš QR + URI do konzole a ulož SVG (Pillow netřeba)."""
     txt, svg = _write_artifacts(user, secret)
     # Do logu jen UKAZATEL, kde si registraci vyzvednout – žádné tajemství.
-    message = (f"nová TOTP registrace pro uživatele '{user}' – naskenuj: "
-               f"cat {txt}" + (f" (nebo otevři {svg})" if svg else ""))
+    message = (f"new TOTP enrollment for user '{user}' – scan it: "
+               f"cat {txt}" + (f" (or open {svg})" if svg else ""))
     _log("info", message)
     (announce or (lambda text: print(f"viewbase: {text}", flush=True)))(message)
 

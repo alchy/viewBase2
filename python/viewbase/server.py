@@ -103,9 +103,9 @@ async def _broadcast_loop(windows: list[GraphWindow], windows_by_screen: dict,
                 await _broadcast_step(windows, windows_by_screen, clients,
                                       pending_logs)
         except Exception as exc:
-            logger.exception("Chyba ve vysílací smyčce")
+            logger.exception("Broadcast loop failed")
             log_bus.publish("error", "backend_program",
-                            f"chyba ve vysílací smyčce: {exc}",
+                            f"broadcast loop failed: {exc}",
                             component="server")
 
 
@@ -198,11 +198,11 @@ def create_app(*windows: GraphWindow) -> FastAPI:
                 try:
                     msg = protocol.decode(raw)
                 except ValueError:
-                    logger.warning("Vadná zpráva od klienta %s: %r",
+                    logger.warning("Malformed message from client %s: %r",
                                    client_id, raw[:200])
                     log_bus.publish(
                         "warning", "backend_program",
-                        f"vadná zpráva od klienta {client_id}: {raw[:200]!r}",
+                        f"malformed message from client {client_id}: {raw[:200]!r}",
                         component="server")
                     continue
                 if msg.get("type") == "event" and isinstance(msg.get("event"), str):
@@ -213,22 +213,22 @@ def create_app(*windows: GraphWindow) -> FastAPI:
                                              msg.get("screen_id"))
                     if target is None:
                         logger.warning(
-                            "Event bez rozpoznatelného screen_id od klienta"
+                            "Event with unknown screen_id from client"
                             " %s: %r", client_id, msg.get("screen_id"))
                         log_bus.publish(
                             "warning", "backend_program",
-                            f"event bez rozpoznatelného screen_id od klienta"
+                            f"event with unknown screen_id from client"
                             f" {client_id}: {msg.get('screen_id')!r}",
                             component="server")
                         continue
                     target.dispatch_event(
                         msg["event"], {**payload, "client_id": client_id})
                 else:
-                    logger.warning("Nečekaná zpráva od klienta %s: %r",
+                    logger.warning("Unexpected message from client %s: %r",
                                    client_id, raw[:200])
                     log_bus.publish(
                         "warning", "backend_program",
-                        f"nečekaná zpráva od klienta {client_id}: {raw[:200]!r}",
+                        f"unexpected message from client {client_id}: {raw[:200]!r}",
                         component="server")
         except WebSocketDisconnect:
             pass
@@ -261,8 +261,8 @@ def create_app(*windows: GraphWindow) -> FastAPI:
         if event.startswith(("shell_", "window_unlock", "window_lock")):
             return JSONResponse(status_code=403, content={
                 "ok": False,
-                "error": ("shell_*, window_unlock a window_lock přes REST "
-                          "nejdou (jen WS z prohlížeče)")})
+                "error": ("shell_*, window_unlock and window_lock are not "
+                          "allowed over REST (browser WebSocket only)")})
         target = _resolve_window(windows_by_screen, message.get("screen_id"))
         if target is None:
             return {"ok": False,
@@ -301,19 +301,19 @@ def first_run_setup() -> None:
     user = mfa.active_user()
     mfa.ensure_user(user)
     users = mfa.describe_users()
-    _system_log(f"uživatel instance: {user}"
-                + (f"; registrovaní: {', '.join(users)}" if users else ""))
+    _system_log(f"instance user: {user}"
+                + (f"; registered: {', '.join(users)}" if users else ""))
     if not mfa.available():
         # Kdo má TOTP zaregistrované, ale spustí instanci v prostředí bez
         # `pyotp`, jinak jen kouká, proč mu autentikátor nefunguje.
         _system_log(
-            "pyotp v tomhle prostředí chybí – zabezpečená okna se odemykají "
-            "jednorázovým kódem ze souboru"
-            + (f" (uživatel '{user}' má přitom TOTP zaregistrované, "
-               "kód z autentikátoru fungovat NEBUDE); "
+            "pyotp is missing in this environment – secured windows fall back "
+            "to a one-time code in a file"
+            + (f" (user '{user}' HAS TOTP registered, so the authenticator "
+               "code will NOT work); "
                if mfa.registered(user) else "; ")
-            + "TOTP zapne: pip install pyotp qrcode "
-              "(standardní závislosti viewbase)", "warning")
+            + "enable TOTP: pip install pyotp qrcode "
+              "(standard viewbase dependencies)", "warning")
 
 
 def _system_log(message: str, level: str = "info") -> None:

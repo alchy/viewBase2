@@ -39,7 +39,7 @@ export class WindowManager {
   open(kind, spec) {
     const factory = this.types.get(kind);
     if (!factory) {
-      console.warn(`viewbase: neznámý typ okna '${kind}'`);
+      console.warn(`viewbase: unknown window kind '${kind}'`);
       return null;
     }
     // Spec otevíraného okna musí být k mání UŽ V adopt(): factory si okno

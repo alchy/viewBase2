@@ -227,7 +227,7 @@ def test_audit_stopa_zamku_je_bez_tajemstvi():
         kod = _kod()
         c.dispatch_event("window_unlock", {"window_id": "panel", "code": "000000",
                                            "client_id": "x"})
-        assert _wait(lambda: any("neplatný" in z.message for z in zaznamy))
+        assert _wait(lambda: any("invalid code" in z.message for z in zaznamy))
         c.dispatch_event("window_unlock", {"window_id": "panel", "code": kod,
                                            "client_id": "x"})
         assert _wait(lambda: w.state == "open")
@@ -237,9 +237,10 @@ def test_audit_stopa_zamku_je_bez_tajemstvi():
         bus.unsubscribe(zaznamy.append)
         c.close()
     texty = "\n".join(z.message for z in zaznamy)
-    assert "neplatný kód k oknu 'panel'" in texty          # odmítnutý pokus
-    assert "okno 'panel' odemčeno – token uživatele 'workbench'" in texty
-    assert "okno 'panel' zamčeno uživatelem" in texty
+    # hlášky v logu jsou ANGLICKY (uživatelský požadavek, jako texty v UI)
+    assert "invalid code for window 'panel'" in texty      # odmítnutý pokus
+    assert "window 'panel' unlocked – token of user 'workbench'" in texty
+    assert "window 'panel' locked by the user" in texty
     assert kod not in texty and "tajný text" not in texty  # nic tajného
     assert {z.component for z in zaznamy if z.source == "backend_program"} <= {
         "windows", "server"}
@@ -267,5 +268,5 @@ def test_varuje_kdyz_ma_uzivatel_totp_ale_prostredi_nema_pyotp(monkeypatch, caps
     assert varovani, "chybí varování o nefunkčním TOTP"
     text = varovani[-1].message
     assert "pyotp" in text and "pip install pyotp qrcode" in text
-    assert "NEBUDE fungovat" in text
+    assert "will NOT work" in text
     assert w.fallback_code not in text                   # ani tady žádný kód

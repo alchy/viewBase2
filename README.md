@@ -154,6 +154,10 @@ tady v tématu `workbench-amiga`:
 
 ![viewbase – graf, HTML okno, privátní okno, shell a log na jednom screenu](docs/images/workbench-overview.png)
 
+Hlášky knihovny v log okně jsou **anglicky** (jako všechny texty workbenche) a
+nesou auditní stopu zámků — `window 'sh' unlocked – token of user 'workbench'`.
+Řádky, které do logu píše vaše aplikace (`vb.log(...)`), jsou samozřejmě vaše.
+
 ### Control okno: vzhled grafu řízený z backendu
 
 Backend definuje **parametrické okno** (typovaná pole int/number/string/enum/

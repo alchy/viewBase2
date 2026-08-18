@@ -9,12 +9,12 @@ export { deepMerge };
 export function resolveTheme(nameOrDict) {
   if (typeof nameOrDict === 'string') {
     if (THEMES[nameOrDict]) return THEMES[nameOrDict];
-    console.error(`viewbase: neznámé téma '${nameOrDict}' – používám 'modern'`);
+    console.error(`viewbase: unknown theme '${nameOrDict}' – falling back to 'modern'`);
     return THEMES.modern;
   }
   if (isPlainObject(nameOrDict)) return deepMerge(THEMES.modern, nameOrDict);
   if (nameOrDict != null) {
-    console.error('viewbase: theme musí být string nebo objekt – používám modern');
+    console.error('viewbase: theme must be a string or an object – falling back to modern');
   }
   return THEMES.modern;
 }
