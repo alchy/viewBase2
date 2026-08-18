@@ -539,6 +539,12 @@ class GraphWindow:
         self.open_shell(ShellWindow(wid, title=f"Shell CLI {self._shell_seq}",
                                     cols=100, rows=28, width=820, height=440))
 
+    def has_secured_window(self) -> bool:
+        """Je na screenu okno se `secured=True`? (Rozhoduje o povinném TLS
+        při poslechu mimo loopback, viz tls.require_tls.)"""
+        return any(getattr(w, "secured", False)
+                   for w in self._secured_windows().values())
+
     def _secured_windows(self) -> dict[str, Any]:
         """Všechna okna se zámkem (jeden mechanismus napříč typy)."""
         with self._lock:

@@ -118,9 +118,12 @@ předem, a co je tajné, nikdy neopustí disk:
 ```
 ~/.viewbase/                                  adresář 0700
 ├── users.json                                (0600) uživatelé a jejich tajemství
-└── user-workbench/                           adresář 0700
-    ├── totp-workbench.svg                    (0600) QR jako obrázek
-    └── totp-workbench.txt                    (0600) tentýž QR v ASCII + ruční kód
+├── user-workbench/                           adresář 0700
+│   ├── totp-workbench.svg                    (0600) QR jako obrázek
+│   └── totp-workbench.txt                    (0600) tentýž QR v ASCII + ruční kód
+└── tls/                                      jen při `tls=True`
+    ├── cert.pem                              (0600) vlastnoručně podepsaný certifikát
+    └── key.pem                               (0600) privátní klíč
 ```
 
 Do konzole i do log okna přitom jde jen systémový text — jméno a cesta, žádné
@@ -537,6 +540,26 @@ vývojáři přes `define_type`/`update_node`.
   [info]    backend_program/windows: okno 'mzdy' odemčeno – token uživatele 'jindrich'
   [info]    backend_program/windows: okno 'mzdy' zamčeno uživatelem
   ```
+
+  Stejným způsobem vzniká i **TLS**: `vb.Project(port=8443, tls=True)` si při
+  první instanciaci vyrobí vlastnoručně podepsaný certifikát do
+  `~/.viewbase/tls/` a příště ho jen použije (obnoví se sám týden před
+  vypršením). SAN pokrývá `localhost`, `127.0.0.1`, `::1` a jméno stroje;
+  další jména se přidají `tls_hosts=["vb.firma.cz", "10.0.0.5"]` — a změna
+  seznamu certifikát přegeneruje, aby tiše nepokrýval míň, než čekáte. Otisk
+  se vypíše do konzole, ať víte, co v prohlížeči potvrzujete:
+
+  ```
+  viewbase: self-signed TLS certificate generated: ~/.viewbase/tls/cert.pem
+            (SHA-256 5A:79:DF:…; covers localhost, 127.0.0.1, ::1, stroj.local)
+  ```
+
+  Vlastní certifikát: `tls=vb.Tls("cert.pem", "key.pem")`. Self-signed
+  certifikát prohlížeč **napoprvé neuzná** — buď ho jednou potvrdíte, nebo
+  importujete do důvěryhodných; JavaScript to za vás udělat nemůže, o důvěře
+  rozhoduje prohlížeč a OS. Do produkce patří certifikát od CA nebo reverzní
+  proxy. **Zabezpečené okno mimo loopback bez TLS server nespustí** — odemykací
+  kód by šel po síti čitelně, tak radši ValueError s návodem než tichá díra.
 
   QR, `otpauth://` URI, ruční kód ani jednorázový kód (fallback bez `pyotp`,
   ten leží v `user-<jméno>/onetime-<okno>.txt`) se nikdy nevypíšou — jinak by

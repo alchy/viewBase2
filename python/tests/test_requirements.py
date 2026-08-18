@@ -13,6 +13,12 @@ import pytest
 KOREN = pathlib.Path(__file__).resolve().parent.parent
 BALICEK = KOREN / "viewbase"
 
+#: Importy, které jsou VOLITELNÉ a schválně nejsou v `dependencies`: knihovna
+#: bez nich funguje dál jinou cestou. `cryptography` umí vyrobit self-signed
+#: certifikát programově; když chybí, použije se binárka `openssl` (tls.py).
+#: Přidávat sem smí jen import, který má funkční záložní cestu.
+VOLITELNE = {"cryptography"}
+
 
 def _meta() -> dict:
     tomllib = pytest.importorskip("tomllib")
@@ -42,13 +48,38 @@ def _deklarovane() -> set[str]:
 
 
 def test_kazdy_import_ma_svou_zavislost():
-    chybi = _tretich_stran() - _deklarovane()
+    chybi = _tretich_stran() - _deklarovane() - VOLITELNE
     assert not chybi, f"importuje se, ale není v dependencies: {sorted(chybi)}"
+
+
+def test_volitelny_import_ma_zalozni_cestu():
+    """Co je v `VOLITELNE`, musí být importované uvnitř `try`/`except
+    ImportError` – jinak by chybějící balíček shodil knihovnu."""
+    for jmeno in VOLITELNE:
+        chraneno = False
+        for soubor in _zdroje():
+            strom = ast.parse(soubor.read_text("utf-8"))
+            for uzel in ast.walk(strom):
+                if not isinstance(uzel, ast.Try):
+                    continue
+                zachytava = any(
+                    isinstance(h.type, ast.Name) and h.type.id == "ImportError"
+                    for h in uzel.handlers)
+                if not zachytava:
+                    continue
+                for vnitrni in ast.walk(uzel):
+                    if isinstance(vnitrni, (ast.Import, ast.ImportFrom)):
+                        modul = ([a.name for a in vnitrni.names]
+                                 if isinstance(vnitrni, ast.Import)
+                                 else [vnitrni.module or ""])
+                        if any(m.split(".")[0] == jmeno for m in modul):
+                            chraneno = True
+        assert chraneno, f"volitelný import '{jmeno}' není v try/except ImportError"
 
 
 def test_zadna_zavislost_navic():
     """Nepoužitá závislost je zbytečná zátěž pro toho, kdo knihovnu instaluje."""
-    navic = _deklarovane() - _tretich_stran()
+    navic = _deklarovane() - _tretich_stran() - VOLITELNE
     assert not navic, f"deklarované, ale nikde neimportované: {sorted(navic)}"
 
 

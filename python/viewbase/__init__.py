@@ -20,10 +20,11 @@ from .graph_window import GraphWindow
 from .log import LogWindow, log
 from .menu import ScreenMenu
 from .screen import Screen
+from .tls import Tls
 from .server import Project, ServerHandle, create_app, serve
 from .ui import Ui
 
-__all__ = ["Project", "Screen", "GraphWindow", "LogWindow", "ControlWindow", "HtmlWindow", "ShellWindow", "Ui",
+__all__ = ["Project", "Screen", "GraphWindow", "LogWindow", "ControlWindow", "HtmlWindow", "ShellWindow", "Ui", "Tls",
            "TerminalWindow", "ScreenMenu", "ServerHandle", "log",
            "create_app", "serve", "protocol"]
 __version__ = "0.1.0"

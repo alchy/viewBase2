@@ -24,6 +24,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import mfa, protocol
+from .tls import Tls, require_tls, scheme_for, self_signed
 from .graph_window import GraphWindow
 from .log import LogRecord, bus as log_bus
 
@@ -346,9 +347,17 @@ class Project:
     zavře port po bloku."""
 
     def __init__(self, *, host: str = "127.0.0.1", port: int = 8080,
-                 user: str = mfa.DEFAULT_USER) -> None:
+                 user: str = mfa.DEFAULT_USER,
+                 tls: "Tls | bool | None" = None,
+                 tls_hosts: "list[str] | tuple[str, ...] | None" = None) -> None:
         self.host = host
         self.port = port
+        # TLS: `tls=vb.Tls(cert, key)` = vlastní certifikát (ověří se hned tady,
+        # ne až při startu – o překlepu v cestě se vývojář dozví okamžitě);
+        # `tls=True` = vlastnoručně podepsaný z `~/.viewbase/tls/`, vyrobí se
+        # při první instanciaci stejně jako TOTP a QR.
+        self.tls = (self_signed(host, hosts=tls_hosts) if tls is True
+                    else (tls or None))
         # Uživatel TÉTO instance: proti jeho tajemství se ověřují zamčená okna
         # a do jeho adresáře (`~/.viewbase/user-<jméno>/`) jde QR.
         self.user = mfa.set_active_user(user)
@@ -378,7 +387,7 @@ class Project:
                 graph.config["graph_window"] = False
             windows.append(graph)
         handle = serve(*windows, host=self.host, port=self.port,
-                       open_browser=open_browser, block=block)
+                       open_browser=open_browser, tls=self.tls, block=block)
         self._handle = handle
         return handle
 
@@ -426,7 +435,7 @@ class ServerHandle:
 
 
 def _make_server(windows: tuple[GraphWindow, ...], host: str,
-                 port: int) -> uvicorn.Server:
+                 port: int, tls: Tls | None = None) -> uvicorn.Server:
     # ws_ping_interval=None vypíná serverový keepalive ping knihovny
     # websockets: jeho samostatná úloha jinak souběžně "draina" stejné
     # spojení jako náš broadcast a při velkém provozu spadne na interním
@@ -434,12 +443,13 @@ def _make_server(windows: tuple[GraphWindow, ...], host: str,
     # reconnectne), keepalive proto nepotřebujeme.
     config = uvicorn.Config(create_app(*windows), host=host, port=port,
                             log_level="warning",
-                            ws_ping_interval=None, ws_ping_timeout=None)
+                            ws_ping_interval=None, ws_ping_timeout=None,
+                            **(tls.uvicorn_kwargs() if tls else {}))
     return uvicorn.Server(config)
 
 
 def serve(*windows: GraphWindow, host: str = "127.0.0.1", port: int = 8080,
-          open_browser: bool = False,
+          open_browser: bool = False, tls: Tls | None = None,
           block: bool = True) -> ServerHandle | None:
     """Spustí server nad jedním nebo víc GraphWindow (multi-screen – víc
     grafových oken vyžaduje, aby mělo každé svůj `screen=`, viz `create_app`).
@@ -449,11 +459,17 @@ def serve(*windows: GraphWindow, host: str = "127.0.0.1", port: int = 8080,
     volný, `handle.stop()` server ukončí."""
     if not windows:
         raise ValueError("serve() vyžaduje aspoň jeden GraphWindow")
+    # Zabezpečené okno mimo loopback bez TLS = kód i session id čitelně po
+    # drátě; radši nenastartovat než tiše vystavit (viz tls.require_tls).
+    require_tls(host, tls, secured_windows=any(w.has_secured_window()
+                                               for w in windows))
     first_run_setup()                    # ~/.viewbase, uživatel, TOTP + QR
-    server = _make_server(windows, host, port)
+    if tls is not None:
+        _system_log(f"TLS zapnuté (cert {tls.cert})")
+    server = _make_server(windows, host, port, tls)
     if open_browser:
-        threading.Timer(
-            0.7, webbrowser.open, args=(f"http://{host}:{port}/",)).start()
+        url = f"{scheme_for(tls)}://{host}:{port}/"
+        threading.Timer(0.7, webbrowser.open, args=(url,)).start()
     if block:
         try:
             server.run()
