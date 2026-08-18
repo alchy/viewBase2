@@ -16,6 +16,16 @@
  *  - `onEnd(e, state)` se volá PRÁVĚ jednou na konec (up/cancel/ztráta
  *    capture/guard) – vhodné pro perzistenci pozice.
  *  Capture na `el` zařizuje utilita sama. */
+/** Pointer capture je jen optimalizace (události chodí dál, i když ukazatel
+ *  opustí prvek). Prohlížeč ho smí odmítnout – typicky `NotFoundError: No
+ *  active pointer with the given id` u syntetických/asistivních vstupů nebo
+ *  když pointer mezitím skončil. Bez capture tažení pořád funguje (pojistky
+ *  níž ho stejně ukončí), zato NEODCHYCENÁ výjimka v handleru by divákovi
+ *  vyhodila Guru Meditation – proto try/catch. */
+function capture(el, pointerId) {
+  try { el.setPointerCapture?.(pointerId); } catch { /* bez capture to jde taky */ }
+}
+
 export function wirePointerDrag(el, { onStart, onMove, onEnd = () => {} }) {
   let state = null;
 
@@ -23,7 +33,7 @@ export function wirePointerDrag(el, { onStart, onMove, onEnd = () => {} }) {
     if (state === null) return;
     const finished = state;
     state = null;
-    try { el.releasePointerCapture(e.pointerId); } catch { /* noop */ }
+    try { el.releasePointerCapture?.(e.pointerId); } catch { /* viz capture() */ }
     onEnd(e, finished);
   };
 
@@ -31,7 +41,7 @@ export function wirePointerDrag(el, { onStart, onMove, onEnd = () => {} }) {
     const started = onStart(e);
     if (started === null || started === undefined) return;
     state = started;
-    el.setPointerCapture(e.pointerId);
+    capture(el, e.pointerId);
   });
   el.addEventListener('pointermove', (e) => {
     if (state === null) return;

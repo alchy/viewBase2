@@ -144,7 +144,9 @@ export class WindowFrame {
       e.preventDefault();
       drag = { pos: axis === 'v' ? e.clientY : e.clientX,
         start: axis === 'v' ? knob.offsetTop : knob.offsetLeft, target: t };
-      knob.setPointerCapture?.(e.pointerId);
+      // capture smí prohlížeč odmítnout (viz wm/drag.js#capture) – bez něj
+      // tažení knobu funguje taky, výjimka by ale shodila Guru overlay
+      try { knob.setPointerCapture?.(e.pointerId); } catch { /* noop */ }
     });
     knob.addEventListener('pointermove', (e) => {
       if (!drag) return;
