@@ -138,3 +138,31 @@ def test_unlock_none_spusti_shell_rovnou():
     assert _wait(lambda: w.pty is not None and w.pty.alive)
     c.close_window("sh")
     c.close()
+
+
+def test_rest_api_event_neprijme_shell_eventy():
+    """BEZPEČNOST: `/api/event` je bez autentizace – klávesy do shellu smí
+    posílat JEN prohlížeč přes WS. Jinak by stačil curl na RCE."""
+    from fastapi.testclient import TestClient
+
+    from viewbase import create_app
+
+    c = GraphWindow()
+    w = ShellWindow("sh", command=["/bin/sh", "-i"])
+    c.open_shell(w)
+    c.dispatch_event("shell_unlock", {"window_id": "sh", "code": w.unlock_code, "client_id": "x"})
+    assert _wait(lambda: w.pty is not None and w.pty.alive)
+    with TestClient(create_app(c)) as client:
+        for event, payload in [
+            ("shell_input", {"window_id": "sh", "data": "echo utok\n"}),
+            ("shell_unlock", {"window_id": "sh", "code": w.unlock_code}),
+            ("shell_resize", {"window_id": "sh", "cols": 10, "rows": 5}),
+        ]:
+            r = client.post("/api/event", json={"event": event, "payload": payload})
+            assert r.status_code == 403, (event, r.status_code)
+            assert "shell" in r.json().get("error", "").lower()
+    time.sleep(0.4)
+    assert "utok" not in w.scrollback                  # nic se do procesu nedostalo
+    assert (w.pty.cols, w.pty.rows) == (80, 24)        # ani resize
+    c.close_window("sh")
+    c.close()

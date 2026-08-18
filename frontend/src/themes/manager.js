@@ -19,6 +19,27 @@ export function resolveTheme(nameOrDict) {
   return THEMES.modern;
 }
 
+/** 16 ANSI barev z palety tématu: 0–7 základní (černá + 6 z palety + šedá),
+ *  8–15 jasné (opakují paletu, poslední bílá z textu okna). Terminál tak
+ *  používá barvy workbenche místo výchozích xtermových. */
+function ansiFromPalette(theme, w) {
+  const p = theme.palette ?? [];
+  const pick = (i, fallback) => p[i] ?? fallback;
+  const black = w.bodyBg && !String(w.bodyBg).startsWith('rgba') ? w.bodyBg : '#101418';
+  const white = w.bodyFg ?? '#e8eef6';
+  const base = [
+    black,                       // 0 černá = tělo okna
+    pick(1, '#e8553a'),          // 1 červená
+    pick(2, '#2fa84f'),          // 2 zelená
+    pick(4, '#e8a02f'),          // 3 žlutá
+    pick(0, '#2f7fe8'),          // 4 modrá
+    pick(3, '#8a4fe8'),          // 5 purpurová
+    pick(5, '#1fb3c4'),          // 6 tyrkysová
+    white,                       // 7 bílá = text okna
+  ];
+  return [...base, ...base];     // 8–15 jasné varianty (stejné odstíny)
+}
+
 /** Zapíše CSS custom properties tématu (--vb-*) na :root. */
 export function applyCssVars(theme, root = document.documentElement) {
   for (const [name, value] of Object.entries(theme.detailBox)) {
@@ -54,6 +75,14 @@ export function applyCssVars(theme, root = document.documentElement) {
       // `frameKnob` (knob), `frameGlow` (box-shadow knobu – cyber neon).
       // Default: workbench bílá lišta na modrém těle, jinak barva gadgetů.
       '--vb-window-frame': w.frame === false ? '0' : '1',
+      // Shell okno (xterm.js): pozadí i ANSI barvy z tématu, ať terminál
+      // ladí se zbytkem workbenche (`ls --color` nesvítí cizími barvami).
+      // Pozor: xterm kreslí do canvasu a `transparent` neumí – proto tady
+      // vždy KONKRÉTNÍ barva: `terminalBg` jen když je skutečná (workbench
+      // ji má „transparent" kvůli dialogovému terminálu), jinak tělo okna.
+      // ANSI se odvodí z palety grafu; téma smí přebít `window.ansi`.
+      '--vb-term-bg': (w.terminalBg && w.terminalBg !== 'transparent')
+        ? w.terminalBg : (w.bodyBg ?? '#101418'),
       '--vb-frame-line': w.frameLine ?? (w.bevel === 'hard' ? (w.headerBg ?? '#ffffff') : (w.gadget ?? '#8a93a3')),
       '--vb-frame-knob': w.frameKnob ?? w.frameLine ?? (w.bevel === 'hard' ? (w.headerBg ?? '#ffffff') : (w.gadget ?? '#8a93a3')),
       '--vb-frame-glow': w.frameGlow ?? 'none',
@@ -67,6 +96,11 @@ export function applyCssVars(theme, root = document.documentElement) {
     for (const [name, value] of Object.entries(map)) {
       if (value != null) root.style.setProperty(name, value);
     }
+    // ANSI 0–15 pro terminál: `window.ansi` (16 barev), jinak paleta grafu
+    // doplněná o černou/bílou z těla okna – terminál tak mluví barvami tématu.
+    const ansi = Array.isArray(w.ansi) && w.ansi.length >= 16
+      ? w.ansi : ansiFromPalette(theme, w);
+    ansi.forEach((color, i) => root.style.setProperty(`--vb-term-ansi-${i}`, color));
     // Pruhovaný titulek (§2 designu reference – AmigaDOS okno) – jen když
     // ho téma explicitně chce (`headerStripe: true`), jinak zpátky na
     // 'none' (jiná témata nesmí zdědit pruh od dřívějšího workbench tématu).

@@ -147,6 +147,7 @@ týž graf, jen přepnutý přepínač:
 |---|---|---|
 | `LogWindow` | **systémové** okno — obsah dodává knihovna (proces-wide log, `tail -f`) | `examples/log_window.py` |
 | `TerminalWindow` | **textové/dialogové** okno — píše se do něj a umí poslat string od uživatele | `examples/terminal.py` |
+| `ShellWindow` | **skutečný terminál** — na PTY běží shell systému (vim/htop/barvy), okno zamčené na kód | `examples/shell.py` |
 | `HtmlWindow` | **panel z prvků** — heading/label/kv/table/list/bar/image/hr, button/input/number/slider/checkbox/radio/select/textarea skládané z Pythonu bez HTML; události s hodnotami se vrací do Pythonu | `examples/html_window.py` |
 | `ControlWindow` | **formulářové** okno — typovaná pole, hodnoty tečou zpět do Pythonu | `examples/prototype.py` |
 | `GraphWindow` | **grafové** okno — živý 2D/3D graf, fyzika, eventy, toky | `examples/quickstart.py` |
@@ -260,6 +261,38 @@ odkazy nenavigují. Okno si pamatuje obsah pro replay po reconnectu (strop
 `HtmlWindow.MAX_HTML`). Builder `vb.Ui` umí totéž bez ručního HTML.
 
 </details>
+
+### Shell okno (skutečný terminál)
+
+`ShellWindow` — v okně běží **opravdový shell operačního systému** na PTY
+(vykresluje ho vendorovaný xterm.js), takže fungují barvy, kurzor, Ctrl-C
+i celoobrazovkové programy (`vim`, `htop`, `mc`). Na rozdíl od dialogového
+`TerminalWindow` (aplikační konzole s řádky textu) jde o emulaci terminálu
+nad procesem systému.
+
+```python
+sh = vb.ShellWindow("sh", title="Shell", cols=100, rows=28)   # bez command → $SHELL
+graph.open_shell(sh)          # okno se otevře ZAMČENÉ, kód se vypíše do konzole serveru
+
+# místo shellu libovolný příkaz (jiný uživatel, kontejner, sledování logu):
+vb.ShellWindow("logs", command=["journalctl", "-f"])
+vb.ShellWindow("web",  command=["docker", "exec", "-it", "web", "bash"])
+```
+
+**Bezpečnost** (shell = spuštění čehokoli na stroji, proto ve výchozím stavu
+nejde zneužít): okno startuje **zamčené** a proces se spustí až po zadání
+**odemykacího kódu**, který server vypíše do své konzole; server poslouchá
+jen na `127.0.0.1`; REST `/api/event` **shell události odmítá** (403) — smí
+jen prohlížeč přes WebSocket; proces se zabíjí při zavření okna i konci
+programu. Systémový `login` se nepoužívá: bez rootu stejně nepřepne
+uživatele (na Linuxu selže, na macOS jen znovu přihlásí téhož, na Windows
+neexistuje) — kdo chce jiného uživatele, řekne si o něj přes `command=`.
+
+Terminál bere **paletu z tématu** (pozadí = tělo okna, ANSI barvy z palety),
+takže `ls --color` ladí se zbytkem workbenche. xterm.js leží zdrojově v repu
+(`frontend/src/vendor/xterm/`, MIT) a načítá se **až s prvním shell oknem** —
+kdo shell nepoužívá, nestahuje ani bajt navíc. Zatím **POSIX** (macOS/Linux);
+Windows/ConPTY je TODO. Ukázka: `examples/shell.py`.
 
 ### Formulářové okno
 
@@ -556,6 +589,7 @@ a [architektura WM + pluginy](docs/superpowers/specs/2026-08-02-wm-plugin-archit
 | `examples/showcase.py` | téma cyber, typy uzlů, **živá změna barvy/typu za běhu**, toky, **control okno** (čáry/splajny) |
 | `examples/terminal.py` | **konzole v prohlížeči**: `TerminalWindow`, `on_input`, `terminal_write`, výstupní panel a REST push (`/api/event`) |
 | `examples/workbench.py` | **Workbench téma**: všechny typy oken (graf, formulář, konzole, panel z prvků, log) v `workbench-amiga` / `workbench-gray` – lišty, rohový sizing gadget, konzole jako jedna plocha (AmigaShell) |
+| `examples/shell.py` | **shell okno**: skutečný terminál na PTY (xterm.js), zámek odemykacím kódem, druhé okno s `command=["top"]` |
 | `examples/html_window.py` | **HTML okno z prvků**: `HtmlWindow` + `grid`, `label`/`input`/`slider`/`checkbox`/`button`, `on_click`/`on_change`/`on_submit`, `.text`/`.value` za běhu, `panel.on_event` |
 | `examples/words.py` | mapa slov z Wikipedie (crawl odkazů) |
 | `examples/stress.py` | zátěžový test (tisíce uzlů) |
@@ -572,6 +606,7 @@ a [architektura WM + pluginy](docs/superpowers/specs/2026-08-02-wm-plugin-archit
 - [Control okna (parametrické GUI) + křivkové hrany](docs/superpowers/specs/2026-06-17-control-okna-design.md)
 - [Multi-screen Workbench (Amiga-style, ve vývoji)](docs/superpowers/specs/2026-08-02-multi-screen-workbench-design.md)
 - [HTML okno (HtmlWindow)](docs/superpowers/specs/2026-08-17-html-okno-design.md)
+- [Shell okno (ShellWindow) – PTY + xterm.js](docs/superpowers/specs/2026-08-18-shell-okno-design.md)
 
 Implementační plány (krok za krokem) jsou v
 [`docs/superpowers/plans/`](docs/superpowers/plans/).

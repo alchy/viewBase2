@@ -21,6 +21,7 @@ import { createGraphPlugin } from '../plugins/graph/index.js';
 import { LOG_WINDOW_ID, createLogPlugin } from '../plugins/log.js';
 import { createTerminalPlugin } from '../plugins/terminal.js';
 import { createHtmlPlugin } from '../plugins/html.js';
+import { createShellPlugin } from '../plugins/shell.js';
 import { applyCssVars, resolveTheme } from '../themes/manager.js';
 import { ScreenBar } from './screen_bar.js';
 import { WindowManager } from './window_manager.js';
@@ -70,6 +71,7 @@ export function createDesktop({ container, screenId, connection }) {
     createControlPlugin(ctx),
     createTerminalPlugin(ctx),
     createHtmlPlugin(ctx),
+    createShellPlugin(ctx),
   ];
 
   // GRAF JE NA SCREENU VOLITELNÝ (uživatelská revize: „screen potřebuje i
