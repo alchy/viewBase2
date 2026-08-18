@@ -38,30 +38,34 @@ const z = (w) => Number(w.el.style.zIndex);
 describe('dok minimalizovaných oken', () => {
   beforeEach(() => { store.clear(); vi.stubGlobal('localStorage', fakeStorage); });
 
-  it('proužky se řadí vlevo dole vedle sebe s mezerou a jsou pod všemi okny', () => {
+  it('proužky se řadí vlevo dole vedle sebe s mezerou a nesou všechny gadgety', () => {
     const { make } = setup();
-    const a = make('a', 'Krátký'); const b = make('b', 'Veliké okno s dlouhým popisem'); const c = make('c', 'C');
+    const a = make('a', 'Krátký'); const b = make('b', 'Veliké okno s dlouhým popisem');
     a.minimize(); b.minimize();
     expect([a.x, a.y]).toEqual([DOCK_GAP, 600 - 28 - DOCK_GAP]);
     expect([b.x, b.y]).toEqual([DOCK_GAP + 160 + DOCK_GAP, 600 - 28 - DOCK_GAP]);
-    expect(z(a)).toBeLessThan(900); expect(z(b)).toBeLessThan(900);
-    expect(z(c)).toBeGreaterThan(900);
     expect(a.el.dataset.role).toBe('vb-dock-strip');
     expect(a.titleEl.style.paddingRight).toBe('10ch');          // odstup titulku od gadgetu
-    // v doku svítí gadget minimalizace (obnovit), ne depth
+    // zmenšené okno si nechává VŠECHNY gadgety; místo minimalizace svítí
+    // obnovení (zvětšit zpět)
+    expect(a.closeGadget.style.display).toBe('');
+    expect(a.depthGadget.style.display).toBe('');
     expect(a.restoreGadget.style.display).toBe('');
     expect(a.restoreGadget.style.cssText).toContain(MINIMIZE_ICON.slice(0, 40));
-    expect(a.depthGadget.style.display).toBe('none');
+    expect(a.minGadget.style.display).toBe('none');
   });
 
-  it('klik do proužku ho nezvedne nad okna (bringToFront proužek nechává vzadu)', () => {
+  it('minimalizované okno je v Z jako každé jiné: klik ho vytáhne dopředu, depth pošle dozadu', () => {
     const { make } = setup();
     const a = make('a', 'A'); const b = make('b', 'B');
     a.minimize();
+    expect(z(a)).toBeLessThan(z(b));            // b bylo vytvořeno později
     a.bringToFront();
-    expect(z(a)).toBeLessThan(z(b));
-    b.sendToBack();                                             // depth okna: proužky pořád vzadu
-    expect(z(a)).toBeLessThan(z(b));
+    expect(z(a)).toBeGreaterThan(z(b));         // proužek jde dopředu jako okno
+    a.sendToBack();
+    expect(z(a)).toBeLessThan(z(b));            // a zase dozadu
+    b.sendToBack();                             // depth okna počítá i s proužky
+    expect(z(b)).toBeLessThan(z(a));
   });
 
   it('proužek si pamatuje pozici (i přes reload) a po obnově/minimalizaci se tam vrátí', () => {

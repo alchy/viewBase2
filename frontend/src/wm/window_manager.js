@@ -24,7 +24,6 @@ export class WindowManager {
     // píše do terminálu vedle.
     this.activeWindow = null;
     this.z = 900;
-    this.dockZ = 100;               // proužky doku: vždy pod okny (ta začínají na 900)
   }
 
   /** Plugin registruje typ okna. `factory(spec)` okno vytvoří (nebo vrátí
@@ -95,7 +94,7 @@ export class WindowManager {
    *  základu (900), pořadí ostatních zůstane – žádné klesání do záporu ani
    *  nekonečný růst; další bringToFront dostane zase nejvyšší Z. */
   sendToBack(win) {
-    const others = [...this.windows.values()].filter((w) => w !== win && !w.isMinimized)
+    const others = [...this.windows.values()].filter((w) => w !== win)
       .sort((a, b) => Number(a.el.style.zIndex) - Number(b.el.style.zIndex));
     let z = 900;
     win.setZ(z);
@@ -126,13 +125,6 @@ export class WindowManager {
       return { x: p.x, y: p.y };
     }
     return findFreeSlot(others, w, h, bounds);
-  }
-
-  /** Z pro proužek doku – vždy pod okny; proužky se nepřekrývají, pořadí
-   *  mezi nimi je jedno. */
-  _dockZ() {
-    this.dockZ += 1;
-    return this.dockZ;
   }
 
   _forget(id) {

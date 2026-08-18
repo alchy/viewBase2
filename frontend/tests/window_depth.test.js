@@ -57,10 +57,13 @@ describe('depth gadget okna', () => {
     expect(z(c)).toBeGreaterThan(z(a));
   });
 
-  it('v doku (minimalizované) je depth gadget schovaný, po obnově zpět', () => {
-    const { a } = setup();
+  it('zmenšené okno si depth gadget nechává (chová se jako každé jiné okno)', () => {
+    const { a, b } = setup();
     a.minimize();
-    expect(a.depthGadget.style.display).toBe('none');
+    expect(a.depthGadget.style.display).toBe('');
+    a.bringToFront();
+    a.depthGadget.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(z(a)).toBeLessThan(z(b));            // depth funguje i na proužku
     a.restore();
     expect(a.depthGadget.style.display).toBe('');
   });

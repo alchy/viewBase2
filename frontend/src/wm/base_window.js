@@ -517,9 +517,11 @@ export class BaseWindow {
     this.isMinimized = true;
     this.saved = { x: this.x, y: this.y };
     this.body.style.display = 'none';
-    this.wframe?.setEnabled(false);         // proužek v doku je bez rámu
+    this.wframe?.setEnabled(false);         // zmenšené okno je bez rámu
+    // Zmenšené okno je pořád okno: nechává si VŠECHNY gadgety (zavřít,
+    // depth), jen místo minimalizace svítí obnovení = „zvětšit zpět"
+    // (uživatelské rozhodnutí: sjednocené chování s ostatními okny).
     this.minGadget.style.display = 'none';
-    this.depthGadget.style.display = 'none';   // proužek v doku nemá hloubku
     this.restoreGadget.style.display = '';
     this.el.dataset.role = 'vb-dock-strip';
     this.el.style.background = 'var(--vb-window-dock-bg, #c2c9d4)';
@@ -539,7 +541,8 @@ export class BaseWindow {
     // v řadách odspodu; Z úplně vzadu za všemi okny
     const pos = this.manager.dockPlace(this, w, h);
     this._place(pos.x, pos.y);
-    this.setZ(this.manager._dockZ());
+    // Z se nemění – zmenšené okno zůstává v pořadí tam, kde bylo, a dál se
+    // chová jako každé jiné (klik dopředu, depth dozadu).
   }
 
   restore() {
@@ -579,7 +582,7 @@ export class BaseWindow {
   /** Klik kamkoli do okna (pointerdown v _mount) = přenes dopředu A aktivuj
    *  (aktivní okno řídí Options skupinu na screen baru, viz getOptionsItems). */
   bringToFront() {
-    if (!this.isMinimized) this.setZ(this.manager._nextZ());   // proužky zůstávají vzadu
+    this.setZ(this.manager._nextZ());
     this.manager._setActive(this);
   }
 

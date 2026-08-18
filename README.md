@@ -397,13 +397,13 @@ vývojáři přes `define_type`/`update_node`.
   doprava i dolů — jako u běžných window managerů), ale vždy zůstane
   uchopitelný kus lišty, za který se okno vrátí; nahoru se lišta okna nikdy
   nedostane pod lištu obrazovky s Options.
-- **Minimalizace do doku** — gadget minimalizace složí okno do proužku s
-  celým titulkem (šířka podle textu + odstup 10 znaků před gadgetem
-  obnovy) vlevo dole; další proužky se řadí vedle sebe s 4px mezerou, po
-  zaplnění řady do řady nad ní. Proužky jdou tahat (jen po plátně), do sebe
-  „narazí" (nikdy se nepřekryjí), pamatují si pozici (localStorage) a jsou
-  vždy za všemi okny; depth gadget okna (vedle minimalizace) pošle okno za
-  ostatní.
+- **Minimalizace** — gadget minimalizace okno jen **zmenší** na proužek s
+  celým titulkem (šířka podle textu + odstup 10 znaků před gadgety) vlevo
+  dole; jinak se chová jako každé jiné okno: má **všechny gadgety**
+  (zavřít, depth, zvětšit zpět), klik ho vytáhne dopředu, depth pošle za
+  ostatní. Proužky se řadí vedle sebe s 4px mezerou, po zaplnění řady do
+  řady nad ní, jdou tahat (po plátně, nikdy pod lištu screenu), do sebe
+  „narazí" (nikdy se nepřekryjí) a pamatují si pozici (localStorage).
 - **Toky** — `define_flow_type` + `flow(src, dst | path=[…], type=…)`: světelné
   částice po hranách (pakety, zprávy, provoz); `count=None` je trvalý tok
   (vrací `flow_id`, zastaví ho `stop_flow(flow_id)`; smazání hrany na cestě
