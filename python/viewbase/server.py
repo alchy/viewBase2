@@ -257,9 +257,13 @@ def create_app(*windows: GraphWindow) -> FastAPI:
                     # si kdokoli mohl přiřknout cizí relaci a s ní její granty.
                     # KAŽDÁ událost na úrovni debug: na vystavené instanci
                     # tohle ukáže, co se kdo pokouší volat (log_level="debug").
-                    logger.debug(f"event '{msg['event']}' from {peer} "
-                                 f"(client {client_id}): {redacted(payload)}",
-                                 component="server")
+                    # Výjimka: `shell_input` chodí po jednom znaku, takže by
+                    # z něj byl řádek na stisk – ten se skládá do dávek ve
+                    # windows_mixin (viz keystrokes.py).
+                    if msg["event"] != "shell_input":
+                        logger.debug(f"event '{msg['event']}' from {peer} "
+                                     f"(client {client_id}): {redacted(payload)}",
+                                     component="server")
                     target.dispatch_event(
                         msg["event"],
                         {**payload, "client_id": client_id, "sid": sid,

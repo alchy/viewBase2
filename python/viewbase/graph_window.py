@@ -13,6 +13,7 @@ from .menu import ScreenMenu
 from .events_mixin import EventsMixin
 from .flows_mixin import FlowsMixin
 from .graph_util import QUALITIES, _edge_key, _validated_theme
+from .keystrokes import KeystrokeLog
 from .window_registry import WindowRegistry
 from .windows_mixin import WindowsMixin
 
@@ -82,6 +83,8 @@ class GraphWindow(EventsMixin, FlowsMixin, WindowsMixin):
         self._html_callbacks: dict[str, Any] = {}       # window_id -> on_event
         # window_id -> odkud přišly poslední klávesy (audit příkazů shellu)
         self._shell_origin: dict[str, str] = {}
+        # klávesy do shellu se logují po dávkách, ne po stiscích (keystrokes.py)
+        self._keys = KeystrokeLog(self._log_keystrokes)
         self._menu: ScreenMenu | None = None   # připnuté ScreenMenu (§8 designu)
         self._seq = 0
         self._batch_depth = 0
@@ -659,6 +662,9 @@ class GraphWindow(EventsMixin, FlowsMixin, WindowsMixin):
           `[private window]` má vidět každý.
         """
         with self._lock:
+            # dávky kláves, které čekají dost dlouho, uzavři (levné: běží to
+            # ve vysílací smyčce, žádné vlastní vlákno ani časovač)
+            self._keys.tick()
             actions, self._actions = self._actions, []
             secured = {wid for wid, w in self._secured_windows().items()
                        if getattr(w, "secured", False)}

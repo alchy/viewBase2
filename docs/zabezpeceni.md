@@ -171,6 +171,29 @@ sám). Kdo to nechce, vypne to:
 vb.ShellWindow("sh", audit_commands=False)
 ```
 
+### Klávesy do shellu (ladicí stream)
+
+Při `log_level="debug"` se zaznamenává i to, co se do shell okna mačká.
+Klávesy chodí po jednom znaku, takže by z nich byl řádek na stisk — sbírají
+se proto do **dávek po 32 znacích** (nebo do Enteru, nebo po minutě, když
+někdo píše pomalu):
+
+```
+DEBUG viewbase [windows] shell 'sh' keys from 89.24.1.2, session -CYK2Jlc…
+                         (0 s, 32 znaků): [arrow-up][ctrl-c]echo dlouhy retezec pres tri
+DEBUG viewbase [windows] shell 'sh' keys … (0 s, 21 znaků): cet dva znaky celkem[enter]
+```
+
+Neviditelné klávesy se **pojmenují**, ne vyhvězdičkují: `[enter]`, `[tab]`,
+`[backspace]`, `[delete]`, `[arrow-up]`, `[page-down]`, `[ctrl-c]`, `[esc]`.
+Hvězdička by řekla jen „něco tu bylo" a stříškový zápis (`^[[A`) chce
+znalost ANSI. Do logu tím pádem nejde žádný řídicí znak, takže cizí vstup
+nepřepíše terminál toho, kdo log čte.
+
+Je to **doplněk auditu příkazů**, ne náhrada: audit dá čistý příkaz na úrovni
+`info` (a jde vždycky), tenhle stream ukáže i to, co se do příkazu nakonec
+nedostalo — historii, opravy, přerušení.
+
 ### Sanace toho, co jde do logu
 
 Do logu tečou cizí vstupy — příkazy, payloady událostí, syrové zprávy od

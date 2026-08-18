@@ -97,6 +97,7 @@ class WindowsMixin:
             self._actions.append(
                 {"action": "close_window", "window_id": window_id})
         if isinstance(window, ShellWindow):
+            self._keys.flush(window_id)      # nedopsaná dávka kláves se nesmí ztratit
             self._shell_stop(window)         # proces nepřežije zavření okna
 
     def open_terminal(self, window: TerminalWindow, *, on_input=None) -> str:
@@ -401,7 +402,18 @@ class WindowsMixin:
         # Odkud klávesy přišly – k příkazu, který z nich vznikne (audit).
         # Skládá se až v PtyShell (po Enteru), proto se původ pamatuje tady.
         self._shell_origin[window.window_id] = self._origin(event)
+        # Ladicí stopa: klávesy chodí po jednom znaku, takže se sbírají do
+        # dávky (keystrokes.py) místo řádku na stisk.
+        self._keys.add(window.window_id, data)
         window.pty.write(data)
+
+    def _log_keystrokes(self, window_id: str, text: str, sekundy: float,
+                        znaku: int) -> None:
+        """Hotová dávka kláves do ladicího logu (`log_level="debug"`)."""
+        puvod = self._shell_origin.get(window_id, "from ?")
+        logger.debug(f"shell '{window_id}' keys {puvod} "
+                     f"({sekundy:.0f} s, {znaku} znaků): {text}",
+                     component="windows")
 
     def _log_shell_command(self, window_id: str, prikaz: str) -> None:
         """Auditní stopa příkazu v shell okně.
