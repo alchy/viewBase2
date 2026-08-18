@@ -168,6 +168,7 @@ def test_rest_api_event_neprijme_shell_eventy():
             ("shell_input", {"window_id": "sh", "data": "echo utok\n"}),
             ("shell_new", {}),
             ("window_unlock", {"window_id": "sh", "code": w.fallback_code}),
+            ("window_lock", {"window_id": "sh"}),
             ("shell_resize", {"window_id": "sh", "cols": 10, "rows": 5}),
         ]:
             r = client.post("/api/event", json={"event": event, "payload": payload})

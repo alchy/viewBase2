@@ -12,9 +12,13 @@
 import { findFreeSlot, overlaps } from './dock.js';
 
 export class WindowManager {
-  constructor(container, onOptionsChange = () => {}) {
+  constructor(container, onOptionsChange = () => {}, hooks = {}) {
     this.container = container;
     this.onOptionsChange = onOptionsChange;  // items|null → ScreenBar.setOptionsGroup
+    // Zámek okna je průřezová věc (jako z-order): `onLockWindow(win)` pošle
+    // serveru `window_lock` – jádro nemusí znát protokol a desktop nemusí
+    // sahat do žádného typu okna.
+    this.onLockWindow = hooks.onLockWindow ?? null;
     this.types = new Map();          // kind -> factory(spec) => BaseWindow
     this.windows = new Map();        // id -> BaseWindow
     this.optionsSource = null;       // poslední AKTIVNÍ okno, co definuje Options
@@ -38,11 +42,27 @@ export class WindowManager {
       console.warn(`viewbase: neznámý typ okna '${kind}'`);
       return null;
     }
-    return factory(spec);
+    // Spec otevíraného okna musí být k mání UŽ V adopt(): factory si okno
+    // typicky rovnou aktivuje (bringToFront) a aktivace čte `secured` kvůli
+    // Options. Kdyby se flag nastavil až z návratové hodnoty, měla by lišta
+    // po odemčení položku cizího okna (odchyceno živým testem).
+    this._openingSpec = spec ?? null;
+    let win;
+    try {
+      win = factory(spec);
+    } finally {
+      this._openingSpec = null;
+    }
+    if (win && spec) win.secured = !!spec.secured;
+    return win;
   }
 
-  /** Zaveď okno do evidence (volá factory typu po konstrukci). */
+  /** Zaveď okno do evidence (volá factory typu po konstrukci). `secured`
+   *  (ze `public_spec()` na serveru) drží JÁDRO, ne plugin: podle něj se do
+   *  Options přidá Lock/Unlock Window pro KTERÝKOLI typ okna, takže plugin
+   *  o zámku neví nic (viz lockItemFor). */
   adopt(win) {
+    if (this._openingSpec) win.secured = !!this._openingSpec.secured;
     this.windows.set(win.id, win);
     return win;
   }
@@ -66,7 +86,7 @@ export class WindowManager {
     if (this.activeWindow !== win) this.activeWindow?.setFocused?.(false);
     this.activeWindow = win;
     win.setFocused?.(true);          // indikátor fokusu v liště (za titulkem)
-    if (win.getOptionsItems() != null) this.optionsSource = win;
+    if (this.optionsItemsFor(win) != null) this.optionsSource = win;
     this.refreshOptions();
   }
 
@@ -80,7 +100,43 @@ export class WindowManager {
    *  onToggle handlery položek (checkbox po kliku musí ukázat nový stav;
    *  jedna sdílená cesta místo per-okno kopií render smyčky). */
   refreshOptions() {
-    this.onOptionsChange(this.optionsSource?.getOptionsItems() ?? null);
+    this.onOptionsChange(this.optionsItemsFor(this.optionsSource));
+  }
+
+  /** Options aktivního okna VČETNĚ průřezových položek jádra. Dnes jediná:
+   *  zámek okna (`secured=True`). Zamčené („private") okno nabídne `Unlock
+   *  Window`, odemčené zabezpečené `Lock Window` – uživatelský požadavek
+   *  („označí private window, klikne do Options a je mu nabídnuto Unlock
+   *  Window"), takže výzva na kód není závislá jen na kliknutí do okna.
+   *  `null` = tenhle typ okna Options nedefinuje A zámek nemá (aktivace
+   *  skupinu na liště nepřepíná, viz _setActive). */
+  optionsItemsFor(win) {
+    if (!win) return null;
+    const own = win.getOptionsItems();
+    const lock = this.lockItemFor(win);
+    if (!lock) return own;
+    return [...(own ?? []), lock];
+  }
+
+  /** Položka zámku pro dané okno (příkaz, ne přepínač – jako System → Shell
+   *  CLI). Nezabezpečená okna zamknout nejdou: neměl by je co odemknout. */
+  lockItemFor(win) {
+    if (!win?.secured) return null;
+    if (win.kind === 'locked') {
+      return {
+        key: 'unlock-window',
+        label: 'Unlock Window',
+        command: true,
+        onToggle: () => win.requestUnlock?.(),
+      };
+    }
+    if (!this.onLockWindow) return null;
+    return {
+      key: 'lock-window',
+      label: 'Lock Window',
+      command: true,
+      onToggle: () => this.onLockWindow(win),
+    };
   }
 
   applyTheme() {
@@ -140,7 +196,7 @@ export class WindowManager {
     // Options definuje; bez takového se skupina schová (setOptionsGroup(null)).
     let next = null;
     for (const candidate of this.windows.values()) {
-      if (candidate.getOptionsItems() == null) continue;
+      if (this.optionsItemsFor(candidate) == null) continue;
       if (!next || Number(candidate.el.style.zIndex) > Number(next.el.style.zIndex)) {
         next = candidate;
       }

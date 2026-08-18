@@ -43,7 +43,11 @@ export function createDesktop({ container, screenId, connection }) {
   // aplikace" screenu); null i tam = skupina schovaná (prázdný screen).
   let optionsFallback = () => null;
   const windowManager = new WindowManager(container,
-    (items) => bar.setOptionsGroup(items ?? optionsFallback()));
+    (items) => bar.setOptionsGroup(items ?? optionsFallback()),
+    // Options → „Lock Window" u zabezpečeného okna: server obsah zase
+    // schová a pošle prázdný rám, takže si okno příště znovu řekne o kód.
+    { onLockWindow: (win) => sendEvent({ type: 'event', event: 'window_lock',
+      payload: { window_id: win.id } }) });
 
   // Téma: desktop barví chrome (CSS proměnné NA KONTEJNER screenu – dva
   // screeny s různými tématy si okna nepřepisují – plus pozadí desktopu);

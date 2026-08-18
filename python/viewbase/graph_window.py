@@ -111,6 +111,7 @@ class GraphWindow:
         self._register("html_event", self._on_html_event)
         self._register("shell_new", self._on_shell_new)
         self._register("window_unlock", self._on_window_unlock)
+        self._register("window_lock", self._on_window_lock)
         self._register("shell_input", self._on_shell_input)
         self._register("shell_resize", self._on_shell_resize)
         self._register("menu_select", self._on_menu_select)
@@ -563,6 +564,24 @@ class GraphWindow:
                 spec["live"] = bool(live)
             self._actions.append(spec)       # teprve teď obsah okna
         window.on_unlocked()
+
+    def _on_window_lock(self, event) -> None:
+        """Divák si v Options → „Lock Window" řekl o zamčení zpátky (opak
+        `window_unlock`). Okno se klientům pošle znovu jen jako prázdný rám –
+        obsah se přestane posílat a příště si okno zase řekne o kód.
+
+        Zamknout jde JEN okno se `secured=True`: u ostatních není čím odemykat
+        a tichý zámek by je udělal nepřístupnými."""
+        window = self._secured_windows().get(getattr(event, "window_id", None))
+        if window is None or not getattr(window, "secured", False):
+            return
+        if getattr(window, "locked", False):
+            return                          # už zamčené, nic k dělání
+        window.state = "locked"
+        with self._lock:
+            self._actions.append({**window.public_spec(), "action": "open_window"})
+        window.on_locked()
+        window.announce_lock()              # kód do konzole serveru (bez TOTP)
 
     def _on_shell_input(self, event) -> None:
         """Klávesy z prohlížeče do procesu (jen běžícího a odemčeného okna)."""

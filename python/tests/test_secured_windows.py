@@ -136,3 +136,73 @@ def test_bez_mfa_se_pouzije_jednorazovy_kod_z_konzole(monkeypatch, capsys):
                                        "client_id": "x"})
     assert _wait(lambda: w.state == "open")
     c.close()
+
+
+def test_lock_window_zamkne_odemcene_okno_zpatky(monkeypatch, capsys):
+    """Options → „Lock Window": obsah se klientům zase schová (prázdný rám) a
+    okno si příště znovu řekne o kód.
+
+    Jede na jednorázovém kódu z konzole (bez TOTP), aby šlo odemknout dvakrát
+    po sobě – TOTP kód se v témže třicetisekundovém okně podruhé použít nedá
+    (ochrana proti opakovanému použití, viz mfa.verify)."""
+    monkeypatch.setattr(mfa, "available", lambda: False)
+    c = GraphWindow()
+    w = _html()
+    c.open_html(w)
+    c.drain_actions()
+    kod = w.fallback_code
+    c.dispatch_event("window_unlock", {"window_id": "panel", "code": kod,
+                                       "client_id": "x"})
+    assert _wait(lambda: w.state == "open")
+    c.drain_actions()
+    capsys.readouterr()
+
+    c.dispatch_event("window_lock", {"window_id": "panel", "client_id": "x"})
+    assert _wait(lambda: w.state == "locked")
+    a = [x for x in c.drain_actions() if x["action"] == "open_window"][-1]
+    assert a["kind"] == "locked" and a["state"] == "locked"
+    assert "tajný text" not in repr(a)            # obsah zase neputuje
+    assert w.locked
+    assert kod in capsys.readouterr().out         # kód znovu do konzole serveru
+
+    # a znovu odemknout jde
+    c.dispatch_event("window_unlock", {"window_id": "panel", "code": kod,
+                                       "client_id": "x"})
+    assert _wait(lambda: w.state == "open")
+    plny = [x for x in c.drain_actions() if x["action"] == "open_window"][-1]
+    assert "tajný text" in repr(plny)             # obsah je zpátky
+    c.close()
+
+
+def test_lock_window_nezabezpecene_okno_ignoruje():
+    """Zamknout jde jen okno se `secured=True` – jinak by šlo tichým eventem
+    znepřístupnit kterékoli okno (a nebylo by čím ho odemknout)."""
+    c = GraphWindow()
+    w = HtmlWindow("panel")                       # secured=False
+    w.label("běžný obsah")
+    c.open_html(w)
+    c.drain_actions()
+    c.dispatch_event("window_lock", {"window_id": "panel", "client_id": "x"})
+    time.sleep(0.2)
+    assert w.state == "open" and not w.locked
+    assert c.peek_actions() == []
+    c.close()
+
+
+def test_lock_window_shellu_nechá_proces_bezet():
+    """Zámek je jako zamčená obrazovka, ne zabití sezení: PTY běží dál, jen
+    výstup ke klientům přestane chodit."""
+    c = GraphWindow()
+    w = ShellWindow("sh", command=["/bin/sh", "-i"])
+    c.open_shell(w)
+    c.dispatch_event("window_unlock", {"window_id": "sh", "code": _kod(), "client_id": "x"})
+    assert _wait(lambda: w.pty is not None and w.pty.alive)
+    c.drain_actions()
+    c.dispatch_event("window_lock", {"window_id": "sh", "client_id": "x"})
+    assert _wait(lambda: w.state == "locked")
+    assert w.pty.alive                            # proces žije dál
+    w.pty.write("echo zamceno\n")
+    time.sleep(0.4)
+    assert not [x for x in c.peek_actions() if x.get("action") == "shell_data"]
+    c.close_window("sh")
+    c.close()

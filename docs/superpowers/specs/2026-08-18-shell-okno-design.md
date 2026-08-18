@@ -119,8 +119,9 @@ Zámek se z shell okna zobecnil na **kterékoli okno** (`secured=True`, jako
   posílá jen jako placeholder** `kind:"locked"` (titulek + rozměry), obsah ne;
   akce k zamčenému oknu se zahazují. Po ověření server pošle skutečné
   `open_window` s obsahem a zavolá hook (shell spustí PTY).
-- Událost: `window_unlock {window_id, code}` (nahradila `shell_unlock`);
-  REST `/api/event` odmítá `shell_*` **i** `window_unlock`.
+- Události: `window_unlock {window_id, code}` (nahradila `shell_unlock`) a
+  `window_lock {window_id}` (zamkne zpět; hook `on_locked()`, shellu proces
+  běží dál); REST `/api/event` odmítá `shell_*` **i** obojí `window_*lock`.
 - Ověření: **TOTP** (`viewbase/mfa.py`, `pyotp`) proti tajemství v
   `~/.viewbase/users.json` (0600, uživatel `workbench`); registrace v procesu
   při startu – QR do konzole serveru (ASCII) + `<user>-totp.svg`, **žádný
@@ -131,7 +132,18 @@ Zámek se z shell okna zobecnil na **kterékoli okno** (`secured=True`, jako
   (zelená výzva) nad sdíleným `core/overlay.js`, který kreslí i Guru
   Meditation – jedna funkce, volby `color` / `flash` / řádky / `input`;
   vzhled podle reference (nahoře přes celou šířku, tlustý rám, jedna
-  velikost písma). Esc výzvu zruší a okno se neotevře.
+  velikost písma).
+- Jediná cesta k výzvě je **`Options → Unlock Window`** u aktivního zamčeného
+  okna (uživatelské rozhodnutí: nic nesmí vyskakovat samo – ani při otevření
+  okna, ani po kliknutí do něj; divák si o kód řekne, až bude chtít s oknem
+  pracovat). Odemčené zabezpečené okno má symetricky **`Options → Lock
+  Window`** a po zamčení workbench normálně pokračuje. Obě položky přidává
+  JÁDRO WM podle `spec.secured` (`WindowManager.lockItemFor`, flag se zapisuje
+  už v `adopt()`, protože factory si okno aktivuje sama), takže o zámku nemusí
+  vědět žádný plugin. **Esc výzvu jen zavře** – okno zůstane zamčené (dřív se
+  zavíralo; zavřený placeholder by v Options nešlo označit). Tělo zamčeného
+  okna nese anglickou poznámku `Private window. Unlock this window via the
+  Options menu.`
 
 ## Mimo rozsah prvního kroku
 

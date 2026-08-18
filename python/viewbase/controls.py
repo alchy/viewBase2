@@ -97,6 +97,14 @@ class SecuredMixin:
     def on_unlocked(self) -> None:
         """Hook po odemčení (shell spustí PTY; ostatní okna nic)."""
 
+    def on_locked(self) -> None:
+        """Hook po zamčení zpátky (Options → „Lock Window").
+
+        Výchozí chování je „obsah se schová, běh pokračuje": shellu dál běží
+        proces (zámek je jako zamčená obrazovka, ne zabití sezení) – jen mu
+        server přestane posílat výstup a po dalším odemčení klient dostane
+        okno i s historií. Typ okna si to může přepsat."""
+
 
 class ControlWindow(SecuredMixin):
     """Parametrické okno: uspořádaný seznam typovaných polí."""

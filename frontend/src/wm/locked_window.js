@@ -2,8 +2,9 @@
  *
  *  Server posílá zamčené okno jako PRÁZDNÝ RÁM (`kind:"locked"`): titulek a
  *  rozměry ano, obsah ne – po drátě neputuje ani HTML, ani hodnoty polí, ani
- *  scrollback. Tady se vykreslí jen rám s poznámkou a otevře se zelená výzva
- *  na kód (core/unlock_prompt.js, styl Guru Meditation). Po odemčení pošle
+ *  scrollback. Tady se vykreslí jen rám s poznámkou; o kód si divák řekne sám
+ *  přes `Options → Unlock Window` (zelená výzva, core/unlock_prompt.js ve
+ *  stylu Guru Meditation) – nic mu nevyskakuje samo. Po odemčení pošle
  *  server skutečné `open_window` s obsahem a plugin daného typu placeholder
  *  nahradí – stejnou cestou jako každé jiné okno se stejným `window_id`.
  *
@@ -22,6 +23,7 @@ export class LockedWindow extends BaseWindow {
     this.realKind = realKind ?? 'window';
     this.height = Number(height) > 0 ? Number(height) : 200;
     this.onUnlockRequest = onUnlockRequest;
+    this.secured = true;              // Options → Unlock Window (window_manager)
     this._buildBody();
     this._mount();
   }
@@ -32,17 +34,26 @@ export class LockedWindow extends BaseWindow {
     body.style.cssText = [
       `width:${this.widthChars}ch`, `height:${this.height}px`, 'max-width:92vw',
       'display:flex', 'align-items:center', 'justify-content:center',
-      'padding:8px 10px', 'cursor:pointer', 'text-align:center',
+      'padding:8px 10px', 'text-align:center',
       'font:13px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace',
       'color:var(--vb-window-key, #667788)',
     ].join(';');
-    body.textContent = 'Locked — click to unlock';
-    body.addEventListener('click', () => this.onUnlockRequest?.(this));
+    // Klik do okna výzvu NEVYVOLÁ (uživatelské rozhodnutí): okno se jen
+    // aktivuje jako každé jiné a o kód si divák řekne z lišty, až bude
+    // chtít – jediná cesta k výzvě je `Options → Unlock Window`.
+    body.textContent = 'Private window. Unlock this window via the Options menu.';
     this.body = body;
     this.el.appendChild(body);
   }
 
-  /** Zamčené okno vlastní Options nemá (a nesmí nic prozradit). */
+  /** Vyvolej zelenou výzvu na kód (klik do okna i Options → Unlock Window). */
+  requestUnlock() {
+    this.onUnlockRequest?.(this);
+  }
+
+  /** Zamčené okno vlastní Options nemá (a nesmí nic prozradit) – `Unlock
+   *  Window` do skupiny přidá jádro WM podle `secured`, stejně jako `Lock
+   *  Window` u odemčených oken (wm/window_manager.js, DRY). */
   getOptionsItems() {
     return null;
   }
@@ -54,10 +65,13 @@ export class LockedWindow extends BaseWindow {
  *  kód). `unlockPrompt` je sdílená zelená výzva (core/unlock_prompt.js). */
 export function createLockedPlugin({ container, windowManager, sendEvent, unlockPrompt }) {
   const prompt = unlockPrompt;
-  const ask = (win) => prompt?.ask(win.id, win.title);
-  // Esc ve výzvě = okno se neotevře: placeholder zmizí (na serveru zůstává,
-  // po obnovení stránky se zamčené okno nabídne znovu).
-  if (prompt) prompt.onCancel = (id) => windowManager.get(id)?.close();
+  const ask = (win) => prompt?.ask(win.id, win.title);   // Options → Unlock Window
+  // Esc ve výzvě = „teď ne": zmizí VÝZVA, okno zůstane jako zamčený rám.
+  // (Dřív se okno zavíralo. Uživatelský požadavek „označí private window a
+  // v Options dostane Unlock Window" ale předpokládá, že tam okno pořád je –
+  // zavřený placeholder by nešlo označit. Aktivace navíc rovnou přepne
+  // Options na tohle okno, takže je odemčení na jeden klik.)
+  if (prompt) prompt.onCancel = (id) => windowManager.get(id)?.bringToFront();
 
   windowManager.registerType('locked', (spec) => {
     windowManager.get(spec.window_id)?.close();
@@ -67,8 +81,7 @@ export function createLockedPlugin({ container, windowManager, sendEvent, unlock
       container, manager: windowManager,
       onUnlockRequest: ask,
     }));
-    win.bringToFront();
-    ask(win);                     // otevření zamčeného okna = rovnou výzva
+    win.bringToFront();       // žádná výzva: vyvolá ji až Options → Unlock Window
     return win;
   });
 

@@ -14,8 +14,9 @@ export class UnlockPrompt {
   constructor(container = document.body, sendEvent = () => {}) {
     this.sendEvent = sendEvent;
     this.windowId = null;
-    // Esc = „nechci" → výzva zmizí A zamčené okno se neotevře (zavře se);
-    // co s ním, ví jádro WM, proto callback (nastaví locked_window.js).
+    // Esc = „teď ne" → zmizí výzva, zamčené okno zůstane (znovu se odemyká
+    // klikem do něj nebo přes Options → Unlock Window); co přesně s oknem,
+    // ví jádro WM, proto callback (nastaví locked_window.js).
     this.onCancel = null;
     const { el, box, line, input } = createOverlay({
       color: GREEN, flash: false, role: 'vb-unlock', input: true,
@@ -29,7 +30,7 @@ export class UnlockPrompt {
     this.box.append(this.input);
     this.err = line('', 'vb-unlock-error');
     this.hint = line('Authenticator code, or the one-time code from the server console.'
-      + '  Esc closes the window.');
+      + '  Esc keeps the window locked (Options → Unlock Window).');
 
     this.input.inputMode = 'numeric';
     this.input.autocomplete = 'one-time-code';
@@ -47,7 +48,10 @@ export class UnlockPrompt {
         this.cancel();
       }
     };
-    window.addEventListener('keydown', this._onKeydown);
+    // CAPTURE fáze: vstupní pole si klávesy zastavuje (`stopPropagation`
+    // níž, aby nešly do grafu) a výzva má vždycky fokus PRÁVĚ v něm – v
+    // bublací fázi by sem Esc nikdy nedorazil a nešla by zrušit (živý test).
+    window.addEventListener('keydown', this._onKeydown, true);
     container.appendChild(this.el);
   }
 
@@ -69,8 +73,7 @@ export class UnlockPrompt {
     this.input.focus();
   }
 
-  /** Divák odmítl zadat kód: zavři výzvu i zamčené okno (na serveru zůstává,
-   *  po obnovení stránky se nabídne znovu). */
+  /** Divák teď kód zadat nechce: zavři výzvu, okno nech zamčené. */
   cancel() {
     const id = this.windowId;
     this.hide();

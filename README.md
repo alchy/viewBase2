@@ -450,7 +450,14 @@ vývojáři přes `define_type`/`update_node`.
   prvním startu vypíše do konzole serveru a uloží do `~/.viewbase/`), s rate
   limitem a ochranou proti opakovanému použití; bez extra
   `pip install viewbase[mfa]` se použije jednorázový kód z konzole. Shell okno
-  je zabezpečené vždy. Ukázka: `examples/secured_windows.py`.
+  je zabezpečené vždy. Zamčené okno **nic nevyskakuje**: ukáže se jako rám s
+  poznámkou „Private window. Unlock this window via the Options menu." a chová
+  se jako každé jiné okno (klik ho jen aktivuje). O kód si divák řekne sám —
+  aktivní zamčené okno dá do lišty **`Options → Unlock Window`** (Esc výzvu
+  zavře, okno zůstane zamčené). Odemčené zabezpečené okno má naopak
+  **`Options → Lock Window`**: obsah se zase schová a příště si okno řekne o kód
+  znovu; u shellu proces mezitím běží dál (zámek je jako zamčená obrazovka, ne
+  zabité sezení). Ukázka: `examples/secured_windows.py`.
 - **Indikátor fokusu** — v liště hned **za textem titulku** svítí drobná
   plná značka na okně, které je aktivní (patří mu Options i klávesnice).
   Je to jediný vyplněný prvek v jinak linkovém chrome, takže se neplete s
