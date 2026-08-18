@@ -26,6 +26,7 @@ from fastapi.staticfiles import StaticFiles
 from . import mfa, protocol, sessions
 from .logger import DEFAULT_LEVEL, logger
 from .tls import Tls, require_tls, scheme_for, self_signed
+from .version import build_id
 from .graph_window import GraphWindow
 from .log import LogRecord, bus as log_bus
 
@@ -343,6 +344,10 @@ def first_run_setup() -> None:
     Sedí ve sdílené `serve()`, aby ho dostal KAŽDÝ vstupní bod: `vb.serve(...)`
     i `Project.serve(...)`. Kdyby byl jen v Projectu, uživatel staršího API by
     zabezpečená okna otevřel bez připraveného prostředí."""
+    # ČÍM to běží – první řádek v logu. U instance, jejíž log se vyhodnocuje
+    # zpětně, je bez tohohle každý nález bezcenný: nedá se poznat, na které
+    # verzi se stal (viz version.build_id).
+    _system_log(f"viewbase {build_id()} starting")
     user = mfa.active_user()
     sessions.reset()          # nový běh serveru = všechno zase zamčené
     mfa.ensure_user(user)
