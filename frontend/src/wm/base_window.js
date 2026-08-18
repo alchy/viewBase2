@@ -253,7 +253,7 @@ export class BaseWindow {
     // a jednodušší.)
     this.focusEl = document.createElement('span');
     this.focusEl.dataset.role = 'vb-focus';
-    this.focusEl.title = 'Aktivní okno';
+    this.focusEl.title = 'Active window';
     this.focusEl.style.cssText = [
       'flex:0 0 auto', 'width:5px', 'height:5px', 'border-radius:1px',
       'background:currentColor', 'box-shadow:var(--vb-frame-glow, none)',
@@ -271,7 +271,7 @@ export class BaseWindow {
     // nahoře (přepnutí screenu za ostatní): klik pošle okno ZA ostatní okna,
     // každé okno má své Z (uživatelský požadavek, WB 1.3 reference).
     this.depthGadget = this._gadget('depth', DEPTH_ICON);
-    this.depthGadget.title = 'Za ostatní okna';
+    this.depthGadget.title = 'Send behind other windows';
     this.depthGadget.addEventListener('click', (e) => {
       e.stopPropagation();
       this.sendToBack();

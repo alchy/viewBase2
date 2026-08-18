@@ -1,6 +1,8 @@
 """Explicitní workflow (fopen→close analogie): Project drží službu/port,
 Screen je plocha, okna jsou typované instance – LogWindow je systémové
 okno umístěné na screen explicitně."""
+import json
+
 import pytest
 
 import viewbase as vb
@@ -81,3 +83,34 @@ def test_project_serves_screen_and_closes_port_like_a_file():
         assert handle.port > 0
     # po with bloku je port zavřený a graf uklizený
     assert graph._closed is True
+
+
+def test_project_zaregistruje_uzivatele_pri_prvnim_startu(tmp_path, monkeypatch, capsys):
+    """`vb.Project(user=…)` = uživatel instance: tajemství a QR vzniknou při
+    PRVNÍM startu (jedno očekávatelné místo), podruhé už se netisknou."""
+    pytest.importorskip("pyotp")
+    from viewbase import mfa
+
+    monkeypatch.setenv("VIEWBASE_HOME", str(tmp_path))
+    mfa.reset_state()
+    try:
+        screen = vb.Screen(title="Provoz")
+        vb.GraphWindow(screen=screen)
+        with vb.Project(port=0, user="hana") as project:
+            project.serve(screen, block=False)
+        assert (tmp_path / "user-hana" / "totp-hana.svg").exists()
+        out = capsys.readouterr().out
+        tajemstvi = json.loads((tmp_path / "users.json").read_text())["hana"]["totp_secret"]
+        assert "uživatel instance: hana" in out           # systémový text
+        assert "registrovaní: hana (TOTP)" in out
+        assert tajemstvi not in out and "otpauth://" not in out   # tajemství ne
+
+        screen2 = vb.Screen(title="Provoz")
+        vb.GraphWindow(screen=screen2)
+        with vb.Project(port=0, user="hana") as project:
+            project.serve(screen2, block=False)
+        druhy = capsys.readouterr().out               # druhý start: jen systém
+        assert "uživatel instance: hana" in druhy
+        assert "registrace" not in druhy and tajemstvi not in druhy
+    finally:
+        mfa.reset_state()

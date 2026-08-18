@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import * as THREE from '../vendor/three/three.module.js';
 
 /** True, když má fokus editovatelný prvek (input/textarea/select/contenteditable).
  *  Tehdy klávesy patří psaní (např. do ovládacího okna), ne ovládání kamery. */

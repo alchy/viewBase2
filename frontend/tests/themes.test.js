@@ -107,6 +107,19 @@ describe('HTML okno – proměnné tématu', () => {
     expect(mo.vars.get('--vb-window-grip-fg')).toBe('#5a6573');
   });
 
+  it('terminál (shell): pozadí i ANSI barvy z tématu', () => {
+    const wb = fakeRoot(); applyCssVars(resolveTheme('workbench-amiga'), wb);
+    expect(wb.vars.get('--vb-term-bg')).toBe('#0057af');         // tělo okna, ne „transparent"
+    expect(wb.vars.get('--vb-term-ansi-7')).toBe('#ffffff');     // bílá = text okna
+    const cy = fakeRoot(); applyCssVars(resolveTheme('cyber'), cy);
+    expect(cy.vars.get('--vb-term-bg')).toBe('rgba(10,16,28,0.94)');
+    expect(cy.vars.get('--vb-term-ansi-2')).toBe('#05ffa1');     // zelená z palety cyber
+    expect(cy.vars.get('--vb-term-ansi-10')).toBe('#05ffa1');    // jasná varianta
+    const mo = fakeRoot(); applyCssVars(resolveTheme('modern'), mo);
+    expect(mo.vars.get('--vb-term-ansi-1')).toBe('#e8553a');
+    expect(mo.vars.get('--vb-term-ansi-4')).toBe('#2f7fe8');
+  });
+
   it('rám oken je ve všech tématech, liší se paleta (line/knob/glow)', () => {
     const wb = fakeRoot(); applyCssVars(resolveTheme('workbench-amiga'), wb);
     expect(wb.vars.get('--vb-window-frame')).toBe('1');

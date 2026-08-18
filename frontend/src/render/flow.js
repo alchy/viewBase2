@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import * as THREE from '../vendor/three/three.module.js';
 
 const PARTICLE_SEGMENTS = 8;        // detail koule glow částice (lacině)
 const PARTICLE_BASE_RADIUS = 1;     // geometrie má r=1, velikost řídí scale

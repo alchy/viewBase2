@@ -20,9 +20,10 @@ from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import protocol
+from . import mfa, protocol
 from .graph_window import GraphWindow
 from .log import LogRecord, bus as log_bus
 
@@ -254,6 +255,14 @@ def create_app(*windows: GraphWindow) -> FastAPI:
         payload = message.get("payload") or {}
         if not isinstance(event, str) or not isinstance(payload, dict):
             return {"ok": False, "error": "čekám {event: str, payload: dict}"}
+        # BEZPEČNOST (spec 2026-08-18 §Shell okno): tenhle endpoint je bez
+        # autentizace, takže klávesy do shellu smí posílat JEN prohlížeč přes
+        # WS – jinak by stačil jeden curl na spuštění čehokoli na stroji.
+        if event.startswith(("shell_", "window_unlock", "window_lock")):
+            return JSONResponse(status_code=403, content={
+                "ok": False,
+                "error": ("shell_*, window_unlock a window_lock přes REST "
+                          "nejdou (jen WS z prohlížeče)")})
         target = _resolve_window(windows_by_screen, message.get("screen_id"))
         if target is None:
             return {"ok": False,
@@ -277,6 +286,17 @@ def create_app(*windows: GraphWindow) -> FastAPI:
     return app
 
 
+def _system_log(message: str, level: str = "info") -> None:
+    """Systémová hláška při startu: do KONZOLE serveru i na log bus.
+
+    Do konzole proto, že log bus nemá historii (čistý tail, viz log.py) – co
+    se stane před připojením prvního klienta, by jinak nikdo neviděl. Tyhle
+    texty jsou systémové: kdo je uživatel instance a kdo je registrovaný,
+    NIKDY tajemství (to zůstává v souborech v ~/.viewbase/, viz mfa.py)."""
+    print(f"viewbase: {message}", flush=True)
+    log_bus.publish(level, "backend_program", message, component="server")
+
+
 class Project:
     """SLUŽBA projektu – vstupní bod workflow, analogie práce se souborem
     (uživatelské zadání: „stejně jako když je zvyklý pracovat se souborem,
@@ -295,9 +315,13 @@ class Project:
     přímo GraphWindow. Context manager: `with vb.Project(port=…) as p:`
     zavře port po bloku."""
 
-    def __init__(self, *, host: str = "127.0.0.1", port: int = 8080) -> None:
+    def __init__(self, *, host: str = "127.0.0.1", port: int = 8080,
+                 user: str = mfa.DEFAULT_USER) -> None:
         self.host = host
         self.port = port
+        # Uživatel TÉTO instance: proti jeho tajemství se ověřují zamčená okna
+        # a do jeho adresáře (`~/.viewbase/user-<jméno>/`) jde QR.
+        self.user = mfa.set_active_user(user)
         self._handle: ServerHandle | None = None
 
     def serve(self, *surfaces, open_browser: bool = False,
@@ -307,6 +331,25 @@ class Project:
         drátě nese přes skrytého hostitele (interní GraphWindow s
         `config["graph_window"] = False`; frontend pro něj grafové okno
         ani pipeline vůbec nevytvoří)."""
+        # Registrace při PRVNÍM spuštění instance (uživatelské rozhodnutí):
+        # tajemství + QR vzniknou tady, na jednom očekávatelném místě hned po
+        # startu, ne až u prvního zamčeného okna uprostřed výpisu aplikace.
+        # Podruhé je to no-op – tajemství už v users.json je.
+        mfa.ensure_user(self.user)
+        users = mfa.describe_users()
+        _system_log(f"uživatel instance: {self.user}"
+                    + (f"; registrovaní: {', '.join(users)}" if users else ""))
+        if not mfa.available():
+            # Kdo má TOTP zaregistrované, ale spustí instanci v prostředí bez
+            # `pyotp`, jinak jen kouká, proč mu autentikátor nefunguje.
+            _system_log(
+                "pyotp v tomhle prostředí chybí – zabezpečená okna se odemykají "
+                "jednorázovým kódem ze souboru"
+                + (f" (uživatel '{self.user}' má přitom TOTP zaregistrované, "
+                   "kód z autentikátoru fungovat NEBUDE); "
+                   if mfa.registered(self.user) else "; ")
+                + "TOTP zapne: pip install pyotp qrcode "
+                  "(standardní závislosti viewbase)", "warning")
         windows = []
         for surface in surfaces:
             if hasattr(surface, "snapshot"):     # přímo GraphWindow

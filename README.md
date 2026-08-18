@@ -97,10 +97,16 @@ potřeba jen při vývoji frontendu. **Požadavky:** Python ≥ 3.10.
 <summary>Vývoj frontendu (vyžaduje Node.js ≥ 20)</summary>
 
 ```bash
-cd frontend && npm install
+cd frontend && npm install   # jen vite + vitest (nástroje), knihovny jsou v repu
 npm run build      # sestaví do python/viewbase/static
 npx vitest run     # jednotkové testy frontendu
 ```
+
+Runtime knihovny (three.js, d3-force-3d, troika-three-text, xterm.js) **nejsou
+npm závislosti** — leží zdrojově v `frontend/src/vendor/` a importují se
+relativně, takže repo obsahuje všechny artefakty a build je nepotřebuje
+stahovat (viz `frontend/src/vendor/README.md`, aktualizace přes
+`node tools/vendor-build.mjs`).
 
 </details>
 
@@ -147,6 +153,8 @@ týž graf, jen přepnutý přepínač:
 |---|---|---|
 | `LogWindow` | **systémové** okno — obsah dodává knihovna (proces-wide log, `tail -f`) | `examples/log_window.py` |
 | `TerminalWindow` | **textové/dialogové** okno — píše se do něj a umí poslat string od uživatele | `examples/terminal.py` |
+| `ShellWindow` | **skutečný terminál** — na PTY běží shell systému (vim/htop/barvy), okno zamčené na kód | `examples/secured_windows.py` | **zabezpečená okna**: `secured=True`, TOTP z autentikátoru, zelená výzva ve stylu Guru Meditation |
+| `examples/shell.py` |
 | `HtmlWindow` | **panel z prvků** — heading/label/kv/table/list/bar/image/hr, button/input/number/slider/checkbox/radio/select/textarea skládané z Pythonu bez HTML; události s hodnotami se vrací do Pythonu | `examples/html_window.py` |
 | `ControlWindow` | **formulářové** okno — typovaná pole, hodnoty tečou zpět do Pythonu | `examples/prototype.py` |
 | `GraphWindow` | **grafové** okno — živý 2D/3D graf, fyzika, eventy, toky | `examples/quickstart.py` |
@@ -260,6 +268,44 @@ odkazy nenavigují. Okno si pamatuje obsah pro replay po reconnectu (strop
 `HtmlWindow.MAX_HTML`). Builder `vb.Ui` umí totéž bez ručního HTML.
 
 </details>
+
+### Shell okno (skutečný terminál)
+
+`ShellWindow` — v okně běží **opravdový shell operačního systému** na PTY
+(vykresluje ho vendorovaný xterm.js), takže fungují barvy, kurzor, Ctrl-C
+i celoobrazovkové programy (`vim`, `htop`, `mc`). Na rozdíl od dialogového
+`TerminalWindow` (aplikační konzole s řádky textu) jde o emulaci terminálu
+nad procesem systému.
+
+```python
+sh = vb.ShellWindow("sh", title="Shell", cols=100, rows=28)   # bez command → $SHELL
+graph.open_shell(sh)          # okno se otevře ZAMČENÉ, kód se vypíše do konzole serveru
+
+# místo shellu libovolný příkaz (jiný uživatel, kontejner, sledování logu):
+vb.ShellWindow("logs", command=["journalctl", "-f"])
+vb.ShellWindow("web",  command=["docker", "exec", "-it", "web", "bash"])
+```
+
+**Bezpečnost** (shell = spuštění čehokoli na stroji, proto ve výchozím stavu
+nejde zneužít): okno startuje **zamčené** a proces se spustí až po zadání
+**odemykacího kódu**, který server vypíše do své konzole; server poslouchá
+jen na `127.0.0.1`; REST `/api/event` **shell události odmítá** (403) — smí
+jen prohlížeč přes WebSocket; proces se zabíjí při zavření okna i konci
+programu. Systémový `login` se nepoužívá: bez rootu stejně nepřepne
+uživatele (na Linuxu selže, na macOS jen znovu přihlásí téhož, na Windows
+neexistuje) — kdo chce jiného uživatele, řekne si o něj přes `command=`.
+
+Shell okno si divák může otevřít i **sám z GUI**: na liště screenu je vedle
+`Options` vestavěná skupina **`System` → `Shell CLI`** (dostupná vždy, nezávisle
+na tom, jestli aplikace nějaké shell okno definovala). Vzniklé okno je stejně
+**zamčené** a kód se vypíše do konzole serveru; volbu lze schovat přes
+`vb.GraphWindow(..., shell_cli=False)`.
+
+Terminál bere **paletu z tématu** (pozadí = tělo okna, ANSI barvy z palety),
+takže `ls --color` ladí se zbytkem workbenche. xterm.js leží zdrojově v repu
+(`frontend/src/vendor/xterm/`, MIT) a načítá se **až s prvním shell oknem** —
+kdo shell nepoužívá, nestahuje ani bajt navíc. Zatím **POSIX** (macOS/Linux);
+Windows/ConPTY je TODO. Ukázka: `examples/shell.py`.
 
 ### Formulářové okno
 
@@ -397,6 +443,62 @@ vývojáři přes `define_type`/`update_node`.
   doprava i dolů — jako u běžných window managerů), ale vždy zůstane
   uchopitelný kus lišty, za který se okno vrátí; nahoru se lišta okna nikdy
   nedostane pod lištu obrazovky s Options.
+- **Zabezpečená okna** — `secured=True` na kterémkoli okně (jako `closable=`):
+  okno se do prohlížeče pošle jen jako **prázdný rám**, obsah (HTML, hodnoty
+  polí, scrollback, shell) po drátě neputuje, dokud divák nezadá kód v zelené
+  výzvě ve stylu Guru Meditation. Kód je **TOTP z autentikátoru**, s rate
+  limitem a ochranou proti opakovanému použití; bez registrace se použije
+  jednorázový kód ze souboru. Shell okno
+  je zabezpečené vždy. Zamčené okno **nic nevyskakuje**: ukáže se jako rám s
+  poznámkou „Private window. Unlock this window via the Options menu." a chová
+  se jako každé jiné okno (klik ho jen aktivuje). O kód si divák řekne sám —
+  aktivní zamčené okno dá do lišty **`Options → Unlock Window`** (Esc výzvu
+  zavře, okno zůstane zamčené). Odemčené zabezpečené okno má naopak
+  **`Options → Lock Window`**: obsah se zase schová a příště si okno řekne o kód
+  znovu; u shellu proces mezitím běží dál (zámek je jako zamčená obrazovka, ne
+  zabité sezení). Ukázka: `examples/secured_windows.py`.
+- **Registrace autentikátoru** — uživatele instance zvolí vývojář:
+  `vb.Project(port=8080, user="jindrich")` (bez toho `workbench`). Při **prvním
+  spuštění instance** se mu vygeneruje tajemství a QR — vypíše se do konzole
+  serveru (ASCII, funguje i přes SSH) a uloží jako SVG do jeho adresáře:
+
+  ```
+  ~/.viewbase/users.json                        (0600) tajemství všech
+  ~/.viewbase/user-jindrich/totp-jindrich.svg   (0600) QR jako obrázek
+  ~/.viewbase/user-jindrich/totp-jindrich.txt   (0600) tentýž QR v ASCII
+  ```
+
+  (adresář uživatele 0700). `.txt` je ASCII QR k naskenování rovnou z
+  terminálu — `cat ~/.viewbase/user-jindrich/totp-jindrich.txt` funguje i přes
+  SSH, kde obrázek neotevřete; uvnitř je i ruční kód a `otpauth://` URI.
+  Chybí-li soubory (starší instalace, smazané), vyrobí se při dalším startu
+  znovu **ze stávajícího tajemství** — registrovat se podruhé není potřeba.
+
+  **Do logu nejde žádné tajemství.** Konzole i log okno dostanou jen systémové
+  texty: kdo je uživatel instance a kdo je registrovaný, že vznikla registrace
+  (a kde si ji vyzvednout) a auditní stopa zámků:
+
+  ```
+  viewbase: uživatel instance: jindrich; registrovaní: hana (TOTP), jindrich (TOTP)
+  [warning] backend_program/windows: neplatný kód k oknu 'mzdy'
+  [info]    backend_program/windows: okno 'mzdy' odemčeno – token uživatele 'jindrich'
+  [info]    backend_program/windows: okno 'mzdy' zamčeno uživatelem
+  ```
+
+  QR, `otpauth://` URI, ruční kód ani jednorázový kód (fallback bez `pyotp`,
+  ten leží v `user-<jméno>/onetime-<okno>.txt`) se nikdy nevypíšou — jinak by
+  skončily v `docker logs`, v CI artefaktu nebo na sdílené obrazovce.
+
+  **Pozor na prostředí:** TOTP umí ověřit jen proces, který má `pyotp`. Když
+  instanci spustíte jinde (systémový Python místo venv), okna spadnou na
+  jednorázové kódy a kód z autentikátoru se tváří jako neplatný. Start proto
+  varuje: *„pyotp v tomhle prostředí chybí … kód z autentikátoru fungovat
+  NEBUDE; TOTP zapne: pip install pyotp qrcode"*. Registrace se tím neztrácí
+  — tajemství zůstává v `users.json` a po doinstalování `pyotp` funguje
+  původní záznam v autentikátoru dál. QR jde **jen do konzole a na disk**,
+  nikdy přes HTTP — kdo ho uvidí, zaregistruje si vlastní autentikátor, takže
+  ho vidí jedině ten, kdo na stroj už vidí; `/api/mfa/setup` proto neexistuje.
+  Cestu k domovu přesměruje `VIEWBASE_HOME` (kontejnery, testy).
 - **Indikátor fokusu** — v liště hned **za textem titulku** svítí drobná
   plná značka na okně, které je aktivní (patří mu Options i klávesnice).
   Je to jediný vyplněný prvek v jinak linkovém chrome, takže se neplete s
@@ -470,10 +572,11 @@ jde jen minimalizovat do doku, takže se divákovi nikdy neztratí.
 
 Na liště každého screenu je vestavěná skupina **„Options"** (view-only,
 žádné Python volání ji nezakládá; je vždy první skupina, `ScreenMenu`
-skupiny za ní) a její obsah řídí **aktivní okno** — stejný model jako macOS
+skupiny za ní) a vedle ní vestavěná skupina **„System"** (příkazy workbenche samotného,
+dnes `Shell CLI` – otevře shell okno); obsah Options řídí **aktivní okno** — stejný model jako macOS
 menu bar, kde menu patří aktivní aplikaci: klik na okno grafu → „Fyzika
 běží", „Křivkové hrany (splajn)", **„3D pohled"** (živé přepnutí kamery i
-fyzikální simulace 2D/3D za běhu), **„Shluky (oblasti)"** (zapnuto = komunity
+fyzikální simulace 2D/3D za běhu), **„Clusters (regions)"** (zapnuto = komunity
 mají ve fyzice vlastní gravitační centra a graf se rozpadá na oddělené
 oblasti; vypnuto = volné rozložení jen pružinami a odpuzováním – u grafů s
 velkými huby bez rovných „plachet" hran mezi oblastmi); všechny volby se
@@ -556,6 +659,7 @@ a [architektura WM + pluginy](docs/superpowers/specs/2026-08-02-wm-plugin-archit
 | `examples/showcase.py` | téma cyber, typy uzlů, **živá změna barvy/typu za běhu**, toky, **control okno** (čáry/splajny) |
 | `examples/terminal.py` | **konzole v prohlížeči**: `TerminalWindow`, `on_input`, `terminal_write`, výstupní panel a REST push (`/api/event`) |
 | `examples/workbench.py` | **Workbench téma**: všechny typy oken (graf, formulář, konzole, panel z prvků, log) v `workbench-amiga` / `workbench-gray` – lišty, rohový sizing gadget, konzole jako jedna plocha (AmigaShell) |
+| `examples/shell.py` | **shell okno**: skutečný terminál na PTY (xterm.js), zámek odemykacím kódem, druhé okno s `command=["top"]` |
 | `examples/html_window.py` | **HTML okno z prvků**: `HtmlWindow` + `grid`, `label`/`input`/`slider`/`checkbox`/`button`, `on_click`/`on_change`/`on_submit`, `.text`/`.value` za běhu, `panel.on_event` |
 | `examples/words.py` | mapa slov z Wikipedie (crawl odkazů) |
 | `examples/stress.py` | zátěžový test (tisíce uzlů) |
@@ -572,6 +676,7 @@ a [architektura WM + pluginy](docs/superpowers/specs/2026-08-02-wm-plugin-archit
 - [Control okna (parametrické GUI) + křivkové hrany](docs/superpowers/specs/2026-06-17-control-okna-design.md)
 - [Multi-screen Workbench (Amiga-style, ve vývoji)](docs/superpowers/specs/2026-08-02-multi-screen-workbench-design.md)
 - [HTML okno (HtmlWindow)](docs/superpowers/specs/2026-08-17-html-okno-design.md)
+- [Shell okno (ShellWindow) – PTY + xterm.js](docs/superpowers/specs/2026-08-18-shell-okno-design.md)
 
 Implementační plány (krok za krokem) jsou v
 [`docs/superpowers/plans/`](docs/superpowers/plans/).

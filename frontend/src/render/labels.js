@@ -1,4 +1,4 @@
-import { Text } from 'troika-three-text';
+import { Text } from '../vendor/troika-three-text/troika-three-text.mjs';
 // Font ZABUNDLOVANÝ v assetech (uživatelský požadavek: aplikace může běžet
 // mimo internet) – troika si jinak fonty pro glyfy stahuje z CDN
 // (unicodeFontsURL „defaults to CDN"). DejaVu Sans pokrývá latinku včetně

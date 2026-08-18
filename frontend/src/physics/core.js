@@ -1,6 +1,6 @@
 import {
   forceCenter, forceLink, forceManyBody, forceSimulation, forceX, forceY, forceZ,
-} from 'd3-force-3d';
+} from '../vendor/d3-force-3d/d3-force-3d.mjs';
 import { createGroupingJob } from './communities.js';
 
 const SPAWN_JITTER = 10;

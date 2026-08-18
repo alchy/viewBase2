@@ -11,7 +11,8 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Callable, Iterator
 
-from .controls import ControlWindow, HtmlWindow, TerminalWindow, validate_values
+from .controls import ControlWindow, HtmlWindow, ShellWindow, TerminalWindow, validate_values
+from .log import bus as log_bus
 from .menu import ScreenMenu
 
 if TYPE_CHECKING:
@@ -56,7 +57,8 @@ class GraphWindow:
 
     def __init__(self, *, title: str = "viewbase", dimensions: int = 3,
                  theme: Any = "modern", highlight_neighbors: int = 1,
-                 quality: str = "auto", screen: "Screen | None" = None):
+                 quality: str = "auto", screen: "Screen | None" = None,
+                 shell_cli: bool = True):
         if dimensions not in (2, 3):
             raise ValueError("dimensions musí být 2 nebo 3")
         if quality not in QUALITIES:
@@ -74,6 +76,10 @@ class GraphWindow:
             "detail_window": {
                 "rows": None, "width_chars": 42, "open_on_click": True},
             "edge_style": {"style": "line", "elasticity": 0.0},
+            # Vestavěná nabídka „System → Shell CLI" na liště screenu: divák
+            # si otevře shell okno sám (pořád zamčené odemykacím kódem z
+            # konzole serveru). `shell_cli=False` volbu schová úplně.
+            "shell_cli": bool(shell_cli),
         }
         self._lock = threading.RLock()
         self._nodes: dict[str, dict[str, Any]] = {}
@@ -88,6 +94,7 @@ class GraphWindow:
         self._terminal_callbacks: dict[str, Any] = {}   # window_id -> on_input
         self._html_windows: dict[str, HtmlWindow] = {}
         self._html_callbacks: dict[str, Any] = {}       # window_id -> on_event
+        self._shell_windows: dict[str, ShellWindow] = {}
         self._menu: ScreenMenu | None = None   # připnuté ScreenMenu (§8 designu)
         self._seq = 0
         self._batch_depth = 0
@@ -103,6 +110,11 @@ class GraphWindow:
         self._register("window_submit", self._on_window_submit)
         self._register("terminal_input", self._on_terminal_input)
         self._register("html_event", self._on_html_event)
+        self._register("shell_new", self._on_shell_new)
+        self._register("window_unlock", self._on_window_unlock)
+        self._register("window_lock", self._on_window_lock)
+        self._register("shell_input", self._on_shell_input)
+        self._register("shell_resize", self._on_shell_resize)
         self._register("menu_select", self._on_menu_select)
         if screen is not None:
             self._adopt_screen(screen)
@@ -327,7 +339,9 @@ class GraphWindow:
             else:
                 self._window_callbacks.pop(window.window_id, None)
             self._actions.append(
-                {**window.spec(), "action": "open_window", "live": bool(live)})
+                {**window.public_spec(), "action": "open_window", "live": bool(live)})
+        if window.locked:
+            window.announce_lock()
         return window.window_id
 
     def close_window(self, window_id: str) -> None:
@@ -337,12 +351,17 @@ class GraphWindow:
             if self._html_windows.pop(window_id, None) is not None:
                 removed = True
                 self._html_callbacks.pop(window_id, None)
+            shell = self._shell_windows.pop(window_id, None)
+            if shell is not None:
+                removed = True
             if not removed:
                 raise ValueError(f"Okno '{window_id}' neexistuje")
             self._window_callbacks.pop(window_id, None)
             self._window_live.pop(window_id, None)
             self._actions.append(
                 {"action": "close_window", "window_id": window_id})
+        if shell is not None:
+            self._shell_stop(shell)          # proces nepřežije zavření okna
 
     def open_terminal(self, window: TerminalWindow, *, on_input=None) -> str:
         """Otevři/nahraď konzolové okno: ulož do stavu (init replay) a zařaď akci
@@ -354,7 +373,9 @@ class GraphWindow:
                 self._terminal_callbacks[window.window_id] = on_input
             else:
                 self._terminal_callbacks.pop(window.window_id, None)
-            self._actions.append({**window.spec(), "action": "open_window"})
+            self._actions.append({**window.public_spec(), "action": "open_window"})
+        if window.locked:
+            window.announce_lock()
         return window.window_id
 
     def terminal_write(self, window_id: str, text: str) -> None:
@@ -392,8 +413,15 @@ class GraphWindow:
                 self._html_callbacks[window.window_id] = on_event
             else:
                 self._html_callbacks.pop(window.window_id, None)
-            self._actions.append({**window.spec(), "action": "open_window"})
+            self._actions.append({**window.public_spec(), "action": "open_window"})
+        if window.locked:
+            window.announce_lock()
         return window.window_id
+
+    def _drop_if_locked(self, window: Any) -> bool:
+        """Do zamčeného okna se obsah neposílá – klient ho stejně nemá; stav
+        si okno drží dál a odejde celý po odemčení."""
+        return bool(getattr(window, "locked", False))
 
     def html_set(self, window_id: str, html: str) -> None:
         """Nahraď celý obsah HTML okna (akce html_set klientům; okno si
@@ -418,8 +446,14 @@ class GraphWindow:
                                   "window_id": window_id, "html": str(html)})
 
     def _emit_html(self, action: str, window_id: str, **fields: Any) -> None:
-        """Akce od prvků HTML okna (html_set celého okna / html_patch prvku)."""
+        """Akce k oknu (prvky HTML okna, výstup shellu, stavy zámku). Zamčenému
+        oknu se obsah neposílá – dostane ho až po odemčení."""
         with self._lock:
+            window = (self._html_windows.get(window_id)
+                      or self._shell_windows.get(window_id))
+            if (window is not None and getattr(window, "locked", False)
+                    and action != "window_state"):
+                return
             self._actions.append({"action": action, "window_id": window_id, **fields})
 
     def _on_html_event(self, event) -> None:
@@ -442,6 +476,157 @@ class GraphWindow:
             window._dispatch(event)          # prvky: .value, on_click/on_change/on_submit
         if callback is not None:
             callback(event)
+
+    # ---- shell okno (spec 2026-08-18) ------------------------------------
+
+    def open_shell(self, window: ShellWindow) -> str:
+        """Otevři shell okno: uloží do stavu (init replay), zařadí akci
+        open_window. PTY se NESPOUŠTÍ – okno je zamčené a odemykací kód se
+        vypíše do konzole serveru (`unlock=None` spustí shell rovnou)."""
+        with self._lock:
+            self._shell_windows[window.window_id] = window
+            window._owner = self
+            self._actions.append({**window.public_spec(), "action": "open_window"})
+        if window.locked:
+            window.announce_lock()          # TOTP registrace / jednorázový kód
+        else:
+            self._shell_start(window)
+        return window.window_id
+
+    def _shell_start(self, window: ShellWindow) -> None:
+        """Spusť PTY proces okna a nasměruj jeho výstup klientům."""
+        from .pty_shell import PtyShell
+
+        if window.pty is not None:
+            return
+        wid = window.window_id
+
+        def on_data(text: str) -> None:
+            window.append_scrollback(text)
+            self._emit_html("shell_data", wid, data=text)   # sdílená cesta akcí
+
+        def on_exit(code: int | None) -> None:
+            self._emit_html("shell_state", wid, state="exited", code=code)
+
+        try:
+            window.pty = PtyShell(window.command, cwd=window.cwd, env=window.env,
+                                  cols=window.cols, rows=window.rows,
+                                  on_data=on_data, on_exit=on_exit)
+            window.pty.start()
+        except Exception as chyba:                       # noqa: BLE001
+            window.pty = None
+            self._emit_html("shell_state", wid, state="failed", error=str(chyba))
+            logger.exception("Shell okno '%s' se nepodařilo spustit", wid)
+            return
+        self._emit_html("shell_state", wid, state="running")
+
+    def _shell_stop(self, window: ShellWindow) -> None:
+        """Zabij proces okna (zavření okna, konec programu)."""
+        pty = window.pty
+        if pty is not None:
+            pty.terminate()
+
+    def _on_shell_new(self, event) -> None:
+        """Položka „System → Shell CLI" na liště screenu: otevři NOVÉ shell
+        okno. Okno je (jako každé jiné) ZAMČENÉ – odemykací kód se vypíše do
+        konzole serveru, takže i tahle cesta vyžaduje přístup ke stroji.
+        Aplikace může volbu vypnout: `GraphWindow(shell_cli=False)`."""
+        if not self.config.get("shell_cli", True):
+            return
+        with self._lock:
+            self._shell_seq = getattr(self, "_shell_seq", 0) + 1
+            wid = f"cli-{self._shell_seq}"
+        self.open_shell(ShellWindow(wid, title=f"Shell CLI {self._shell_seq}",
+                                    cols=100, rows=28, width=820, height=440))
+
+    def _secured_windows(self) -> dict[str, Any]:
+        """Všechna okna se zámkem (jeden mechanismus napříč typy)."""
+        with self._lock:
+            return {**self._windows, **self._terminals,
+                    **self._html_windows, **self._shell_windows}
+
+    def _on_window_unlock(self, event) -> None:
+        """Klient poslal kód k zamčenému oknu (JAKÉHOKOLI typu). Při shodě se
+        pošle skutečné `open_window` i s obsahem a zavolá hook okna (shell
+        spustí PTY). Nesprávný kód se odmítne – TOTP má rate limit a ochranu
+        proti opakovanému použití (viewbase.mfa)."""
+        window = self._secured_windows().get(getattr(event, "window_id", None))
+        if window is None or not getattr(window, "locked", False):
+            return
+        if not window.unlocks_with(getattr(event, "code", None)):
+            # AUDIT: co se stalo, ne čím se to zkoušelo – kód do logu nepatří
+            self._log_auth("warning", f"neplatný kód k oknu '{window.window_id}'")
+            self._emit_html("window_state", window.window_id, state="locked",
+                            error="Neplatný kód")
+            return
+        window.state = "open"
+        self._log_auth("info", f"okno '{window.window_id}' odemčeno – "
+                               f"{self._auth_kind(window)}")
+        with self._lock:
+            live = self._window_live.get(window.window_id)
+            spec = {**window.public_spec(), "action": "open_window"}
+            if live is not None:
+                spec["live"] = bool(live)
+            self._actions.append(spec)       # teprve teď obsah okna
+        window.on_unlocked()
+
+    def _on_window_lock(self, event) -> None:
+        """Divák si v Options → „Lock Window" řekl o zamčení zpátky (opak
+        `window_unlock`). Okno se klientům pošle znovu jen jako prázdný rám –
+        obsah se přestane posílat a příště si okno zase řekne o kód.
+
+        Zamknout jde JEN okno se `secured=True`: u ostatních není čím odemykat
+        a tichý zámek by je udělal nepřístupnými."""
+        window = self._secured_windows().get(getattr(event, "window_id", None))
+        if window is None or not getattr(window, "secured", False):
+            return
+        if getattr(window, "locked", False):
+            return                          # už zamčené, nic k dělání
+        window.state = "locked"
+        with self._lock:
+            self._actions.append({**window.public_spec(), "action": "open_window"})
+        window.on_locked()
+        self._log_auth("info", f"okno '{window.window_id}' zamčeno uživatelem")
+        window.announce_lock()
+
+    @staticmethod
+    def _auth_kind(window: Any) -> str:
+        """Čím se okno odemklo – do auditní stopy (bez tajemství)."""
+        from . import mfa
+
+        if mfa.available() and mfa.load_users().get(mfa.active_user()):
+            return f"token uživatele '{mfa.active_user()}'"
+        return "jednorázový kód"
+
+    @staticmethod
+    def _log_auth(level: str, message: str) -> None:
+        """Auditní stopa zámku okna do log okna i logu serveru. Systémový
+        text, NIKDY tajemství (kód, QR, URI) – uživatelské rozhodnutí."""
+        log_bus.publish(level, "backend_program", message, component="windows")
+
+    def _on_shell_input(self, event) -> None:
+        """Klávesy z prohlížeče do procesu (jen běžícího a odemčeného okna)."""
+        window = self._shell_windows.get(getattr(event, "window_id", None))
+        data = getattr(event, "data", None)
+        if window is None or window.pty is None or not isinstance(data, str):
+            return
+        window.pty.write(data)
+
+    def _on_shell_resize(self, event) -> None:
+        """Nová velikost terminálu z prohlížeče → SIGWINCH procesu."""
+        window = self._shell_windows.get(getattr(event, "window_id", None))
+        if window is None:
+            return
+        try:
+            cols = int(getattr(event, "cols", 0))
+            rows = int(getattr(event, "rows", 0))
+        except (TypeError, ValueError):
+            return
+        if cols <= 0 or rows <= 0:
+            return
+        window.cols, window.rows = cols, rows
+        if window.pty is not None:
+            window.pty.resize(cols, rows)
 
     def pin_menu(self, menu: ScreenMenu) -> None:
         """Připni ScreenMenu na screen bar (§8 designu) – uloží se do stavu
@@ -802,11 +987,14 @@ class GraphWindow:
                 "edges": [self._public_edge(e) for e in self._edges.values()],
                 "flow_types": {n: dict(s) for n, s in self._flow_types.items()},
                 "flows": [dict(f) for f in self._flows.values()],
+                # public_spec: zamčená okna jdou klientovi jen jako prázdný
+                # rám (kind "locked"), obsah až po window_unlock
                 "windows": [
-                    {**w.spec(), "live": self._window_live.get(wid, False)}
+                    {**w.public_spec(), "live": self._window_live.get(wid, False)}
                     for wid, w in self._windows.items()]
-                + [t.spec() for t in self._terminals.values()]
-                + [h.spec() for h in self._html_windows.values()],
+                + [t.public_spec() for t in self._terminals.values()]
+                + [h.public_spec() for h in self._html_windows.values()]
+                + [sh.public_spec() for sh in self._shell_windows.values()],
                 "menu": self._menu.spec() if self._menu is not None else None,
             }
 
@@ -961,6 +1149,9 @@ class GraphWindow:
                     {"action": "screen_remove", "screen_id": self.screen_id})
             if self._tasks_stop is not None:
                 self._tasks_stop.set()
+            shells = list(self._shell_windows.values())
+        for shell in shells:
+            self._shell_stop(shell)          # žádný osiřelý proces po konci programu
         self._executor.shutdown(wait=False, cancel_futures=True)
 
     # ---- akce server -> klient -------------------------------------------
@@ -1001,3 +1192,8 @@ class GraphWindow:
         with self._lock:
             actions, self._actions = self._actions, []
             return actions
+
+    def peek_actions(self) -> list[dict[str, Any]]:
+        """Kopie fronty akcí BEZ vyprázdnění (testy, ladění)."""
+        with self._lock:
+            return list(self._actions)

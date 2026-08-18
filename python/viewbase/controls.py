@@ -7,7 +7,8 @@ podle field descriptorů (bezpečnost: klient může poslat cokoli)."""
 from __future__ import annotations
 
 import math
-from typing import Any
+import secrets
+from typing import Any, Sequence
 
 from .widgets import (Bar, Button, Checkbox, Field, Image, Input, Kv, ListElement,
                       Number, Radio, Rule, Select, Slider, Table, TextElement,
@@ -26,15 +27,113 @@ def _normalize_options(options: list) -> list[dict]:
     return normalized
 
 
-class ControlWindow:
+class SecuredMixin:
+    """Zámek okna (`secured=True`) – JEDEN mechanismus pro všechny typy oken.
+
+    Zamčené okno se klientovi pošle jen jako PRÁZDNÝ RÁM (`kind:"locked"`) s
+    výzvou na kód: žádné HTML, hodnoty polí ani scrollback. To je rozdíl
+    proti překryvu v DOMu – obsah po drátě vůbec neputuje, dokud divák
+    neprokáže totožnost. Po ověření (`window_unlock`) server pošle skutečné
+    `open_window` s obsahem.
+
+    Ověřuje se TOTP z autentikátoru (viewbase.mfa); bez registrace (nebo v
+    prostředí, kde chybí `pyotp` – standardní závislost) se použije
+    jednorázový kód ze souboru v `~/.viewbase/` (`fallback_code`). Zámek zapíná kterékoli okno stejně:
+    `HtmlWindow("panel", secured=True)` – jako `closable=`."""
+
+    def _init_lock(self, secured: bool) -> None:
+        self.secured = bool(secured)
+        self.state = "locked" if self.secured else "open"
+        # jednorázový kód (fallback bez TOTP) se generuje až při otevření,
+        # aby ho konzole vypsala jednou a jen když je opravdu potřeba
+        self.fallback_code: str | None = None
+
+    @property
+    def locked(self) -> bool:
+        return self.secured and self.state != "open"
+
+    def lock_spec(self) -> dict[str, Any]:
+        """Placeholder pro zamčené okno: rozměry a titulek ano, obsah ne."""
+        full = self.spec()
+        return {
+            "window_id": full["window_id"],
+            "title": full.get("title", ""),
+            "kind": "locked",
+            "real_kind": full.get("kind", "control"),
+            "secured": True,
+            "state": "locked",
+            "closable": full.get("closable", True),
+            "width": full.get("width"),
+            "height": full.get("height"),
+        }
+
+    def public_spec(self) -> dict[str, Any]:
+        """Co se smí poslat klientovi: zamčené → placeholder, jinak vše."""
+        if self.locked:
+            return self.lock_spec()
+        return {**self.spec(), "secured": self.secured, "state": self.state}
+
+    def unlocks_with(self, code: Any) -> bool:
+        """Ověř kód: TOTP uživatele, jinak jednorázový kód z konzole."""
+        from . import mfa
+
+        if mfa.available() and mfa.load_users().get(mfa.active_user()):
+            return mfa.verify(code)
+        return (isinstance(code, str) and self.fallback_code is not None
+                and secrets.compare_digest(code.strip(), self.fallback_code))
+
+    def announce_lock(self) -> None:
+        """Zavolá se při otevření zamčeného okna: zajistí TOTP registraci, a
+        když TOTP není, připraví jednorázový kód.
+
+        Kód SE NEVYPISUJE – stejně jako QR je to tajemství a patří do souboru
+        v `~/.viewbase/` (0600), do logu jde jen ukazatel, kde ho vzít."""
+        from . import mfa
+
+        if mfa.available():
+            if mfa.ensure_user():
+                return
+        self.fallback_code = self.fallback_code or secrets.token_hex(4)
+        path = mfa.onetime_path(self.window_id)
+        mfa.write_secret_file(path, f"{self.fallback_code}\n")
+        level, why = "info", "TOTP není nastavené"
+        if mfa.registered(mfa.active_user()):
+            # TICHÁ PAST (nalezeno v provozu): uživatel má TOTP zaregistrované
+            # a naskenované v autentikátoru, ale TENHLE proces nemá `pyotp`,
+            # takže kód z autentikátoru nemá kdo ověřit a okno ho odmítá.
+            # Bez téhle hlášky to vypadá jako "špatný kód".
+            level, why = "warning", ("uživatel má TOTP zaregistrované, ale v "
+                                     "tomhle prostředí chybí pyotp "
+                                     "(standardní závislost) – kód z "
+                                     "autentikátoru NEBUDE fungovat; "
+                                     "doinstaluj: pip install pyotp qrcode")
+        message = (f"okno '{self.window_id}' je zamčené, {why} – "
+                   f"jednorázový kód: cat {path}")
+        mfa._log(level, message)
+        print(f"viewbase: {message}", flush=True)
+
+    def on_unlocked(self) -> None:
+        """Hook po odemčení (shell spustí PTY; ostatní okna nic)."""
+
+    def on_locked(self) -> None:
+        """Hook po zamčení zpátky (Options → „Lock Window").
+
+        Výchozí chování je „obsah se schová, běh pokračuje": shellu dál běží
+        proces (zámek je jako zamčená obrazovka, ne zabití sezení) – jen mu
+        server přestane posílat výstup a po dalším odemčení klient dostane
+        okno i s historií. Typ okna si to může přepsat."""
+
+
+class ControlWindow(SecuredMixin):
     """Parametrické okno: uspořádaný seznam typovaných polí."""
 
     def __init__(self, window_id: str, *, title: str = "",
-                 closable: bool = True) -> None:
+                 closable: bool = True, secured: bool = False) -> None:
         self.window_id = window_id
         self.title = title
         self.closable = bool(closable)  # False = bez gadgetu [x] (neobnovitelné)
         self._fields: list[dict[str, Any]] = []
+        self._init_lock(secured)
 
     def integer(self, key: str, label: str, *, min: int, max: int,
                 value: int, step: int = 1) -> "ControlWindow":
@@ -105,6 +204,7 @@ class ControlWindow:
         return {
             "window_id": self.window_id,
             "title": self.title,
+            "kind": "control",
             "closable": self.closable,
             "fields": [self._copy_field(f) for f in self._fields],
         }
@@ -124,7 +224,7 @@ class ControlWindow:
                 field["value"] = values[field["key"]]
 
 
-class TerminalWindow:
+class TerminalWindow(SecuredMixin):
     """Konzolové okno: prompt + append-only výstup (REPL v prohlížeči).
 
     Na rozdíl od ControlWindow nemá typovaná pole — je to I/O konzole. Server
@@ -134,7 +234,8 @@ class TerminalWindow:
 
     def __init__(self, window_id: str, *, title: str = "",
                  prompt: str = "> ", width: int = 560,
-                 closable: bool = True, input: bool = True) -> None:  # pylint: disable=redefined-builtin
+                 closable: bool = True, input: bool = True,  # pylint: disable=redefined-builtin
+                 secured: bool = False) -> None:
         if width <= 0:
             raise ValueError("width musí být kladné")
         self.window_id = window_id
@@ -143,6 +244,7 @@ class TerminalWindow:
         self.width = int(width)
         self.closable = bool(closable)  # False = bez gadgetu [x] (neobnovitelné)
         self.input = bool(input)        # False = jen výstup (živý panel bez promptu)
+        self._init_lock(secured)
 
     def spec(self) -> dict[str, Any]:
         """Popis okna pro frontend; `kind:"terminal"` ho odliší od
@@ -158,7 +260,7 @@ class TerminalWindow:
         }
 
 
-class HtmlWindow:
+class HtmlWindow(SecuredMixin):
     """HTML okno: obsah skládaný z PRVKŮ (heading/label/kv/table/list/bar/
     image/hr, button/input/number/slider/checkbox/radio/select/textarea –
     viz `viewbase.widgets`) na instanci okna, bez psaní HTML.
@@ -189,7 +291,7 @@ class HtmlWindow:
 
     def __init__(self, window_id: str, *, title: str = "",
                  width: int = 560, height: int = 320,
-                 closable: bool = True) -> None:
+                 closable: bool = True, secured: bool = False) -> None:
         if width <= 0 or height <= 0:
             raise ValueError("width i height musí být kladné")
         self.window_id = window_id
@@ -197,6 +299,7 @@ class HtmlWindow:
         self.width = int(width)
         self.height = int(height)
         self.closable = bool(closable)
+        self._init_lock(secured)
         self._raw = ""                       # html_set/html_append (pokročilí)
         self._elements: list[Any] = []       # prvky v pořadí přidání
         self._by_id: dict[str, Any] = {}
@@ -377,6 +480,80 @@ class HtmlWindow:
             el._fire(event.kind, event)
         for fn in self._handlers:
             fn(event)
+
+
+class ShellWindow(SecuredMixin):
+    """Shell okno: v okně běží SKUTEČNÝ proces na pseudo-terminálu (bash/zsh,
+    `htop`, `vim` – frontend je vykreslí přes xterm.js).
+
+    Na rozdíl od `TerminalWindow` (aplikační konzole: řádky textu, `on_input`)
+    je tohle emulace terminálu nad procesem operačního systému: chodí klávesy
+    (ne řádky), barvy, kurzor, Ctrl-C i celoobrazovkový režim.
+
+    BEZPEČNOST (spec 2026-08-18): okno startuje ZAMČENÉ. PTY se spustí až
+    poté, co klient pošle odemykací kód, který server vypsal do SVÉ konzole –
+    důkaz, že člověk má přístup ke stroji, kde viewbase běží (Jupyter model).
+    Systémový `login` se nepoužívá: bez rootu stejně nemůže přepnout
+    uživatele (na Linuxu selže, na macOS jen znovu přihlásí téhož, na Windows
+    neexistuje). Kdo chce jiného uživatele, řekne si o něj příkazem:
+    `ShellWindow("sh", command=["su", "-", "jina"])`. `unlock=None` zámek
+    vypne – jen pro loopback a vědomě.
+
+    Proces se zabíjí při zavření okna i při `GraphWindow.close()`."""
+
+    MAX_SCROLLBACK = 256 * 1024   # znaků historie pro init replay (ořez zepředu)
+
+    def __init__(self, window_id: str, *, title: str = "",
+                 command: Sequence[str] | None = None, cwd: str | None = None,
+                 env: dict[str, str] | None = None,
+                 cols: int = 80, rows: int = 24,
+                 width: int = 720, height: int = 420,
+                 closable: bool = True, secured: bool = True) -> None:
+        if width <= 0 or height <= 0:
+            raise ValueError("width i height musí být kladné")
+        if cols <= 0 or rows <= 0:
+            raise ValueError("cols i rows musí být kladné")
+        self.window_id = window_id
+        self.title = title
+        self.command = list(command) if command else None
+        self.cwd = cwd
+        self.env = env
+        self.cols = int(cols)
+        self.rows = int(rows)
+        self.width = int(width)
+        self.height = int(height)
+        self.closable = bool(closable)
+        self._init_lock(secured)        # shell je zamčený ve výchozím stavu
+        self.scrollback = ""
+        self.pty: Any = None          # PtyShell po odemčení
+        self._owner: Any = None       # GraphWindow po open_shell
+
+    def spec(self) -> dict[str, Any]:
+        """Popis okna pro frontend (akce open_window i init replay). `state`
+        říká, jestli je okno zamčené; `scrollback` je historie výstupu pro
+        obnovu po reconnectu. Odemykací kód ve specu NENÍ."""
+        return {
+            "window_id": self.window_id,
+            "title": self.title,
+            "kind": "shell",
+            "cols": self.cols,
+            "rows": self.rows,
+            "width": self.width,
+            "height": self.height,
+            "closable": self.closable,
+            "scrollback": self.scrollback,
+            "running": self.pty is not None,
+        }
+
+    def append_scrollback(self, text: str) -> None:
+        """Přidej výstup do historie a ořízni na strop (init nesmí růst)."""
+        self.scrollback = (self.scrollback + text)[-self.MAX_SCROLLBACK:]
+
+    def on_unlocked(self) -> None:
+        """Po odemčení se teprve spustí PTY (viz GraphWindow._shell_start)."""
+        owner = getattr(self, "_owner", None)
+        if owner is not None:
+            owner._shell_start(self)
 
 
 _DROP = object()   # sentinel: hodnotu zahodit (None je validní string/enum)
