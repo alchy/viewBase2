@@ -513,6 +513,23 @@ vývojáři přes `define_type`/`update_node`.
   **`Options → Lock Window`**: obsah se zase schová a příště si okno řekne o kód
   znovu; u shellu proces mezitím běží dál (zámek je jako zamčená obrazovka, ne
   zabité sezení). Ukázka: `examples/secured_windows.py`.
+- **Relace a granty** — odemčení nepatří oknu, ale **relaci prohlížeče**.
+  Po ověření kódu server zapíše grant dvojice *(relace, okno)*; obsah a vstup
+  se pak u **každé zprávy** kontrolují proti němu, `init` snapshot se staví
+  pro každého klienta zvlášť. Kdo kód nezadal, vidí `[private window]` —
+  i když okno odemkl někdo jiný a i když se připojí až potom.
+
+  Prohlížeč drží jedno neprůhledné id v `localStorage` (`vb_sid`), takže F5
+  ani restart prohlížeče o přístup nepřipraví. Platnost je **klouzavá**
+  (výchozí 15 min bez aktivity) s **absolutním stropem** (8 h, pak zase
+  autentikátor): `vb.Project(session_ttl=900, session_max_age=8*3600)`.
+  Neznámé nebo vypršelé id se **neoživí** — dostane nové a prázdné, aby si ho
+  nešlo schovat a po vypršení se vrátit ke starým grantům. Restart serveru
+  tabulku zahodí, takže po něm je všechno zase zamčené.
+
+  `Options → Lock Window` zruší grant **jen mojí relace** — kolega, který má
+  okno odemčené vedle, o obsah nepřijde.
+
 - **Registrace autentikátoru** — uživatele instance zvolí vývojář:
   `vb.Project(port=8080, user="jindrich")` (bez toho `workbench`). Při **prvním
   spuštění instance** se mu vygeneruje tajemství a QR — vypíše se do konzole

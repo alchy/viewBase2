@@ -12,6 +12,7 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Callable, Iterator
 
 from .controls import ControlWindow, HtmlWindow, ShellWindow, TerminalWindow, validate_values
+from . import sessions
 from .log import bus as log_bus
 from .menu import ScreenMenu
 
@@ -419,9 +420,16 @@ class GraphWindow:
         return window.window_id
 
     def _drop_if_locked(self, window: Any) -> bool:
-        """Do zamčeného okna se obsah neposílá – klient ho stejně nemá; stav
-        si okno drží dál a odejde celý po odemčení."""
-        return bool(getattr(window, "locked", False))
+        """Má obsah zabezpečeného okna vůbec komu jít?
+
+        Zahazuje se jen tehdy, když okno NEMÁ ODEMČENÉ ŽÁDNÁ RELACE – jinak
+        akce vznikne a doručí se právě těm relacím, které grant mají (značku
+        `grant` doplní drain_actions, filtruje broadcast v server.py). Dřív
+        se tady rozhodovalo podle globálního `window.locked`, takže po prvním
+        odemčení tekl obsah všem."""
+        if not getattr(window, "secured", False):
+            return False
+        return not sessions.store.sids_with(window.window_id)
 
     def html_set(self, window_id: str, html: str) -> None:
         """Nahraď celý obsah HTML okna (akce html_set klientům; okno si
@@ -451,7 +459,7 @@ class GraphWindow:
         with self._lock:
             window = (self._html_windows.get(window_id)
                       or self._shell_windows.get(window_id))
-            if (window is not None and getattr(window, "locked", False)
+            if (window is not None and self._drop_if_locked(window)
                     and action != "window_state"):
                 return
             self._actions.append({"action": action, "window_id": window_id, **fields})
@@ -557,23 +565,30 @@ class GraphWindow:
         spustí PTY). Nesprávný kód se odmítne – TOTP má rate limit a ochranu
         proti opakovanému použití (viewbase.mfa)."""
         window = self._secured_windows().get(getattr(event, "window_id", None))
-        if window is None or not getattr(window, "locked", False):
+        sid = getattr(event, "sid", None)
+        if window is None or not getattr(window, "secured", False):
             return
+        if sessions.store.has(sid, window.window_id):
+            return                              # tahle relace už grant má
         if not window.unlocks_with(getattr(event, "code", None)):
             # AUDIT: co se stalo, ne čím se to zkoušelo – kód do logu nepatří
             self._log_auth("warning", f"invalid code for window '{window.window_id}'")
             self._emit_html("window_state", window.window_id, state="locked",
                             error="Invalid code")
             return
-        window.state = "open"
+        # GRANT PRO TUHLE RELACI, ne globální přepnutí okna: obsah dostane
+        # jen ten, kdo kód zadal, a jen do vypršení relace (sessions.py).
+        sessions.store.grant(sid, window.window_id)
+        window.state = "open"                # souhrn pro log/introspekci
         self._log_auth("info", f"window '{window.window_id}' unlocked – "
                                f"{self._auth_kind(window)}")
         with self._lock:
             live = self._window_live.get(window.window_id)
-            spec = {**window.public_spec(), "action": "open_window"}
+            spec = {**window.public_spec(True), "action": "open_window",
+                    "only_sid": sid}         # obsah JEN téhle relaci
             if live is not None:
                 spec["live"] = bool(live)
-            self._actions.append(spec)       # teprve teď obsah okna
+            self._actions.append(spec)
         window.on_unlocked()
 
     def _on_window_lock(self, event) -> None:
@@ -584,16 +599,21 @@ class GraphWindow:
         Zamknout jde JEN okno se `secured=True`: u ostatních není čím odemykat
         a tichý zámek by je udělal nepřístupnými."""
         window = self._secured_windows().get(getattr(event, "window_id", None))
+        sid = getattr(event, "sid", None)
         if window is None or not getattr(window, "secured", False):
             return
-        if getattr(window, "locked", False):
-            return                          # už zamčené, nic k dělání
-        window.state = "locked"
+        if not sessions.store.has(sid, window.window_id):
+            return                          # tahle relace ho stejně nemá
+        # Zamyká se RELACE, ne okno pro všechny: kdo si okno odemkl vedle,
+        # o obsah nepřijde. („Lock all windows" zamkne všem – jiná akce.)
+        sessions.store.revoke(sid, window.window_id)
+        if not sessions.store.sids_with(window.window_id):
+            window.state = "locked"         # souhrn: nikdo už ho odemčené nemá
         with self._lock:
-            self._actions.append({**window.public_spec(), "action": "open_window"})
+            self._actions.append({**window.lock_spec(), "action": "open_window",
+                                  "only_sid": sid})
         window.on_locked()
         self._log_auth("info", f"window '{window.window_id}' locked by the user")
-        window.announce_lock()
 
     @staticmethod
     def _auth_kind(window: Any) -> str:
@@ -981,9 +1001,20 @@ class GraphWindow:
 
     # ---- snapshot ------------------------------------------------------
 
-    def snapshot(self) -> dict[str, Any]:
-        """Úplný stav pro init zprávu. Pozn.: pending delty jsou už součástí
-        stavu – klient proto aplikuje adds jako upserty (idempotence)."""
+    def _unlocked(self, sid: str | None, window_id: str) -> bool:
+        """Má tahle relace grant k tomuhle oknu? (Jediná otázka, podle které
+        se rozhoduje, co uvidí – viz sessions.py.)"""
+        return sessions.store.has(sid, window_id)
+
+    def snapshot(self, sid: str | None = None) -> dict[str, Any]:
+        """Úplný stav pro init zprávu KONKRÉTNÍ relace. Pozn.: pending delty
+        jsou už součástí stavu – klient proto aplikuje adds jako upserty
+        (idempotence).
+
+        `sid` rozhoduje o zabezpečených oknech: bez grantu jde jen prázdný rám
+        `[private window]`. Snapshot se proto staví pro každého klienta zvlášť
+        (dřív byl jeden pro všechny, takže po odemčení viděl obsah i ten, kdo
+        kód nikdy nezadal)."""
         with self._lock:
             return {
                 "seq": self._seq,
@@ -993,14 +1024,18 @@ class GraphWindow:
                 "edges": [self._public_edge(e) for e in self._edges.values()],
                 "flow_types": {n: dict(s) for n, s in self._flow_types.items()},
                 "flows": [dict(f) for f in self._flows.values()],
-                # public_spec: zamčená okna jdou klientovi jen jako prázdný
-                # rám (kind "locked"), obsah až po window_unlock
+                # public_spec(sid): zabezpečené okno jde klientovi jako
+                # prázdný rám, dokud TAHLE RELACE nemá grant (sessions.py)
                 "windows": [
-                    {**w.public_spec(), "live": self._window_live.get(wid, False)}
+                    {**w.public_spec(self._unlocked(sid, wid)),
+                     "live": self._window_live.get(wid, False)}
                     for wid, w in self._windows.items()]
-                + [t.public_spec() for t in self._terminals.values()]
-                + [h.public_spec() for h in self._html_windows.values()]
-                + [sh.public_spec() for sh in self._shell_windows.values()],
+                + [t.public_spec(self._unlocked(sid, wid))
+                   for wid, t in self._terminals.items()]
+                + [h.public_spec(self._unlocked(sid, wid))
+                   for wid, h in self._html_windows.items()]
+                + [sh.public_spec(self._unlocked(sid, wid))
+                   for wid, sh in self._shell_windows.items()],
                 "menu": self._menu.spec() if self._menu is not None else None,
             }
 
@@ -1194,9 +1229,27 @@ class GraphWindow:
             raise ValueError(f"Uzel '{node_id}' neexistuje")
 
     def drain_actions(self) -> list[dict[str, Any]]:
-        """Vrátí akce k odeslání (v pořadí volání) a frontu vyprázdní."""
+        """Vrátí akce k odeslání (v pořadí volání) a frontu vyprázdní.
+
+        Tady se akcím k ZABEZPEČENÝM oknům doplní adresát – jedno místo pro
+        celou knihovnu, takže o relacích nemusí vědět žádný `open_*`/`html_*`
+        volající (DRY):
+
+        - `grant: <window_id>` … pošli jen relacím, které mají grant k oknu,
+        - `only_sid: <sid>`    … pošli jen téhle jedné relaci (odemčení,
+                                 zamčení zpátky – doplňuje volající),
+        - placeholder (`kind: "locked"`) značku nedostane: prázdný rám
+          `[private window]` má vidět každý.
+        """
         with self._lock:
             actions, self._actions = self._actions, []
+            secured = {wid for wid, w in self._secured_windows().items()
+                       if getattr(w, "secured", False)}
+            for action in actions:
+                wid = action.get("window_id")
+                if (wid in secured and action.get("kind") != "locked"
+                        and "only_sid" not in action):
+                    action["grant"] = wid
             return actions
 
     def peek_actions(self) -> list[dict[str, Any]]:

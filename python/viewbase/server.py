@@ -23,7 +23,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import mfa, protocol
+from . import mfa, protocol, sessions
 from .tls import Tls, require_tls, scheme_for, self_signed
 from .graph_window import GraphWindow
 from .log import LogRecord, bus as log_bus
@@ -45,8 +45,30 @@ def _resolve_window(windows_by_screen: dict, screen_id) -> GraphWindow | None:
     return None
 
 
+def _deliver_to(action: dict, sid: str | None) -> bool:
+    """Smí tahle akce k téhle relaci?
+
+    `only_sid` = přesně jedna relace (odemčení/zamčení), `grant` = kdokoli,
+    kdo má grant k danému oknu (obsah zabezpečeného okna). Bez značky jde
+    akce všem, jako dřív – veřejná okna a prázdné rámy `[private window]`."""
+    only = action.get("only_sid")
+    if only is not None:
+        return sid == only
+    grant = action.get("grant")
+    if grant is not None:
+        return sessions.store.has(sid, grant)
+    return True
+
+
+def _wire_action(action: dict) -> dict:
+    """Adresní značky jsou vnitřní věc serveru – klientovi po drátě nejdou."""
+    if "only_sid" in action or "grant" in action:
+        return {k: v for k, v in action.items() if k not in ("only_sid", "grant")}
+    return action
+
+
 async def _broadcast_step(windows: list[GraphWindow], windows_by_screen: dict,
-                          clients: set[WebSocket],
+                          clients: dict[WebSocket, str],
                           pending_logs: list[dict]) -> None:
     """Jeden krok vysílání: pro každý window nejdřív patch (data), pak akce
     (odkazují na data) – viz komentář u _broadcast_loop níž – a nakonec
@@ -61,37 +83,41 @@ async def _broadcast_step(windows: list[GraphWindow], windows_by_screen: dict,
     ODSTRANÍME z `windows`/`windows_by_screen`, ať nový klient vůbec
     nedostane `init` pro screen, který už neexistuje (create/destroy jsou
     explicitní páry, viz screen.py/GraphWindow.close)."""
-    messages = []
+    # (zpráva, komu) – zabezpečená okna nejdou všem, viz _deliver_to
+    messages: list[tuple[str, dict | None]] = []
     closed = []
     for window in windows:
         actions = window.drain_actions()
         drained = window.drain()
         if drained is not None:
             seq, deltas = drained
-            messages.append(protocol.encode(
-                protocol.patch_message(seq, deltas, screen_id=window.screen_id)))
-        messages.extend(
-            protocol.encode({"type": "action", "screen_id": window.screen_id,
-                             **action})
-            for action in actions)
+            messages.append((protocol.encode(
+                protocol.patch_message(seq, deltas, screen_id=window.screen_id)),
+                None))
+        for action in actions:
+            raw = protocol.encode({"type": "action", "screen_id": window.screen_id,
+                                   **_wire_action(action)})
+            adresa = action if ("only_sid" in action or "grant" in action) else None
+            messages.append((raw, adresa))
         if window._closed:
             closed.append(window)
     for window in closed:
         windows.remove(window)
         windows_by_screen.pop(window.screen_id, None)
     if pending_logs:
-        messages.extend(
-            protocol.encode(protocol.log_message(record))
-            for record in pending_logs)
+        messages.extend((protocol.encode(protocol.log_message(record)), None)
+                        for record in pending_logs)
         pending_logs.clear()
     if not messages or not clients:
         return
-    for ws in list(clients):
+    for ws, sid in list(clients.items()):
         try:
-            for raw in messages:
+            for raw, adresa in messages:
+                if adresa is not None and not _deliver_to(adresa, sid):
+                    continue
                 await ws.send_text(raw)
         except Exception:
-            clients.discard(ws)
+            clients.pop(ws, None)
 
 
 async def _broadcast_loop(windows: list[GraphWindow], windows_by_screen: dict,
@@ -142,7 +168,9 @@ def create_app(*windows: GraphWindow) -> FastAPI:
             raise ValueError("dvě grafová okna nemůžou sdílet stejný screen")
     windows_by_screen = {c.screen_id: c for c in windows_list}
 
-    clients: set[WebSocket] = set()
+    # WebSocket -> session id prohlížeče (vb_sid). Dřív to byla množina bez
+    # identity, takže se všechno rozesílalo všem; teď server ví, komu co smí.
+    clients: dict[WebSocket, str] = {}
     state_lock = asyncio.Lock()
 
     @asynccontextmanager
@@ -180,17 +208,23 @@ def create_app(*windows: GraphWindow) -> FastAPI:
                     {"type": "error", "error": "protocol_mismatch"}))
                 await ws.close()
                 return
+            # RELACE: prohlížeč si drží `vb_sid` v localStorage a posílá ho
+            # v hello. Neznámé/vypršelé id se neoživuje – klient dostane nové
+            # a prázdné (sessions.touch), takže granty nejdou „vzkřísit".
+            sid = sessions.store.touch(hello.get("sid"))
             # Sdílený zámek: snapshoty + zařazení mezi klienty je atomické
             # vůči broadcast kroku. Pending delty se NEzahazují – příští
             # broadcast je pošle všem (novému klientovi jako idempotentní
             # upsert), takže seq navazuje pro staré i nové klienty.
             async with state_lock:
                 for window in windows_list:
-                    snap = window.snapshot()
+                    # snapshot PER RELACI: zabezpečená okna bez grantu jdou
+                    # jen jako prázdný rám
+                    snap = window.snapshot(sid)
                     await ws.send_text(protocol.encode(
-                        protocol.init_message(**snap,
+                        protocol.init_message(**snap, sid=sid,
                                               screen_id=window.screen_id)))
-                clients.add(ws)
+                clients[ws] = sid
         except WebSocketDisconnect:
             return
         try:
@@ -222,8 +256,11 @@ def create_app(*windows: GraphWindow) -> FastAPI:
                             f" {client_id}: {msg.get('screen_id')!r}",
                             component="server")
                         continue
+                    # `sid` do payloadu doplňuje SERVER, ne klient: jinak by
+                    # si kdokoli mohl přiřknout cizí relaci a s ní její granty.
                     target.dispatch_event(
-                        msg["event"], {**payload, "client_id": client_id})
+                        msg["event"],
+                        {**payload, "client_id": client_id, "sid": sid})
                 else:
                     logger.warning("Unexpected message from client %s: %r",
                                    client_id, raw[:200])
@@ -234,7 +271,7 @@ def create_app(*windows: GraphWindow) -> FastAPI:
         except WebSocketDisconnect:
             pass
         finally:
-            clients.discard(ws)
+            clients.pop(ws, None)
 
     @app.post("/api/event")
     def inject_event(message: dict) -> dict:
@@ -300,6 +337,7 @@ def first_run_setup() -> None:
     i `Project.serve(...)`. Kdyby byl jen v Projectu, uživatel staršího API by
     zabezpečená okna otevřel bez připraveného prostředí."""
     user = mfa.active_user()
+    sessions.reset()          # nový běh serveru = všechno zase zamčené
     mfa.ensure_user(user)
     users = mfa.describe_users()
     _system_log(f"instance user: {user}"
@@ -349,7 +387,9 @@ class Project:
     def __init__(self, *, host: str = "127.0.0.1", port: int = 8080,
                  user: str = mfa.DEFAULT_USER,
                  tls: "Tls | bool | None" = None,
-                 tls_hosts: "list[str] | tuple[str, ...] | None" = None) -> None:
+                 tls_hosts: "list[str] | tuple[str, ...] | None" = None,
+                 session_ttl: float | None = None,
+                 session_max_age: float | None = None) -> None:
         self.host = host
         self.port = port
         # TLS: `tls=vb.Tls(cert, key)` = vlastní certifikát (ověří se hned tady,
@@ -358,6 +398,9 @@ class Project:
         # při první instanciaci stejně jako TOTP a QR.
         self.tls = (self_signed(host, hosts=tls_hosts) if tls is True
                     else (tls or None))
+        # Relace prohlížeče: klouzavá platnost (bez aktivity vyprší) a
+        # absolutní strop (po něm zase kód z autentikátoru), viz sessions.py.
+        sessions.configure(ttl=session_ttl, max_age=session_max_age)
         # Uživatel TÉTO instance: proti jeho tajemství se ověřují zamčená okna
         # a do jeho adresáře (`~/.viewbase/user-<jméno>/`) jde QR.
         self.user = mfa.set_active_user(user)

@@ -1,7 +1,10 @@
 export const PROTOCOL_VERSION = 1;
 
-export function hello() {
-  return { type: 'hello', protocol: PROTOCOL_VERSION };
+/** `sid` = session id z localStorage (viz core/session.js). Server ho buď
+ *  potvrdí, nebo (neznámé/vypršelé) přidělí nové a pošle v `init`. */
+export function hello(sid = null) {
+  return sid ? { type: 'hello', protocol: PROTOCOL_VERSION, sid }
+    : { type: 'hello', protocol: PROTOCOL_VERSION };
 }
 
 export function encode(message) {

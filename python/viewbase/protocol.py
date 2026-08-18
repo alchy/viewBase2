@@ -11,12 +11,16 @@ def init_message(*, seq: int, config: dict, node_types: dict,
                  nodes: list, edges: list,
                  flow_types: dict, flows: list,
                  windows: list, menu: dict | None = None,
-                 screen_id: int | None = None) -> dict[str, Any]:
+                 screen_id: int | None = None,
+                 sid: str | None = None) -> dict[str, Any]:
     return {
         "type": "init",
         "protocol": PROTOCOL_VERSION,
         "seq": seq,
         "screen_id": screen_id,
+        # session id prohlížeče: server ho přidělí (nebo potvrdí to poslané
+        # v hello) a klient si ho uloží do localStorage, viz sessions.py
+        "sid": sid,
         "config": config,
         "node_types": node_types,
         "nodes": nodes,

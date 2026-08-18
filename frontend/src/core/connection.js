@@ -1,4 +1,5 @@
 import { decode, encode, hello } from './protocol.js';
+import { loadSid, saveSid } from './session.js';
 
 /** WebSocket klient: handshake, routing zpráv do store, reconnect s backoffem.
  *  Stavy hlásí přes onStatus('init' | 'close' | 'connect_failed' |
@@ -50,7 +51,7 @@ export class Connection {
     ws.onopen = () => {
       this.everConnected = true;
       this.backoff = this.minBackoff;
-      ws.send(encode(hello()));
+      ws.send(encode(hello(loadSid())));   // relace přežije reload (localStorage)
     };
     ws.onmessage = (event) => this._onMessage(event.data);
     ws.onclose = () => {
@@ -70,6 +71,9 @@ export class Connection {
       return;
     }
     if (msg.type === 'init') {
+      // server relaci buď potvrdil, nebo přidělil novou (neznámé/vypršelé
+      // sid se neoživuje) – ulož, ať přežije reload
+      saveSid(msg.sid);
       this._storeFor(msg.screen_id).applyInit(msg);
       this.onStatus('init');
     } else if (msg.type === 'patch') {

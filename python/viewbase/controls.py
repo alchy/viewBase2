@@ -43,6 +43,10 @@ class SecuredMixin:
 
     def _init_lock(self, secured: bool) -> None:
         self.secured = bool(secured)
+        # `state` je jen SOUHRN pro logy a introspekci ("odemkl to aspoň
+        # někdo?"). O tom, kdo obsah uvidí, rozhoduje grant relace
+        # (viewbase/sessions.py) – dřív tenhle atribut rozhodoval sám a byl
+        # globální, takže odemčení jedním divákem odhalilo obsah všem.
         self.state = "locked" if self.secured else "open"
         # jednorázový kód (fallback bez TOTP) se generuje až při otevření,
         # aby ho konzole vypsala jednou a jen když je opravdu potřeba
@@ -67,11 +71,14 @@ class SecuredMixin:
             "height": full.get("height"),
         }
 
-    def public_spec(self) -> dict[str, Any]:
-        """Co se smí poslat klientovi: zamčené → placeholder, jinak vše."""
-        if self.locked:
+    def public_spec(self, unlocked: bool = False) -> dict[str, Any]:
+        """Co se smí poslat KONKRÉTNÍ relaci: bez grantu placeholder, s grantem
+        obsah. `unlocked` říká, jestli tahle relace grant má (sessions.store).
+        Nezabezpečené okno vidí každý."""
+        if self.secured and not unlocked:
             return self.lock_spec()
-        return {**self.spec(), "secured": self.secured, "state": self.state}
+        return {**self.spec(), "secured": self.secured,
+                "state": "open" if not self.secured or unlocked else "locked"}
 
     def unlocks_with(self, code: Any) -> bool:
         """Ověř kód: TOTP uživatele, jinak jednorázový kód z konzole."""

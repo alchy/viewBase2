@@ -10,6 +10,24 @@ from viewbase import (ControlWindow, GraphWindow, HtmlWindow, ShellWindow,
 pyotp = pytest.importorskip("pyotp")
 
 
+#: Relace „prohlížeče" pro testy: grant k zabezpečenému oknu patří RELACI
+#: (sessions.py), ne oknu – odemykat se proto musí jménem konkrétního sid,
+#: přesně jak to dělá server podle `vb_sid` z prohlížeče.
+SID = ""
+
+
+@pytest.fixture(autouse=True)
+def _relace():
+    from viewbase import sessions
+
+    global SID
+    sessions.reset()
+    SID = sessions.store.touch(None)
+    yield
+    sessions.reset()
+
+
+
 @pytest.fixture(autouse=True)
 def domov(tmp_path, monkeypatch):
     monkeypatch.setenv("VIEWBASE_HOME", str(tmp_path))
@@ -69,7 +87,7 @@ def test_zamcene_okno_neposle_obsah_dokud_se_neodemkne(make, otevri, tajemstvi):
     assert snap["kind"] == "locked" and (not tajemstvi or tajemstvi not in repr(snap))
 
     c.dispatch_event("window_unlock", {"window_id": w.window_id, "code": _kod(),
-                                       "client_id": "x"})
+                                       "client_id": "x", "sid": SID})
     assert _wait(lambda: any(x.get("action") == "open_window" and x.get("kind") != "locked"
                              for x in c.peek_actions()))
     plny = [x for x in c.drain_actions() if x["action"] == "open_window"][-1]
@@ -86,7 +104,7 @@ def test_spatny_kod_okno_nechá_zamčené():
     c.open_html(w)
     c.drain_actions()
     c.dispatch_event("window_unlock", {"window_id": "panel", "code": "000000",
-                                       "client_id": "x"})
+                                       "client_id": "x", "sid": SID})
     assert _wait(lambda: any(x.get("action") == "window_state" for x in c.peek_actions()))
     a = [x for x in c.drain_actions() if x["action"] == "window_state"][-1]
     assert a["state"] == "locked" and a.get("error")
@@ -112,7 +130,7 @@ def test_shell_je_secured_ve_vychozim_stavu_a_pty_ceka_na_odemceni():
     (a,) = c.drain_actions()
     assert a["kind"] == "locked" and a["secured"] is True
     assert w.pty is None
-    c.dispatch_event("window_unlock", {"window_id": "sh", "code": _kod(), "client_id": "x"})
+    c.dispatch_event("window_unlock", {"window_id": "sh", "code": _kod(), "client_id": "x", "sid": SID})
     assert _wait(lambda: w.pty is not None and w.pty.alive)
     c.close_window("sh")
     c.close()
@@ -133,11 +151,11 @@ def test_bez_mfa_se_pouzije_jednorazovy_kod_ze_souboru(monkeypatch, capsys, tmp_
     assert str(soubor) in out                                # jen ukazatel
     assert soubor.read_text().strip() == w.fallback_code
     c.dispatch_event("window_unlock", {"window_id": "panel", "code": "spatny",
-                                       "client_id": "x"})
+                                       "client_id": "x", "sid": SID})
     time.sleep(0.2)
     assert w.state == "locked"
     c.dispatch_event("window_unlock", {"window_id": "panel", "code": w.fallback_code,
-                                       "client_id": "x"})
+                                       "client_id": "x", "sid": SID})
     assert _wait(lambda: w.state == "open")
     c.close()
 
@@ -156,22 +174,24 @@ def test_lock_window_zamkne_odemcene_okno_zpatky(monkeypatch, capsys):
     c.drain_actions()
     kod = w.fallback_code
     c.dispatch_event("window_unlock", {"window_id": "panel", "code": kod,
-                                       "client_id": "x"})
+                                       "client_id": "x", "sid": SID})
     assert _wait(lambda: w.state == "open")
     c.drain_actions()
     capsys.readouterr()
 
-    c.dispatch_event("window_lock", {"window_id": "panel", "client_id": "x"})
+    c.dispatch_event("window_lock", {"window_id": "panel", "client_id": "x", "sid": SID})
     assert _wait(lambda: w.state == "locked")
     a = [x for x in c.drain_actions() if x["action"] == "open_window"][-1]
     assert a["kind"] == "locked" and a["state"] == "locked"
     assert "tajný text" not in repr(a)            # obsah zase neputuje
     assert w.locked
-    assert str(mfa.onetime_path("panel")) in capsys.readouterr().out   # jen ukazatel
+    # po zamčení se nic nevypisuje: kód se nemění a opakovat tajemství do
+    # konzole je zbytečné (poprvé zaznělo při otevření okna)
+    assert capsys.readouterr().out == ""
 
     # a znovu odemknout jde
     c.dispatch_event("window_unlock", {"window_id": "panel", "code": kod,
-                                       "client_id": "x"})
+                                       "client_id": "x", "sid": SID})
     assert _wait(lambda: w.state == "open")
     plny = [x for x in c.drain_actions() if x["action"] == "open_window"][-1]
     assert "tajný text" in repr(plny)             # obsah je zpátky
@@ -186,7 +206,7 @@ def test_lock_window_nezabezpecene_okno_ignoruje():
     w.label("běžný obsah")
     c.open_html(w)
     c.drain_actions()
-    c.dispatch_event("window_lock", {"window_id": "panel", "client_id": "x"})
+    c.dispatch_event("window_lock", {"window_id": "panel", "client_id": "x", "sid": SID})
     time.sleep(0.2)
     assert w.state == "open" and not w.locked
     assert c.peek_actions() == []
@@ -199,10 +219,10 @@ def test_lock_window_shellu_nechá_proces_bezet():
     c = GraphWindow()
     w = ShellWindow("sh", command=["/bin/sh", "-i"])
     c.open_shell(w)
-    c.dispatch_event("window_unlock", {"window_id": "sh", "code": _kod(), "client_id": "x"})
+    c.dispatch_event("window_unlock", {"window_id": "sh", "code": _kod(), "client_id": "x", "sid": SID})
     assert _wait(lambda: w.pty is not None and w.pty.alive)
     c.drain_actions()
-    c.dispatch_event("window_lock", {"window_id": "sh", "client_id": "x"})
+    c.dispatch_event("window_lock", {"window_id": "sh", "client_id": "x", "sid": SID})
     assert _wait(lambda: w.state == "locked")
     assert w.pty.alive                            # proces žije dál
     w.pty.write("echo zamceno\n")
@@ -226,12 +246,12 @@ def test_audit_stopa_zamku_je_bez_tajemstvi():
         c.drain_actions()
         kod = _kod()
         c.dispatch_event("window_unlock", {"window_id": "panel", "code": "000000",
-                                           "client_id": "x"})
+                                           "client_id": "x", "sid": SID})
         assert _wait(lambda: any("invalid code" in z.message for z in zaznamy))
         c.dispatch_event("window_unlock", {"window_id": "panel", "code": kod,
-                                           "client_id": "x"})
+                                           "client_id": "x", "sid": SID})
         assert _wait(lambda: w.state == "open")
-        c.dispatch_event("window_lock", {"window_id": "panel", "client_id": "x"})
+        c.dispatch_event("window_lock", {"window_id": "panel", "client_id": "x", "sid": SID})
         assert _wait(lambda: w.state == "locked")
     finally:
         bus.unsubscribe(zaznamy.append)
