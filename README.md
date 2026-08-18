@@ -110,12 +110,49 @@ stahovat (viz `frontend/src/vendor/README.md`, aktualizace přes
 
 </details>
 
+### První spuštění
+
+První start si sám připraví domov v `~/.viewbase` — nic se nekonfiguruje
+předem, a co je tajné, nikdy neopustí disk:
+
+```
+~/.viewbase/                                  adresář 0700
+├── users.json                                (0600) uživatelé a jejich tajemství
+└── user-workbench/                           adresář 0700
+    ├── totp-workbench.svg                    (0600) QR jako obrázek
+    └── totp-workbench.txt                    (0600) tentýž QR v ASCII + ruční kód
+```
+
+Do konzole i do log okna přitom jde jen systémový text — jméno a cesta, žádné
+tajemství:
+
+```
+viewbase: nová TOTP registrace pro uživatele 'workbench' – naskenuj:
+          cat ~/.viewbase/user-workbench/totp-workbench.txt
+viewbase: uživatel instance: workbench; registrovaní: workbench (TOTP)
+```
+
+`cat` toho souboru vysype QR rovnou do terminálu (funguje i přes SSH, kde
+obrázek neotevřete) — naskenujte ho do autentikátoru (MS Authenticator, Google
+Authenticator, 1Password, Bitwarden…) a máte kód pro
+[zabezpečená okna](#zabezpečené-okno-obsah-až-po-kódu-z-autentikátoru). Uživatele instance zvolíte
+`vb.Project(port=8080, user="jindrich")`, jinak je to `workbench`. Další start
+už mlčí; když soubory smažete, vyrobí se znovu ze stávajícího tajemství
+(registrovat se podruhé nemusíte).
+
 ---
 
 ## Ukázky
 
 Spustitelné příklady jsou živá dokumentace — viz tabulka v sekci
 [Dokumentace](#dokumentace). Pár výřezů:
+
+### Celý workbench
+
+Screeny, okna, živý graf, log a **skutečný shell na PTY** — všechno z Pythonu,
+tady v tématu `workbench-amiga`:
+
+![viewbase – graf, HTML okno, privátní okno, shell a log na jednom screenu](docs/images/workbench-overview.png)
 
 ### Control okno: vzhled grafu řízený z backendu
 
@@ -134,6 +171,18 @@ týž graf, jen přepnutý přepínač:
 `GraphWindow(dimensions=2)` přepne na 2D s pan/zoom:
 
 ![2D režim](docs/images/mode-2d.png)
+
+### Zabezpečené okno: obsah až po kódu z autentikátoru
+
+`secured=True` udělá z okna **privátní okno**: server pošle jen prázdný rám,
+obsah po drátě neputuje. Nic nevyskakuje — o kód si divák řekne sám z lišty:
+
+| Aktivní privátní okno → `Options` | Výzva ve stylu Guru Meditation |
+|---|---|
+| ![Options s položkou Unlock Window](docs/images/secured-options-unlock.png) | ![Zelená výzva na kód](docs/images/secured-unlock-prompt.png) |
+
+Odemčené zabezpečené okno má v `Options` symetricky **`Lock Window`** — obsah
+se zase schová a příště si okno řekne o kód znovu.
 
 ---
 
@@ -660,6 +709,7 @@ a [architektura WM + pluginy](docs/superpowers/specs/2026-08-02-wm-plugin-archit
 | `examples/terminal.py` | **konzole v prohlížeči**: `TerminalWindow`, `on_input`, `terminal_write`, výstupní panel a REST push (`/api/event`) |
 | `examples/workbench.py` | **Workbench téma**: všechny typy oken (graf, formulář, konzole, panel z prvků, log) v `workbench-amiga` / `workbench-gray` – lišty, rohový sizing gadget, konzole jako jedna plocha (AmigaShell) |
 | `examples/shell.py` | **shell okno**: skutečný terminál na PTY (xterm.js), zámek odemykacím kódem, druhé okno s `command=["top"]` |
+| `examples/secured_windows.py` | **zabezpečená okna**: `secured=True` na HTML/formulářovém/konzolovém okně, `Options → Unlock/Lock Window`, TOTP z autentikátoru |
 | `examples/html_window.py` | **HTML okno z prvků**: `HtmlWindow` + `grid`, `label`/`input`/`slider`/`checkbox`/`button`, `on_click`/`on_change`/`on_submit`, `.text`/`.value` za běhu, `panel.on_event` |
 | `examples/words.py` | mapa slov z Wikipedie (crawl odkazů) |
 | `examples/stress.py` | zátěžový test (tisíce uzlů) |
@@ -676,7 +726,9 @@ a [architektura WM + pluginy](docs/superpowers/specs/2026-08-02-wm-plugin-archit
 - [Control okna (parametrické GUI) + křivkové hrany](docs/superpowers/specs/2026-06-17-control-okna-design.md)
 - [Multi-screen Workbench (Amiga-style, ve vývoji)](docs/superpowers/specs/2026-08-02-multi-screen-workbench-design.md)
 - [HTML okno (HtmlWindow)](docs/superpowers/specs/2026-08-17-html-okno-design.md)
-- [Shell okno (ShellWindow) – PTY + xterm.js](docs/superpowers/specs/2026-08-18-shell-okno-design.md)
+- [Shell okno (ShellWindow) – PTY + xterm.js, zabezpečená okna a TOTP](docs/superpowers/specs/2026-08-18-shell-okno-design.md)
+- [Zjednodušení DX (explicitní workflow Project → Screen → okna)](docs/superpowers/specs/2026-07-15-dx-zjednoduseni-design.md)
+- [Multiuser a privátní okna (návrh, zatím neimplementováno)](docs/superpowers/specs/2026-08-18-multiuser-privatni-okna-design.md)
 
 Implementační plány (krok za krokem) jsou v
 [`docs/superpowers/plans/`](docs/superpowers/plans/).

@@ -2,7 +2,13 @@
 #
 #   pip install -r requirements.txt
 #
-# Nainstaluje balíček z ./python (fastapi + uvicorn jako runtime závislosti).
+# Nainstaluje balíček z ./python se všemi runtime závislostmi:
+#   fastapi + uvicorn[standard]   … server a WebSocket protokol
+#   pyotp + qrcode                … kód z autentikátoru pro zabezpečená okna
+#                                   (`secured=True`); NENÍ to volitelný extra –
+#                                   instance bez nich spadne na jednorázové kódy
 # Frontend je v repu už sestavený (python/viewbase/static) – Node.js je
 # potřeba jen při vývoji frontendu (frontend/, npm install && npm run build).
+# Seznam hlídá python/tests/test_requirements.py (import bez závislosti a
+# závislost bez importu jsou chyby).
 -e ./python[dev]
