@@ -62,4 +62,35 @@ odposlechu.
 
 ---
 
+## Testy
+
+```bash
+cd python && python -m pytest -q          # backend (jednotkové + end-to-end)
+cd frontend && npx vitest run             # frontend
+playwright install chromium               # jednou, pro end-to-end testy
+```
+
+Tři vrstvy, každá chytá jinou třídu chyb:
+
+| vrstva | co ověřuje |
+|---|---|
+| `python/tests/` | model, protokol, zámky, relace, logování — rychlé, bez prohlížeče |
+| `frontend/tests/` (vitest + happy-dom) | okna, chrome, filtry logu — bez serveru |
+| `python/tests/test_e2e_browser.py` | **spojení všech tří vrstev ve skutečném prohlížeči** |
+
+Ta třetí vznikla z konkrétní zkušenosti: chyby, které v provozu bolely,
+prošly zelenou sadou 390+ jednotkových testů. Esc ve výzvě nefungoval,
+protože vstupní pole zastavilo klávesu dřív, než dorazila k posluchači —
+jednotkový test si událost posílal rovnou na `window`, takže o problému
+nevěděl. `secured` se na okno zapisovalo až po jeho aktivaci, takže `Options`
+nabízel položku cizího okna. Obojí je chyba ve *spojení* vrstev a najde ji
+jenom skutečný prohlížeč.
+
+End-to-end test je proto tenký a míří na řetěz, ne na detaily: stránka se
+načte, přes WebSocket dorazí okna, zabezpečené je prázdný rám, `Options →
+Unlock Window` otevře výzvu, kód z autentikátoru přinese obsah, Esc výzvu
+zavře a relace přežije reload. Bez nainstalovaného prohlížeče se přeskočí.
+
+---
+
 [← zpět na přehled](../README.md)

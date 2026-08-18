@@ -134,9 +134,6 @@ class WindowsMixin:
         line = getattr(event, "line", None)
         if not isinstance(line, str):
             return
-        okno = self._reg.get(window_id)
-        if okno is not None and not self._grant_ok(event, okno):
-            return
         with self._lock:
             callback = self._terminal_callbacks.get(window_id)
         if callback is not None:
@@ -215,9 +212,6 @@ class WindowsMixin:
         `okno.on_event`) a zavolej `on_event` z open_html."""
         window_id = getattr(event, "window_id", None)
         if not isinstance(getattr(event, "event", None), str):
-            return
-        okno = self._reg.get(window_id, HtmlWindow)
-        if okno is not None and not self._grant_ok(event, okno):
             return
         if not hasattr(event, "value"):
             event.value = None
@@ -404,6 +398,10 @@ class WindowsMixin:
     def _grant_ok(self, event: Any, window: Any) -> bool:
         """Smí tahle relace do okna psát?
 
+        VOLÁ SE Z `dispatch_event` podle toho, co událost deklarovala při
+        registraci (`needs=Needs.GRANT`) – handlery si na to nesmí
+        vzpomínat samy, protože přesně to se dřív nestalo u pěti z devíti.
+
         NALEZENO PŘI KONTROLE: `shell_input` grant vůbec neověřoval – stačilo
         se připojit a psát do shellu, který odemkl někdo jiný, a po vypršení
         relace to platilo dál. Odemčení musí platit u KAŽDÉ zprávy, ne jen
@@ -444,8 +442,6 @@ class WindowsMixin:
         window = self._reg.get(getattr(event, "window_id", None), ShellWindow)
         data = getattr(event, "data", None)
         if window is None or window.pty is None or not isinstance(data, str):
-            return
-        if not self._grant_ok(event, window):
             return
         # Odkud klávesy přišly – k příkazu, který z nich vznikne (audit).
         # Skládá se až v PtyShell (po Enteru), proto se původ pamatuje tady.
@@ -491,7 +487,7 @@ class WindowsMixin:
     def _on_shell_resize(self, event) -> None:
         """Nová velikost terminálu z prohlížeče → SIGWINCH procesu."""
         window = self._reg.get(getattr(event, "window_id", None), ShellWindow)
-        if window is None or not self._grant_ok(event, window):
+        if window is None:
             return
         try:
             cols = int(getattr(event, "cols", 0))
@@ -510,9 +506,6 @@ class WindowsMixin:
         window_id = getattr(event, "window_id", None)
         raw = getattr(event, "values", None)
         if not isinstance(raw, dict):
-            return
-        okno = self._reg.get(window_id, ControlWindow)
-        if okno is not None and not self._grant_ok(event, okno):
             return
         with self._lock:
             window = self._reg.get(window_id, ControlWindow)

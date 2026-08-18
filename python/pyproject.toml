@@ -29,6 +29,10 @@ dev = [
     "httpx>=0.27",
     "pyotp>=2.9",
     "qrcode>=7.4",
+    # End-to-end testy v prohlížeči (tests/test_e2e_browser.py). Prohlížeč se
+    # doinstaluje zvlášť: `playwright install chromium`. Bez něj se ty testy
+    # přeskočí – zbytek sady na cizím stroji padat nemá.
+    "playwright>=1.40",
 ]
 # Historický extra: `pip install viewbase[mfa]` funguje dál, ale nic navíc
 # nepřináší – TOTP je od téhle verze ve standardních závislostech výše.

@@ -15,6 +15,22 @@ from typing import Any, Callable
 from .logger import logger
 
 
+class Needs:
+    """Co událost potřebuje, aby se vůbec dostala k handleru.
+
+    Není to enum kvůli jedné věci: hodnoty jdou do `_register(needs=…)` a
+    v kódu se čtou jako `Needs.GRANT`, ale v testech a introspekci registru
+    jako obyčejné řetězce."""
+
+    #: nic – událost neotevírá okno (menu, klik do grafu, `window_unlock`)
+    NONE = "none"
+    #: relace musí mít grant k oknu z `payload["window_id"]`
+    GRANT = "grant"
+
+
+NEEDS = {Needs.NONE, Needs.GRANT}
+
+
 class EventsMixin:
     def every(self, seconds: float, *,
               name: str | None = None) -> Callable[[Callable], Callable]:
@@ -67,47 +83,86 @@ class EventsMixin:
     def on(self, event: str,
            func: Callable[[Any], None]) -> Callable[[Any], None]:
         """Obecná registrace handleru eventu — vlastní eventy zvenčí přes
-        REST `/api/event` (např. „terminal_write" pushnutý časovačem)."""
-        return self._register(event, func)
+        REST `/api/event` (např. „terminal_write" pushnutý časovačem).
+
+        Uživatelské události grant nevyžadují: autor si je zavádí sám a ví,
+        co v nich dělá; knihovna nemá jak poznat, jestli sahají na okno."""
+        return self._register(event, func, needs=Needs.NONE)
 
     def on_click(self, func: Callable[[Any], None]) -> Callable[[Any], None]:
         """Dekorátor: klik na uzel. Event nese `.node_id` a `.client_id`;
         handler běží v thread-poolu, takže smí blokovat i mutovat canvas."""
-        return self._register("node_click", func)
+        return self._register("node_click", func, needs=Needs.NONE)
 
     def on_hover(self, func: Callable[[Any], None]) -> Callable[[Any], None]:
         """Dekorátor: najetí myší na uzel (`.node_id`, throttlováno klientem)."""
-        return self._register("node_hover", func)
+        return self._register("node_hover", func, needs=Needs.NONE)
 
     def on_background_click(
             self, func: Callable[[Any], None]) -> Callable[[Any], None]:
         """Dekorátor: klik mimo uzly – typicky zrušení výběru/zvýraznění."""
-        return self._register("background_click", func)
+        return self._register("background_click", func, needs=Needs.NONE)
 
     def on_view_change(
             self, func: Callable[[Any], None]) -> Callable[[Any], None]:
         """Dekorátor: pohyb kamery. Event nese `.position`, `.target`, `.zoom`
         (klient posílá throttlovaně, ~10×/s)."""
-        return self._register("view_change", func)
+        return self._register("view_change", func, needs=Needs.NONE)
 
-    def _register(self, event: str,
-                  func: Callable[[Any], None]) -> Callable[[Any], None]:
+    def _register(self, event: str, func: Callable[[Any], None], *,
+                  needs: str) -> Callable[[Any], None]:
+        """Zapoj handler VNITŘNÍ události a řekni, co k ní je potřeba.
+
+        `needs` je povinné schválně. Dřív se autorizace řešila tím, že si na
+        ni autor handleru vzpomněl – a u pěti z devíti událostí si nevzpomněl
+        nikdo (nalezeno až při práci na logování, viz commit 91029a2). Když
+        je požadavek součástí REGISTRACE, nejde novou událost přidat, aniž by
+        autor tu otázku zodpověděl, a celá autorizace se dá přečíst na jednom
+        místě místo čtení devíti funkcí.
+
+        - `Needs.GRANT` – událost sahá na okno; u zabezpečeného okna musí mít
+          relace grant (jinak se zahodí a jde to do auditu),
+        - `Needs.NONE` – událost žádné okno neotevírá (`window_unlock` je
+          naopak CESTA ke grantu, `menu_select` nic tajného nenese).
+        """
+        if needs not in NEEDS:
+            raise ValueError(
+                f"_register('{event}'): needs musí být jedno z {sorted(NEEDS)}"
+                " – u každé události se musí rozhodnout, co k ní je potřeba")
         with self._lock:
             self._handlers.setdefault(event, []).append(func)
+            self._event_needs[event] = needs
         return func
 
     def dispatch_event(self, name: str, payload: dict[str, Any]) -> None:
         """Spustí handlery eventu ve sdíleném thread-poolu (smí blokovat).
-        Neznámý event je no-op; výjimka handleru se zaloguje, server běží dál."""
+        Neznámý event je no-op; výjimka handleru se zaloguje, server běží dál.
+
+        AUTORIZACE SE ŘEŠÍ TADY, ne v handlerech: událost s `Needs.GRANT` se
+        k handleru vůbec nedostane, pokud relace nemá grant k jejímu oknu."""
         with self._lock:
             if self._closed:
                 return
             handlers = list(self._handlers.get(name, ()))
+            needs = self._event_needs.get(name, Needs.NONE)
         if not handlers:
             return
         event = types.SimpleNamespace(**payload)
+        if needs == Needs.GRANT and not self._event_allowed(name, event):
+            return
         for handler in handlers:
             self._executor.submit(self._run_handler, handler, name, event)
+
+    def _event_allowed(self, name: str, event: Any) -> bool:
+        """Smí tahle událost k handleru? (Jen pro `Needs.GRANT`.)
+
+        Okno se hledá podle `window_id` z payloadu; neexistující okno pustíme
+        dál – ať si handler sám řekne, že takové okno nezná (chybová hláška
+        patří jemu). Zabezpečené okno bez grantu se zahodí a jde do auditu."""
+        window = self._reg.get(getattr(event, "window_id", None))
+        if window is None:
+            return True
+        return self._grant_ok(event, window)
 
     @staticmethod
     def _run_handler(handler: Callable[[Any], None], name: str,

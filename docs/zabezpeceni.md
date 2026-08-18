@@ -208,6 +208,26 @@ Je to **doplněk auditu příkazů**, ne náhrada: audit dá čistý příkaz na
 `info` (a jde vždycky), tenhle stream ukáže i to, co se do příkazu nakonec
 nedostalo — historii, opravy, přerušení.
 
+### Autorizace je vlastnost registrace události
+
+Každá vnitřní událost při registraci **deklaruje, co k ní je potřeba**, a
+`dispatch_event` to vynutí dřív, než se k ní dostane handler:
+
+```python
+self._register("shell_input",   self._on_shell_input,   needs=Needs.GRANT)
+self._register("window_unlock", self._on_window_unlock, needs=Needs.NONE)
+```
+
+Bez `needs` registrace **skončí chybou**, takže se nová událost nedá přidat,
+aniž by autor tu otázku zodpověděl — a celá autorizace se dá přečíst na
+jednom místě místo čtení devíti funkcí. Vzniklo to z konkrétní zkušenosti:
+dokud se kontrola psala v každém handleru zvlášť, **pět z devíti událostí ji
+nemělo** a nikdo si toho několik týdnů nevšiml.
+
+`Needs.NONE` u `window_unlock` je záměr: to je cesta, jak grant získat
+(chrání ji kód z autentikátoru a rate limit). `menu_select` nenese nic
+tajného, `shell_new` vyrábí zamčené okno a má strop.
+
 ### Odemčení platí u každé zprávy, ne jen při otevření okna
 
 Grant relace se ověřuje u **všech** cest, kterými se dá do okna psát —
@@ -248,6 +268,27 @@ vyhodnocuje zpětně, je bez data řádek k ničemu.
 
 Do auditu jde **zdroj (IP)** u každé události; IP doplňuje server, ne klient,
 takže si ji nikdo nepřepíše payloadem.
+
+### Odkud smí přijít stránka (Origin)
+
+WebSocket **neprochází CORS**: cizí stránka otevřená v prohlížeči diváka se
+může připojit na váš server a prohlížeč jí v tom nezabrání. Grant tím
+nezíská — session id je v `localStorage`, na který nedosáhne, takže dostane
+prázdnou relaci — ale obsah **nezabezpečených** oken by viděla a mohla by
+posílat události.
+
+Server proto při handshaku kontroluje `Origin`: bez nastavení musí sedět na
+`Host` požadavku (tedy stránka z téhle instance), jmenovitý seznam se předá
+při startu:
+
+```python
+vb.Project(port=8443, tls=True,
+           allowed_origins=["https://workbench.firma.cz"])
+```
+
+Klient bez hlavičky `Origin` (curl, vlastní skript, testy) projde — není to
+prohlížeč, takže ho cizí stránka zneužít nemůže. Odmítnutí jde do auditu:
+`websocket refused – origin 'https://utocnik.example' not allowed`.
 
 ### Za reverzní proxy (nginx, Traefik)
 

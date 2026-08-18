@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Callable, Iterator
 
 from .controls import ControlWindow, HtmlWindow, ShellWindow, TerminalWindow
 from .menu import ScreenMenu
-from .events_mixin import EventsMixin
+from .events_mixin import EventsMixin, Needs
 from .flows_mixin import FlowsMixin
 from .graph_util import QUALITIES, _edge_key, _validated_theme
 from .keystrokes import KeystrokeLog
@@ -90,6 +90,9 @@ class GraphWindow(EventsMixin, FlowsMixin, WindowsMixin):
         self._batch_depth = 0
         self._pending = self._empty_pending()
         self._handlers: dict[str, list[Callable[[Any], None]]] = {}
+        # event -> co k němu je potřeba (Needs.*); plní `_register`, čte
+        # `dispatch_event`. Autorizace je tím čitelná na jednom místě.
+        self._event_needs: dict[str, str] = {}
         self._executor = ThreadPoolExecutor(
             max_workers=4, thread_name_prefix="viewbase-handler")
         self._actions: list[dict[str, Any]] = []
@@ -97,15 +100,19 @@ class GraphWindow(EventsMixin, FlowsMixin, WindowsMixin):
         self._node_label_template: str | None = None
         self._tasks: list[dict[str, Any]] = []      # every() úlohy
         self._tasks_stop: threading.Event | None = None   # None = neběží
-        self._register("window_submit", self._on_window_submit)
-        self._register("terminal_input", self._on_terminal_input)
-        self._register("html_event", self._on_html_event)
-        self._register("shell_new", self._on_shell_new)
-        self._register("window_unlock", self._on_window_unlock)
-        self._register("window_lock", self._on_window_lock)
-        self._register("shell_input", self._on_shell_input)
-        self._register("shell_resize", self._on_shell_resize)
-        self._register("menu_select", self._on_menu_select)
+        # AUTORIZAČNÍ MAPA CELÉ KNIHOVNY – čitelná na jednom místě.
+        # `Needs.GRANT` = zabezpečené okno vyžaduje grant relace; `Needs.NONE`
+        # = událost okno neotevírá. `window_unlock` je NONE schválně: je to
+        # cesta, jak grant získat (chrání ji kód a rate limit v mfa.py).
+        self._register("window_submit", self._on_window_submit, needs=Needs.GRANT)
+        self._register("terminal_input", self._on_terminal_input, needs=Needs.GRANT)
+        self._register("html_event", self._on_html_event, needs=Needs.GRANT)
+        self._register("shell_input", self._on_shell_input, needs=Needs.GRANT)
+        self._register("shell_resize", self._on_shell_resize, needs=Needs.GRANT)
+        self._register("window_lock", self._on_window_lock, needs=Needs.GRANT)
+        self._register("window_unlock", self._on_window_unlock, needs=Needs.NONE)
+        self._register("shell_new", self._on_shell_new, needs=Needs.NONE)
+        self._register("menu_select", self._on_menu_select, needs=Needs.NONE)
         if screen is not None:
             self._adopt_screen(screen)
 
