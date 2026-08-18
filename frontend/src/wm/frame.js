@@ -89,15 +89,16 @@ export class WindowFrame {
     ].join(';');
     this.vtrack = document.createElement('div');
     this.vtrack.dataset.role = 'vb-frame-vtrack';
+    // dráha bez rámečku (designová poznámka uživatele: „airy" – knob a
+    // šipky stojí volně v pruhu, jen oddělovací linka od obsahu zůstává)
     this.vtrack.style.cssText = [
-      'position:absolute', 'left:3px', 'right:3px', `top:${ARROW_PX + 2}px`,
-      `bottom:${ARROW_PX + 2}px`, `border:1px solid ${color}`, 'box-sizing:border-box',
-      'cursor:pointer',
+      'position:absolute', 'left:4px', 'right:4px', `top:${ARROW_PX + 2}px`,
+      `bottom:${ARROW_PX + 2}px`, 'box-sizing:border-box', 'cursor:pointer',
     ].join(';');
     this.vknob = document.createElement('div');
     this.vknob.dataset.role = 'vb-frame-vknob';
     this.vknob.style.cssText = [
-      'position:absolute', 'left:1px', 'right:1px', 'top:0', 'height:100%',
+      'position:absolute', 'left:0', 'right:0', 'top:0', 'height:100%',
       `background:${knobColor}`, 'box-shadow:var(--vb-frame-glow, none)',
       'cursor:grab', 'touch-action:none',
     ].join(';');
@@ -117,14 +118,13 @@ export class WindowFrame {
     this.htrack = document.createElement('div');
     this.htrack.dataset.role = 'vb-frame-htrack';
     this.htrack.style.cssText = [
-      'position:absolute', 'top:3px', 'bottom:3px', `left:${ARROW_PX + 2}px`,
-      `right:${ARROW_PX + 2}px`, `border:1px solid ${color}`, 'box-sizing:border-box',
-      'cursor:pointer',
+      'position:absolute', 'top:4px', 'bottom:4px', `left:${ARROW_PX + 2}px`,
+      `right:${ARROW_PX + 2}px`, 'box-sizing:border-box', 'cursor:pointer',
     ].join(';');
     this.hknob = document.createElement('div');
     this.hknob.dataset.role = 'vb-frame-hknob';
     this.hknob.style.cssText = [
-      'position:absolute', 'top:1px', 'bottom:1px', 'left:0', 'width:100%',
+      'position:absolute', 'top:0', 'bottom:0', 'left:0', 'width:100%',
       `background:${knobColor}`, 'box-shadow:var(--vb-frame-glow, none)',
       'cursor:grab', 'touch-action:none',
     ].join(';');
@@ -182,11 +182,11 @@ export class WindowFrame {
       if (!drag) return;
       const t = drag.target;
       if (axis === 'v') {
-        const trackLen = track.clientHeight - 2;
+        const trackLen = track.clientHeight;
         const offset = drag.start + (e.clientY - drag.pos);
         t.scrollTop = scrollFromKnob(offset, trackLen, knob.offsetHeight, t.scrollHeight, t.clientHeight);
       } else {
-        const trackLen = track.clientWidth - 2;
+        const trackLen = track.clientWidth;
         const offset = drag.start + (e.clientX - drag.pos);
         t.scrollLeft = scrollFromKnob(offset, trackLen, knob.offsetWidth, t.scrollWidth, t.clientWidth);
       }
@@ -265,13 +265,13 @@ export class WindowFrame {
   update() {
     if (!this.enabled) return;
     const t = this.getTarget();
-    const vLen = Math.max(0, this.vtrack.clientHeight - 2);
+    const vLen = Math.max(0, this.vtrack.clientHeight);
     const v = t ? knobGeometry(t.scrollTop, t.scrollHeight, t.clientHeight, vLen)
       : { offset: 0, size: 0 };
     this.vknob.style.display = v.size > 0 ? 'block' : 'none';   // nic k posunu = prázdná dráha
     this.vknob.style.top = `${v.offset}px`;
     this.vknob.style.height = `${v.size}px`;
-    const hLen = Math.max(0, this.htrack.clientWidth - 2);
+    const hLen = Math.max(0, this.htrack.clientWidth);
     const h = t ? knobGeometry(t.scrollLeft, t.scrollWidth, t.clientWidth, hLen)
       : { offset: 0, size: 0 };
     this.hknob.style.display = h.size > 0 ? 'block' : 'none';
