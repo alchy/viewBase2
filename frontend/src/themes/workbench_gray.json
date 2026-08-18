@@ -21,6 +21,7 @@
     "shadow": "0 2px 0 rgba(0,0,0,0.35)",
     "backdropPattern": "flat",
     "outputBg": "rgba(0,0,0,0.10)",
+    "terminalBg": "transparent",
     "iconSet": "workbench-classic",
     "font": "topaz-8"
   }

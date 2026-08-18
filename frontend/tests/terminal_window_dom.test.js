@@ -60,6 +60,27 @@ describe('TerminalWindow — Options Word Wrap', () => {
   });
 });
 
+describe('TerminalWindow — jedna plocha jako AmigaShell', () => {
+  beforeEach(() => vi.stubGlobal('localStorage', fakeStorage));
+
+  it('prompt + vstup je poslední řádek výstupní plochy; append vkládá před něj', () => {
+    const { win } = makeTerminal();
+    expect(win.inputRow.parentElement).toBe(win.output);
+    win.append('řádek 1');
+    win.append('řádek 2');
+    const kids = [...win.output.children];
+    expect(kids.slice(0, 2).map((k) => k.textContent)).toEqual(['řádek 1', 'řádek 2']);
+    expect(kids[kids.length - 1]).toBe(win.inputRow);       // prompt zůstává poslední
+  });
+
+  it('vstup bez rámečku a pozadí, kurzor v barvě klíčů z tématu', () => {
+    const { win } = makeTerminal();
+    expect(win.input.style.background).toBe('transparent');
+    expect(win.input.style.border).toMatch(/^0(px)?$/);
+    expect(win.input.style.caretColor).toContain('--vb-terminal-caret');
+  });
+});
+
 describe('TerminalWindow — tail při změně velikosti', () => {
   beforeEach(() => vi.stubGlobal('localStorage', fakeStorage));
 

@@ -320,19 +320,31 @@ export class BaseWindow {
       const grip = document.createElement('div');
       grip.dataset.role = `vb-resize-${corner}`;
       if (corner === 'se') {
+        // Krabička v rohu (Workbench: neprůhledná v barvě lišty s rámečkem,
+        // obsah pod ní neprosvítá – docs/images/workbench-ref/amigashell-
+        // hamurabi.png; jiná témata: průhledná, zůstává jen glyf). Barvy
+        // dodá téma přes --vb-window-grip-* (themes/manager.js).
         grip.style.cssText = [
-          'position:absolute', 'bottom:1px', 'right:1px',
+          'position:absolute', 'bottom:0', 'right:0',
           `width:${GRIP_PX}px`, `height:${GRIP_PX}px`,   // hit-area > vizuál
-          'touch-action:none', 'cursor:nwse-resize',
-          // gadget leží na TĚLE okna → barva textu těla (bodyFg), ne
-          // --vb-window-gadget: ta je laděná k liště a na modrém těle
-          // workbench témat by splynula (modrá na modré)
-          'background:var(--vb-window-body-fg, #8a93a3)',
-          // odsazení od rámu okna (uživatelská oprava: glyf se nemá dotýkat
-          // dolní čáry) – 6px, aby minul i zaoblení rohu (border-radius 6px)
-          `-webkit-mask:url("${resizeIcon}") right 4px bottom 6px/16px 16px no-repeat`,
-          `mask:url("${resizeIcon}") right 4px bottom 6px/16px 16px no-repeat`,
+          'box-sizing:border-box', 'touch-action:none', 'cursor:nwse-resize',
+          'background:var(--vb-window-grip-bg, transparent)',
+          'border-left:1px solid var(--vb-window-grip-border, transparent)',
+          'border-top:1px solid var(--vb-window-grip-border, transparent)',
+          'border-bottom-right-radius:5px',
         ].join(';');
+        const glyph = document.createElement('div');
+        glyph.dataset.role = 'vb-resize-glyph';
+        glyph.style.cssText = [
+          'position:absolute', 'right:4px', 'bottom:5px', 'width:16px', 'height:16px',
+          // glyf: v barvě lišty na krabičce (workbench), jinak barva textu
+          // těla – ne --vb-window-gadget, ta by na modrém těle splynula
+          'background:var(--vb-window-grip-fg, var(--vb-window-body-fg, #8a93a3))',
+          `-webkit-mask:url("${resizeIcon}") center/16px 16px no-repeat`,
+          `mask:url("${resizeIcon}") center/16px 16px no-repeat`,
+          'pointer-events:none',
+        ].join(';');
+        grip.appendChild(glyph);
       } else {
         grip.style.cssText = [
           'position:absolute', 'bottom:2px', 'left:2px',

@@ -88,6 +88,25 @@ describe('HTML okno – proměnné tématu', () => {
     expect(root.vars.get('--vb-window-output-bg')).toBe('rgba(255,255,255,0.05)');
   });
 
+  it('terminál: workbench bez podkladu plochy (holé tělo), modern jemný podklad; kurzor = klíče', () => {
+    const wb = fakeRoot(); applyCssVars(resolveTheme('workbench-amiga'), wb);
+    expect(wb.vars.get('--vb-terminal-bg')).toBe('transparent');
+    expect(wb.vars.get('--vb-terminal-caret')).toBe('#ff8800');
+    const mo = fakeRoot(); applyCssVars(resolveTheme('modern'), mo);
+    expect(mo.vars.get('--vb-terminal-bg')).toBe('rgba(0,0,0,0.06)');
+    expect(mo.vars.get('--vb-terminal-caret')).toBe('#667788');
+  });
+
+  it('sizing gadget: workbench neprůhledná krabička v barvě lišty, modern průhledný glyf', () => {
+    const wb = fakeRoot(); applyCssVars(resolveTheme('workbench-amiga'), wb);
+    expect(wb.vars.get('--vb-window-grip-bg')).toBe('#ffffff');
+    expect(wb.vars.get('--vb-window-grip-fg')).toBe('#0057af');
+    expect(wb.vars.get('--vb-window-grip-border')).toBe('#0057af');
+    const mo = fakeRoot(); applyCssVars(resolveTheme('modern'), mo);
+    expect(mo.vars.get('--vb-window-grip-bg')).toBe('transparent');
+    expect(mo.vars.get('--vb-window-grip-fg')).toBe('#1f2430');
+  });
+
   it('workbench-amiga: htmlAccent bílá (gadget splývá s modrým tělem)', () => {
     const root = fakeRoot();
     applyCssVars(resolveTheme('workbench-amiga'), root);

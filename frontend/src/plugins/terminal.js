@@ -88,38 +88,49 @@ export class TerminalWindow extends BaseWindow {
     body.style.cssText = [
       'padding:6px 8px', `width:${this.widthChars}ch`, 'max-width:92vw',
       'font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace',
-      'display:flex', 'flex-direction:column', 'gap:6px',
+      'display:flex', 'flex-direction:column',
     ].join(';');
 
+    // JEDNA plocha jako AmigaShell (docs/images/workbench-ref/amigashell-
+    // hamurabi.png): řádky výstupu a pod nimi prompt + vstup ve stejné ploše
+    // (sdílí podklad, scrollují spolu, žádný oddělený vstupní řádek/rámeček).
+    // Téma řídí jen barvy: podklad `--vb-terminal-bg` (workbench transparent
+    // = holé tělo okna), kurzor `--vb-terminal-caret` (barva klíčů).
     const output = document.createElement('div');
     output.dataset.role = 'terminal-output';
     output.style.cssText = [
-      // výchozí výška; po ruční změně velikosti okna výstup dorovná zbytek
+      // výchozí výška; po ruční změně velikosti okna plocha dorovná zbytek
       // těla (flex), takže konzole roste s oknem
       `height:${OUTPUT_HEIGHT_PX}px`, 'flex:1 1 auto', 'min-height:0',
       'overflow-y:auto', 'overflow-x:hidden',
       'white-space:pre-wrap', 'word-break:break-word',   // viz setWordWrap
-      'background:var(--vb-window-output-bg, rgba(0,0,0,0.06))',
+      'background:var(--vb-terminal-bg, var(--vb-window-output-bg, rgba(0,0,0,0.06)))',
       'border-radius:4px', 'padding:6px 8px',
     ].join(';');
     this.output = output;
-
     body.append(output);
+
     // input=false: čistě výstupní panel (živé okno bez dialogu) — žádný
     // prompt ani vstupní řádek
     if (this.hasInput) {
       const inputRow = document.createElement('div');
-      inputRow.style.cssText = 'display:flex;align-items:center;gap:4px';
+      inputRow.dataset.role = 'terminal-input-row';
+      inputRow.style.cssText = 'display:flex;align-items:baseline;gap:0';
       const promptEl = document.createElement('span');
       promptEl.textContent = this.prompt;
-      promptEl.style.cssText =
-        'color:var(--vb-window-key, #667788);flex:0 0 auto';
-      // Obyčejný viditelný <input> jako v ControlWindow — na přímý klik se
-      // nativně zafokusuje a KeyboardControls přestane ovládat kameru.
+      promptEl.style.cssText = 'color:var(--vb-window-key, #667788);flex:0 0 auto;white-space:pre';
+      // Vstup splyne s výstupem: bez rámečku a pozadí, písmo i barva okna,
+      // kurzor v barvě klíčů (oranžový blok AmigaShellu aproximuje caret).
+      // Je to pořád <input>, takže KeyboardControls (isEditableFocused) při
+      // psaní neovládá kameru a klik do řádku ho nativně zafokusuje.
       const input = document.createElement('input');
       input.type = 'text';
       input.dataset.role = 'terminal-input';
-      input.style.cssText = 'flex:1 1 auto;min-width:0;font:inherit';
+      input.style.cssText = [
+        'flex:1 1 auto', 'min-width:0', 'font:inherit', 'color:inherit',
+        'background:transparent', 'border:0', 'outline:none', 'padding:0',
+        'margin:0', 'caret-color:var(--vb-terminal-caret, auto)',
+      ].join(';');
       input.addEventListener('keydown', (e) => {
         if (e.key !== 'Enter') return;
         e.stopPropagation();
@@ -129,7 +140,12 @@ export class TerminalWindow extends BaseWindow {
       });
       this.input = input;
       inputRow.append(promptEl, input);
-      body.append(inputRow);
+      output.append(inputRow);        // prompt je poslední řádek plochy
+      this.inputRow = inputRow;
+      // klik kamkoli do prázdné plochy = fokus do řádku (jako v shellu)
+      output.addEventListener('click', (e) => {
+        if (e.target === output) input.focus();
+      });
     }
 
     this.body = body;
@@ -144,12 +160,13 @@ export class TerminalWindow extends BaseWindow {
   append(text) {
     const line = document.createElement('div');
     line.textContent = String(text ?? '');
-    this.output.appendChild(line);
+    if (this.inputRow) this.output.insertBefore(line, this.inputRow);   // prompt zůstává poslední
+    else this.output.appendChild(line);
     this.output.scrollTop = this.output.scrollHeight;
   }
 
   _renderBody() {
-    // výstup i vstup persistují v DOM; téma/obnova nevyžadují rebuild
+    // výstup i vstup persistují v DOM; téma řeší CSS proměnné, rebuild není potřeba
   }
 }
 

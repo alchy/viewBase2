@@ -41,6 +41,19 @@ export function applyCssVars(theme, root = document.documentElement) {
       // výstupní plochy sdílí terminál i <pre>/<code> v HTML okně.
       '--vb-html-accent': w.htmlAccent ?? w.gadget,
       '--vb-window-output-bg': w.outputBg ?? 'rgba(0,0,0,0.06)',
+      // Terminál je vždy jedna plocha jako AmigaShell (docs/images/workbench-
+      // ref/amigashell-hamurabi.png): výstup i prompt bez odděleného vstupního
+      // řádku; téma řídí jen barvy – podklad plochy (`terminalBg`, workbench
+      // transparent = holé tělo okna) a kurzor (barva klíčů).
+      '--vb-terminal-bg': w.terminalBg ?? w.outputBg ?? 'rgba(0,0,0,0.06)',
+      '--vb-terminal-caret': w.key ?? w.gadget ?? 'auto',
+      // Sizing gadget v pravém dolním rohu: Workbench (`bevel: "hard"`) ho
+      // kreslí jako NEPRŮHLEDNOU krabičku v rámu (bílý čtverec s glyfem v
+      // barvě lišty – docs/images/workbench-ref/amigashell-hamurabi.png),
+      // obsah okna pod ním neprosvítá; ostatní témata jen glyf na těle okna.
+      '--vb-window-grip-bg': w.bevel === 'hard' ? (w.headerBg ?? '#ffffff') : 'transparent',
+      '--vb-window-grip-fg': w.bevel === 'hard' ? (w.headerFg ?? w.gadget) : (w.bodyFg ?? '#8a93a3'),
+      '--vb-window-grip-border': w.bevel === 'hard' ? (w.headerFg ?? w.gadget) : 'transparent',
     };
     for (const [name, value] of Object.entries(map)) {
       if (value != null) root.style.setProperty(name, value);
