@@ -115,6 +115,18 @@ describe('ShellWindow – běžící terminál', () => {
     off();
   });
 
+  it('vlastní scrollbary xtermu jsou schované (kreslí je rám okna)', () => {
+    // xterm 6 kreslí DVA: nativní na `.xterm-viewport` a vlastní div
+    // `.scrollbar` (scrollable element z VS Code). Ten druhý `scrollbar-width`
+    // neřeší a byl v okně vidět vedle scrollbaru rámu (uživatelská poznámka).
+    const { windowManager } = setup();
+    const win = open(windowManager);
+    const css = [...win.termEl.querySelectorAll('style')].map((s) => s.textContent).join('');
+    expect(css).toContain('.xterm-viewport{scrollbar-width:none}');
+    expect(css).toContain('.xterm-viewport::-webkit-scrollbar{width:0;height:0}');
+    expect(css).toContain('.xterm-scrollable-element>.scrollbar{display:none}');
+  });
+
   it('zavření okna terminál uklidí', async () => {
     const { windowManager } = setup();
     const win = open(windowManager);

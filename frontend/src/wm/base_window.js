@@ -133,6 +133,12 @@ export class BaseWindow {
   // -- po nastavení polí podtřídy --
   _mount() {
     this.container.appendChild(this.el);
+    // TEXT V TĚLE OKNA JDE OZNAČIT A ZKOPÍROVAT (uživatelský požadavek).
+    // `user-select:none` zůstává na okně jako celku – tažení za lištu ani
+    // klik na gadget nesmí označovat text – a povolí se jen uvnitř těla,
+    // takže to platí pro všechny typy oken naráz (log, konzole, HTML,
+    // detail, formulář). Kurzor nechává prohlížeč sám (I-beam nad textem).
+    if (this.body) this.body.style.userSelect = 'text';
     this._buildGrips();
     // Rám se scrollbary (Workbench témata) – zapíná/vypíná téma, viz _syncFrame
     this.wframe = new WindowFrame(this, () => this._scrollTarget());

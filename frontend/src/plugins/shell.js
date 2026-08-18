@@ -116,11 +116,18 @@ export class ShellWindow extends BaseWindow {
     term.dataset.role = 'shell-term';
     term.style.cssText = 'flex:1 1 auto;min-height:0';
     this.termEl = term;
-    // vnitřní scrollbar xtermu schovat (kreslí ho rám okna); scrollbar-width
-    // nezná starší WebKit, proto i ::-webkit-scrollbar
+    // VNITŘNÍ SCROLLBAR XTERMU PRYČ – posun kreslí rám okna (wm/frame.js),
+    // dva pruhy vedle sebe jsou rušivé (uživatelská poznámka). Xterm 6 jich
+    // má dva druhy: nativní scrollbar `.xterm-viewport` (scrollbar-width
+    // nezná starší WebKit, proto i ::-webkit-scrollbar) a VLASTNÍ, kreslený
+    // divem `.scrollbar.vertical > .slider` (převzatý scrollable element z
+    // VS Code) – ten `scrollbar-width` neřeší a byl pořád vidět.
     const hide = document.createElement('style');
-    hide.textContent = '[data-role="shell-term"] .xterm-viewport{scrollbar-width:none}'
-      + '[data-role="shell-term"] .xterm-viewport::-webkit-scrollbar{width:0;height:0}';
+    hide.textContent = [
+      '[data-role="shell-term"] .xterm-viewport{scrollbar-width:none}',
+      '[data-role="shell-term"] .xterm-viewport::-webkit-scrollbar{width:0;height:0}',
+      '[data-role="shell-term"] .xterm-scrollable-element>.scrollbar{display:none}',
+    ].join('');
     term.appendChild(hide);
 
     body.append(term);

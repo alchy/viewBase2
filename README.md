@@ -548,6 +548,11 @@ vývojáři přes `define_type`/`update_node`.
   nikdy přes HTTP — kdo ho uvidí, zaregistruje si vlastní autentikátor, takže
   ho vidí jedině ten, kdo na stroj už vidí; `/api/mfa/setup` proto neexistuje.
   Cestu k domovu přesměruje `VIEWBASE_HOME` (kontejnery, testy).
+- **Výběr textu** — text v těle okna jde **označit a zkopírovat** (log,
+  konzole, detail, HTML panel); chrome okna (lišta, gadgety, scrollbary) se
+  neoznačuje, takže tažení za lištu nikdy neoznačí text. Shell okno má vlastní
+  výběr xtermu (myš + ⌘C), a jeho vnitřní scrollbary jsou schované — posun
+  kreslí rám okna, dva pruhy vedle sebe by se bily.
 - **Indikátor fokusu** — v liště hned **za textem titulku** svítí drobná
   plná značka na okně, které je aktivní (patří mu Options i klávesnice).
   Je to jediný vyplněný prvek v jinak linkovém chrome, takže se neplete s

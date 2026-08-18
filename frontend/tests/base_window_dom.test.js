@@ -30,6 +30,22 @@ function makeWindow(id, { closable } = {}) {
   return win;
 }
 
+describe('BaseWindow — výběr textu', () => {
+  beforeEach(() => {
+    store.clear();
+    vi.stubGlobal('localStorage', fakeStorage);
+  });
+
+  it('text v těle okna jde označit, chrome okna ne', () => {
+    // uživatelský požadavek: z textových oken (log, konzole, detail…) se
+    // musí dát kopírovat; `user-select:none` zůstává na okně jako celku,
+    // aby tažení za lištu neoznačovalo text
+    const win = makeWindow('vyber');
+    expect(win.body.style.userSelect).toBe('text');
+    expect(win.el.style.userSelect).toBe('none');
+  });
+});
+
 describe('BaseWindow — perzistence pozice', () => {
   beforeEach(() => {
     store.clear();
