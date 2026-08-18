@@ -165,6 +165,9 @@ export class TerminalWindow extends BaseWindow {
     this.output.scrollTop = this.output.scrollHeight;
   }
 
+  /** Svislý scrollbar rámu (workbench) sleduje výstupní plochu, ne tělo. */
+  _scrollTarget() { return this.output ?? null; }
+
   _renderBody() {
     // výstup i vstup persistují v DOM; téma řeší CSS proměnné, rebuild není potřeba
   }

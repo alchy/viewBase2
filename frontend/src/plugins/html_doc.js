@@ -86,7 +86,9 @@ export const BOILERPLATE_CSS = [
  *  každý submit je preventDefault – žádná navigace.
  *  Dovnitř: `vb-html-append` připíše fragment a drží konec, když byl vidět
  *  (jako terminál); `vb-html-patch` nahradí prvek podle id (rozepsaný text a
- *  fokus ostatních polí přežijí). */
+ *  fokus ostatních polí přežijí); `vb-html-scrollto` posune obsah (šipky/
+ *  knob rámu okna), `vb-html-frame` schová vnitřní scrollbar, když rám okna
+ *  kreslí vlastní. Ven navíc `vb-html-scroll` = metriky scrollu pro rám. */
 export const BRIDGE_JS = [
   '(function(){',
   'function attr(el,n){return el.hasAttribute(n)?el.getAttribute(n):null;}',
@@ -135,15 +137,27 @@ export const BRIDGE_JS = [
   ' var f=e.target;e.preventDefault();if(!f||f.tagName!=="FORM")return;',
   ' send("submit",attr(f,"data-vb-event")||attr(f,"name")||"submit",attr(f,"data-vb-id"),attr(f,"data-vb-value"),collect(f));',
   '});',
+  // scroll metriky pro rám okna (WB scrollbary kreslí rodič): hlásí se po
+  // scrollu, po změně obsahu a po načtení; rodič posílá posun zpět
+  'var se=function(){return document.scrollingElement||document.documentElement;};',
+  'var rep=null;function report(){if(rep)return;rep=requestAnimationFrame(function(){rep=null;var s=se();',
+  ' parent.postMessage({type:"vb-html-scroll",top:s.scrollTop,left:s.scrollLeft,height:s.scrollHeight,width:s.scrollWidth,cH:s.clientHeight,cW:s.clientWidth},"*");});}',
+  'window.addEventListener("scroll",report,{passive:true});',
+  'window.addEventListener("resize",report);',
+  'window.addEventListener("load",report);',
   'window.addEventListener("message",function(e){',
   ' var d=e.data;if(!d)return;',
   ' if(d.type==="vb-html-append"){',
-  '  var s=document.scrollingElement||document.documentElement;',
+  '  var s=se();',
   '  var pinned=s.scrollTop+s.clientHeight>=s.scrollHeight-4;',
   '  document.body.insertAdjacentHTML("beforeend",d.html);',
-  '  if(pinned)s.scrollTop=s.scrollHeight;',
+  '  if(pinned)s.scrollTop=s.scrollHeight;report();',
   ' }else if(d.type==="vb-html-patch"){',
-  '  var el=document.getElementById(d.id);if(el)el.outerHTML=d.html;',
+  '  var el=document.getElementById(d.id);if(el)el.outerHTML=d.html;report();',
+  ' }else if(d.type==="vb-html-scrollto"){',
+  '  var t=se();if(typeof d.top==="number")t.scrollTop=d.top;if(typeof d.left==="number")t.scrollLeft=d.left;report();',
+  ' }else if(d.type==="vb-html-frame"){',
+  '  document.documentElement.style.scrollbarWidth=d.on?"none":"";report();',
   ' }',
   '});',
   '})();',

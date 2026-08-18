@@ -81,6 +81,18 @@ describe('TerminalWindow — jedna plocha jako AmigaShell', () => {
   });
 });
 
+describe('TerminalWindow — rám (workbench) sleduje výstupní plochu', () => {
+  beforeEach(() => vi.stubGlobal('localStorage', fakeStorage));
+
+  it('scroll cíl rámu je výstupní plocha, ne tělo', () => {
+    const { win } = makeTerminal();
+    expect(win._scrollTarget()).toBe(win.output);
+    win.container.style.setProperty('--vb-window-frame', '1');
+    win.applyTheme();
+    expect(win.output.style.scrollbarWidth).toBe('none');
+  });
+});
+
 describe('TerminalWindow — tail při změně velikosti', () => {
   beforeEach(() => vi.stubGlobal('localStorage', fakeStorage));
 

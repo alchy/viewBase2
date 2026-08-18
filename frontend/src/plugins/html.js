@@ -18,6 +18,38 @@ import { buildSrcdoc, readThemeVars, sanitizeHtml } from './html_doc.js';
 
 const PX_PER_CH = 8;   // BaseWindow layout počítá šířku ve znacích (jako terminál)
 
+/** Scroll „cíl" pro rám okna (wm/frame.js), když obsah scrolluje uvnitř
+ *  iframu: metriky přicházejí zprávou vb-html-scroll z mostu, zápis do
+ *  scrollTop/scrollLeft posílá vb-html-scrollto zpět. Stejné rozhraní jako
+ *  DOM element (scrollTop/Height/clientHeight…), jen bez addEventListener –
+ *  rám se přihlásí přes subscribe(). */
+class IframeScrollProxy {
+  constructor(win) {
+    this.win = win;
+    this.top = 0; this.left = 0; this.height = 0; this.width = 0; this.cH = 0; this.cW = 0;
+    this._subs = new Set();
+  }
+
+  update(m) {
+    this.top = Number(m.top) || 0; this.left = Number(m.left) || 0;
+    this.height = Number(m.height) || 0; this.width = Number(m.width) || 0;
+    this.cH = Number(m.cH) || 0; this.cW = Number(m.cW) || 0;
+    for (const cb of this._subs) cb();
+  }
+
+  subscribe(cb) { this._subs.add(cb); return () => this._subs.delete(cb); }
+  setFrame(on) { this.win._send({ type: 'vb-html-frame', on: Boolean(on) }); }
+
+  get scrollTop() { return this.top; }
+  set scrollTop(v) { this.win._send({ type: 'vb-html-scrollto', top: Math.max(0, Number(v) || 0) }); }
+  get scrollLeft() { return this.left; }
+  set scrollLeft(v) { this.win._send({ type: 'vb-html-scrollto', left: Math.max(0, Number(v) || 0) }); }
+  get scrollHeight() { return this.height; }
+  get scrollWidth() { return this.width; }
+  get clientHeight() { return this.cH; }
+  get clientWidth() { return this.cW; }
+}
+
 export class HtmlWindow extends BaseWindow {
   constructor({ id, title, width, height, html, closable, container, manager,
     onEvent }) {
@@ -30,6 +62,7 @@ export class HtmlWindow extends BaseWindow {
     this.onEvent = onEvent;
     this._loaded = false;
     this._queue = [];          // zprávy mostu (append/patch) před načtením iframu
+    this.scroll = new IframeScrollProxy(this);
     this._buildBody();
     this._mount();
   }
@@ -54,6 +87,8 @@ export class HtmlWindow extends BaseWindow {
       this._loaded = true;
       for (const msg of this._queue) this._post(msg);
       this._queue.length = 0;
+      // nový dokument neví, že rám okna kreslí scrollbary sám
+      if (this.wframe?.enabled) this._post({ type: 'vb-html-frame', on: true });
     });
     this.frame = frame;
     body.appendChild(frame);
@@ -121,6 +156,10 @@ export class HtmlWindow extends BaseWindow {
       value: data.value === undefined ? null : data.value, values });
   }
 
+  /** Obsah scrolluje uvnitř iframu – rám okna sleduje proxy (metriky z
+   *  mostu, posun zpět zprávou). */
+  _scrollTarget() { return this.scroll; }
+
   applyTheme() {
     super.applyTheme();
     if (!this.isMinimized) this._render();
@@ -150,9 +189,13 @@ export function createHtmlPlugin({ container, windowManager, sendEvent, onThemeC
   // Most: zprávy z iframů. Přijímá se jen zpráva, jejíž source je
   // contentWindow NAŠEHO okna – cizí okna/iframy na stránce se ignorují.
   window.addEventListener('message', (e) => {
-    if (!e.data || e.data.type !== 'vb-html-event') return;
+    const type = e.data?.type;
+    if (type !== 'vb-html-event' && type !== 'vb-html-scroll') return;
     for (const win of windows) {
-      if (win.frame.contentWindow === e.source) { win.handleBridgeEvent(e.data); return; }
+      if (win.frame.contentWindow !== e.source) continue;
+      if (type === 'vb-html-event') win.handleBridgeEvent(e.data);
+      else win.scroll.update(e.data);           // rám okna překreslí knoby
+      return;
     }
   });
   onThemeChange?.(() => {

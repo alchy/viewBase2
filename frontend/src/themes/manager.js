@@ -54,6 +54,10 @@ export function applyCssVars(theme, root = document.documentElement) {
       '--vb-window-grip-bg': w.bevel === 'hard' ? (w.headerBg ?? '#ffffff') : 'transparent',
       '--vb-window-grip-fg': w.bevel === 'hard' ? (w.headerFg ?? w.gadget) : (w.bodyFg ?? '#8a93a3'),
       '--vb-window-grip-border': w.bevel === 'hard' ? (w.headerFg ?? w.gadget) : 'transparent',
+      // Rám okna se scrollbary vpravo/dole (wm/frame.js) – aktivní plocha je
+      // o pruhy menší, scroll prvky nezasahují do obsahu (WB 1.3 reference
+      // docs/images/workbench-ref/window-corner-scrollbars-wb13.jpg).
+      '--vb-window-frame': w.bevel === 'hard' ? '1' : '0',
     };
     for (const [name, value] of Object.entries(map)) {
       if (value != null) root.style.setProperty(name, value);

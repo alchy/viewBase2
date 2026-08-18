@@ -16,9 +16,11 @@
 import closeIcon from '../assets/gadgets/close.png';
 import depthIcon from '../assets/gadgets/depth.png';
 import resizeIcon from '../assets/gadgets/resize.png';
+import screenDepthIcon from '../assets/gadgets/screen-depth.png';
 import zoomIcon from '../assets/gadgets/zoom.png';
 import { wirePointerDrag } from './drag.js';
 import { SCREEN_BAR_HEIGHT } from './drag_reveal.js';
+import { FRAME_PX, WindowFrame } from './frame.js';
 
 export function clampToCanvas(x, y, w, h, bounds) {
   const maxX = Math.max(0, bounds.width - w);
@@ -140,6 +142,9 @@ export class BaseWindow {
   _mount() {
     this.container.appendChild(this.el);
     this._buildGrips();
+    // Rám se scrollbary (Workbench témata) – zapíná/vypíná téma, viz _syncFrame
+    this.wframe = new WindowFrame(this, () => this._scrollTarget());
+    this._syncFrame();
     // perzistence: uložený záznam (localStorage) má přednost před kaskádou
     const saved = this._loadPos();
     if (saved && Number.isFinite(saved.w) && Number.isFinite(saved.h)) {
@@ -237,6 +242,16 @@ export class BaseWindow {
       this.minimize();
     });
 
+    // Depth gadget – STEJNÁ ikona i funkce jako na liště screenu vpravo
+    // nahoře (přepnutí screenu za ostatní): klik pošle okno ZA ostatní okna,
+    // každé okno má své Z (uživatelský požadavek, WB 1.3 reference).
+    this.depthGadget = this._gadget('depth', screenDepthIcon);
+    this.depthGadget.title = 'Za ostatní okna';
+    this.depthGadget.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.sendToBack();
+    });
+
     this.restoreGadget = this._gadget('restore', depthIcon);
     this.restoreGadget.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -245,7 +260,7 @@ export class BaseWindow {
     this.restoreGadget.style.display = 'none';
 
     if (this.closeGadget) bar.append(this.closeGadget);
-    bar.append(this.titleEl, this.minGadget, this.restoreGadget);
+    bar.append(this.titleEl, this.minGadget, this.depthGadget, this.restoreGadget);
     this._dragFromHeader(bar);
     // dvojklik na lištu = maximalizace / návrat předchozí velikosti
     // (uživatelský požadavek: „stejně jako u některých OS")
@@ -307,6 +322,32 @@ export class BaseWindow {
   }
 
   _headerH() { return this.bar.offsetHeight || DOCK_SLOT_HEIGHT; }
+
+  /** Výška spodního pruhu rámu (0 bez rámu) – o tolik je tělo nižší. */
+  _frameH() { return this.wframe?.enabled ? FRAME_PX : 0; }
+
+  /** Scroll kontejner okna pro svislý scrollbar rámu: tělo (detail/control/
+   *  log); terminál přebíjí na výstupní plochu, HTML okno vrací null
+   *  (scrolluje uvnitř iframu – knob přes celou dráhu). */
+  _scrollTarget() { return this.body ?? null; }
+
+  /** Rám podle tématu (`--vb-window-frame` na kontejneru screenu): zapnutý =
+   *  pravý a spodní pruh se scrollbary, sizing gadget přesně v jejich rohu,
+   *  tělo o pruhy menší. Volá se při mountu a po každé změně tématu. */
+  _syncFrame() {
+    if (!this.wframe) return;
+    const on = getComputedStyle(this.container).getPropertyValue('--vb-window-frame').trim() === '1';
+    this.wframe.setEnabled(on && !this.isMinimized);
+    const se = this.grips?.[0];
+    if (se) {
+      const px = on ? FRAME_PX : GRIP_PX;
+      se.style.width = `${px}px`;
+      se.style.height = `${px}px`;
+      const glyph = se.firstElementChild;
+      if (glyph) { glyph.style.right = on ? '1px' : '4px'; glyph.style.bottom = on ? '1px' : '5px'; }
+    }
+    if (this.size && !this.isMinimized) this._applySize(this.size.w, this.size.h);
+  }
 
   /** Úchyty pro změnu velikosti. Pravý dolní roh je VIDITELNÝ Amiga sizing
    *  gadget (uživatelská oprava: hover-zvýraznění čtverečku „nefunguje
@@ -417,8 +458,9 @@ export class BaseWindow {
     this.body.style.boxSizing = 'border-box';
     this.body.style.width = '100%';
     this.body.style.maxWidth = 'none';
-    this.body.style.height = `${Math.max(0, this.size.h - this._headerH())}px`;
+    this.body.style.height = `${Math.max(0, this.size.h - this._headerH() - this._frameH())}px`;
     this.body.style.overflow = 'auto';
+    this.wframe?.update();
   }
 
   _place(x, y) {
@@ -457,7 +499,9 @@ export class BaseWindow {
     this.isMinimized = true;
     this.saved = { x: this.x, y: this.y };
     this.body.style.display = 'none';
+    this.wframe?.setEnabled(false);         // proužek v doku je bez rámu
     this.minGadget.style.display = 'none';
+    this.depthGadget.style.display = 'none';   // proužek v doku nemá hloubku
     this.restoreGadget.style.display = '';
     this.el.dataset.role = 'vb-dock-strip';
     this.el.style.background = 'var(--vb-window-dock-bg, #c2c9d4)';
@@ -482,8 +526,10 @@ export class BaseWindow {
     this.titleEl.style.fontSize = '';
     this.body.style.display = '';
     this.minGadget.style.display = '';
+    this.depthGadget.style.display = '';
     this.restoreGadget.style.display = 'none';
     for (const grip of this.grips) grip.style.display = '';
+    this._syncFrame();                                          // rám zpět (téma)
     if (this.size) this._applySize(this.size.w, this.size.h);   // ruční velikost
     this._renderBody();
     const pos = this.saved ?? { x: 40, y: 40 };
@@ -512,7 +558,13 @@ export class BaseWindow {
 
   setZ(z) { this.el.style.zIndex = String(z); }
 
+  /** Depth gadget: pošli okno za všechna ostatní (Z-order řeší manager). */
+  sendToBack() {
+    this.manager.sendToBack(this);
+  }
+
   applyTheme() {
+    this._syncFrame();
     if (!this.isMinimized) this._renderBody();
   }
 

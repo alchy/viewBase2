@@ -89,6 +89,18 @@ export class WindowManager {
     return this.z;
   }
 
+  /** Depth gadget okna: `win` ZA všechna ostatní. Z se přeuspořádá od
+   *  základu (900), pořadí ostatních zůstane – žádné klesání do záporu ani
+   *  nekonečný růst; další bringToFront dostane zase nejvyšší Z. */
+  sendToBack(win) {
+    const others = [...this.windows.values()].filter((w) => w !== win)
+      .sort((a, b) => Number(a.el.style.zIndex) - Number(b.el.style.zIndex));
+    let z = 900;
+    win.setZ(z);
+    for (const w of others) { z += 1; w.setZ(z); }
+    this.z = z;
+  }
+
   _assignDockSlot(win) {
     let i = this.dockSlots.indexOf(null);
     if (i === -1) { i = this.dockSlots.length; this.dockSlots.push(win); }

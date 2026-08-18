@@ -93,6 +93,15 @@ describe('BRIDGE_JS – události prvků', () => {
     expect(posted[0].values).toEqual({ rezim: 'man' });
   });
 
+  it('vb-html-scrollto posune dokument a most nahlásí metriky (vb-html-scroll)', async () => {
+    mount('<div style="height:2000px">x</div>');
+    window.dispatchEvent(new MessageEvent('message', { data: { type: 'vb-html-scrollto', top: 50 } }));
+    await new Promise((r) => requestAnimationFrame(() => r()));
+    const m = posted.find((p) => p.type === 'vb-html-scroll');
+    expect(m).toBeTruthy();
+    expect(Object.keys(m).sort()).toEqual(['cH', 'cW', 'height', 'left', 'top', 'type', 'width']);
+  });
+
   it('klik na odkaz bez data-vb-event nenaviguje a nic neposílá', () => {
     mount('<a href="https://example.com" id="a">x</a>');
     const ev = new MouseEvent('click', { bubbles: true, cancelable: true });

@@ -138,6 +138,27 @@ describe('HtmlWindow', () => {
     expect(posted).toEqual([]);                          // žádný duplicitní append
   });
 
+  it('rám okna: metriky scrollu z iframu → proxy; posun zpět jde zprávou vb-html-scrollto', () => {
+    const { windowManager } = setup();
+    const win = windowManager.open('html', { window_id: 'p', html: '' });
+    const cw = { postMessage: vi.fn() };
+    Object.defineProperty(win.frame, 'contentWindow', { value: cw, configurable: true });
+    win.frame.dispatchEvent(new Event('load'));
+    expect(win._scrollTarget()).toBe(win.scroll);
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'vb-html-scroll', top: 40, left: 0, height: 400, width: 300, cH: 100, cW: 300 },
+      source: cw,
+    }));
+    expect([win.scroll.scrollTop, win.scroll.scrollHeight, win.scroll.clientHeight]).toEqual([40, 400, 100]);
+    win.scroll.scrollTop = 120;
+    expect(cw.postMessage).toHaveBeenLastCalledWith({ type: 'vb-html-scrollto', top: 120 }, '*');
+    // rám zapnutý tématem → iframe dostane pokyn schovat vnitřní scrollbar
+    win.container.style.setProperty('--vb-window-frame', '1');
+    win.applyTheme();
+    win.frame.dispatchEvent(new Event('load'));   // nový srcdoc po applyTheme
+    expect(cw.postMessage).toHaveBeenCalledWith({ type: 'vb-html-frame', on: true }, '*');
+  });
+
   it('změna tématu přestaví srcdoc se stejným obsahem', () => {
     const { windowManager, themeListeners } = setup();
     const win = windowManager.open('html', { window_id: 'uzel', html: '<h1>A</h1>' });

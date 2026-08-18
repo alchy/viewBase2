@@ -218,3 +218,47 @@ describe('BaseWindow — maximalizace dvojklikem na lištu', () => {
     expect(win.maximizedFrom).toBeNull();
   });
 });
+
+describe('BaseWindow — rám se scrollbary podle tématu (Workbench)', () => {
+  beforeEach(() => {
+    store.clear();
+    vi.stubGlobal('localStorage', fakeStorage);
+  });
+
+  it('téma s --vb-window-frame:1 zapne pruhy vpravo/dole a tělo o ně zmenší', () => {
+    const win = makeWindow('ram');
+    win.container.style.setProperty('--vb-window-frame', '1');
+    win.applyTheme();
+    expect(win.wframe.enabled).toBe(true);
+    expect(win.el.style.paddingRight).toBe('20px');
+    expect(win.el.style.paddingBottom).toBe('20px');
+    expect(win.wframe.vbar.style.display).toBe('block');
+    expect(win.bar.style.marginRight).toBe('-20px');            // lišta přes celou šířku
+    expect(win.wframe.vbar.style.top).toBe('28px');              // pruh až pod lištou (fallback výšky 28)
+    win._applySize(400, 300);
+    // tělo = výška okna − lišta − spodní pruh (happy-dom: offsetHeight lišty 0 → DOCK fallback 28)
+    expect(parseInt(win.body.style.height, 10)).toBe(300 - 28 - 20);
+    expect(win.body.style.scrollbarWidth).toBe('none');       // nativní scrollbar schovaný
+    win.container.style.setProperty('--vb-window-frame', '0');  // zpět na modern
+    win.applyTheme();
+    expect(win.wframe.enabled).toBe(false);
+    expect(win.el.style.paddingRight).toBe('');
+    expect(win.bar.style.marginRight).toBe('');
+    expect(win.body.style.scrollbarWidth).toBe('');
+  });
+
+  it('minimalizace rám schová, obnova ho vrátí', () => {
+    const win = makeWindow('ram2');
+    // stub manageru: dok (makeWindow má jen minimum WindowManager kontraktu)
+    win.manager._assignDockSlot = () => 0;
+    win.manager._releaseDockSlot = () => {};
+    win.manager._nextZ = () => 1001;
+    win.container.style.setProperty('--vb-window-frame', '1');
+    win.applyTheme();
+    win.minimize();
+    expect(win.wframe.enabled).toBe(false);
+    expect(win.el.style.paddingRight).toBe('');
+    win.restore();
+    expect(win.wframe.enabled).toBe(true);
+  });
+});
