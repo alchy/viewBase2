@@ -119,7 +119,7 @@ export function createGraphPlugin(ctx) {
   function renderOptionsGroup(title, options) {
     graphOptionsItems = [
       {
-        key: 'physics-running', label: 'Fyzika běží',
+        key: 'physics-running', label: 'Physics running',
         checked: options.physicsRunning,
         onToggle: (checked) => {
           options.physicsRunning = checked;
@@ -130,7 +130,7 @@ export function createGraphPlugin(ctx) {
         },
       },
       {
-        key: 'edge-spline', label: 'Křivkové hrany (splajn)',
+        key: 'edge-spline', label: 'Curved edges (spline)',
         checked: options.edgeStyle === 'spline',
         onToggle: (checked) => {
           options.edgeStyle = checked ? 'spline' : 'line';
@@ -141,7 +141,7 @@ export function createGraphPlugin(ctx) {
         },
       },
       {
-        key: 'dimensions-3d', label: '3D pohled',
+        key: 'dimensions-3d', label: '3D view',
         checked: options.dimensions === 3,
         onToggle: (checked) => {
           options.dimensions = checked ? 3 : 2;
@@ -154,7 +154,7 @@ export function createGraphPlugin(ctx) {
         // Shluky (komunity) jako oddělené oblasti (koheze + odpuzování center
         // ve fyzice); vypnuto = volné „gravitační" rozložení jen pružinami a
         // odpuzováním – u hub-heavy grafů bez rovných plachet mezi oblastmi.
-        key: 'clusters', label: 'Shluky (oblasti)',
+        key: 'clusters', label: 'Clusters (regions)',
         checked: options.clusters !== false,
         onToggle: (checked) => {
           options.clusters = checked;

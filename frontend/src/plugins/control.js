@@ -94,7 +94,7 @@ export class ControlWindow extends BaseWindow {
     } else {
       const apply = document.createElement('button');
       apply.dataset.role = 'control-apply';
-      apply.textContent = 'Použít';
+      apply.textContent = 'Apply';
       apply.style.cssText = [
         'margin-top:8px', 'padding:3px 12px', 'cursor:pointer',
         'border:1px solid var(--vb-window-gadget, #8a93a3)',

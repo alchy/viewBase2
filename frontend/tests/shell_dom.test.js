@@ -10,12 +10,15 @@ const term = {
   write(d) { this.written.push(d); },
   onData(cb) { this._data = cb; return { dispose() {} }; },
   onResize(cb) { this._resize = cb; return { dispose() {} }; },
-  onScroll() { return { dispose() {} }; },
+  onScroll(cb) { this._scroll = cb; return { dispose() {} }; },
+  onRender(cb) { this._render = cb; return { dispose() {} }; },
+  scrollToLine(n) { this.buffer.active.viewportY = n; },
   resize(c, r) { this.cols = c; this.rows = r; },
   loadAddon() {},
   focus() {},
   dispose() { this.disposed = true; },
   buffer: { active: { viewportY: 0, baseY: 0, length: 24 } },
+  rows: 24,
   options: {},
 };
 const fit = { fit: vi.fn(), dispose() {} };
@@ -57,7 +60,7 @@ describe('ShellWindow – zámek', () => {
     expect(win).toBeInstanceOf(ShellWindow);
     expect(win.kind).toBe('shell');
     expect(win.lockEl.style.display).not.toBe('none');
-    expect(win.body.textContent).toContain('kód');
+    expect(win.body.textContent).toContain('Unlock the shell');   // UI texty anglicky
     expect(term.opened).toBeNull();                     // xterm až po odemčení
   });
 
@@ -130,6 +133,24 @@ describe('ShellWindow – běžící terminál', () => {
     sendEvent.mockClear();
     term._data('x');
     expect(sendEvent).not.toHaveBeenCalled();
+  });
+
+  it('scrollbar rámu okna jede po historii terminálu (xterm nemá DOM viewport)', async () => {
+    const { windowManager } = setup();
+    const win = open(windowManager, { state: 'running' });
+    await win.ready;
+    const proxy = win._scrollTarget();
+    term.buffer.active.length = 500;                      // historie 500 řádků
+    term.buffer.active.viewportY = 100;
+    expect([proxy.scrollTop, proxy.scrollHeight, proxy.clientHeight]).toEqual([100, 500, 24]);
+    proxy.scrollTop = 250;                                // tažení knobu rámu
+    expect(term.buffer.active.viewportY).toBe(250);
+    expect(proxy.scrollWidth).toBe(proxy.clientWidth);     // vodorovně nic = prázdná dráha
+    let volano = 0;
+    const off = proxy.subscribe(() => { volano += 1; });
+    term._scroll(); term._render();                       // scroll i nový výstup
+    expect(volano).toBe(2);
+    off();
   });
 
   it('zavření okna terminál uklidí', async () => {

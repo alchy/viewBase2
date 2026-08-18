@@ -49,6 +49,42 @@ export function termTheme(el) {
   return theme;
 }
 
+/** Scroll „cíl" pro rám okna (wm/frame.js) nad terminálem. xterm 6 nemá
+ *  scrollovatelný DOM viewport (historii drží renderer), takže se počítá
+ *  v ŘÁDCÍCH: pozice = `viewportY`, celek = délka bufferu, okno = `rows`.
+ *  Rám s tím pracuje jen v poměrech, takže jednotka je jedno – a klik do
+ *  dráhy o „stránku" (clientHeight) tak vyjde přesně na obrazovku textu. */
+class XtermScrollProxy {
+  constructor(term) {
+    this.term = term;
+  }
+
+  subscribe(cb) {
+    const scroll = this.term.onScroll(cb);
+    const render = this.term.onRender?.(cb);      // nový výstup mění délku bufferu
+    return () => { scroll.dispose(); render?.dispose(); };
+  }
+
+  setFrame() { /* vlastní scrollbar xtermu schovává CSS v _buildBody */ }
+
+  get scrollTop() { return this.term.buffer.active.viewportY; }
+
+  set scrollTop(v) { this.term.scrollToLine(Math.max(0, Math.round(v))); }
+
+  get scrollHeight() { return this.term.buffer.active.length; }
+
+  get clientHeight() { return this.term.rows; }
+
+  // vodorovně se v terminálu nescrolluje (text se zalamuje) – prázdná dráha
+  get scrollLeft() { return 0; }
+
+  set scrollLeft(_v) { /* no-op */ }
+
+  get scrollWidth() { return 1; }
+
+  get clientWidth() { return 1; }
+}
+
 export class ShellWindow extends BaseWindow {
   constructor({ id, title, cols, rows, width, height, state, scrollback,
     closable, container, manager, sendEvent }) {
@@ -84,13 +120,13 @@ export class ShellWindow extends BaseWindow {
     lock.dataset.role = 'shell-lock';
     lock.style.cssText = 'display:flex;flex-direction:column;gap:6px;padding:4px 2px';
     const hint = document.createElement('div');
-    hint.textContent = 'Shell je zamčený. Zadej odemykací kód z konzole serveru:';
+    hint.textContent = 'Unlock the shell with the code from the server console:';
     const row = document.createElement('div');
     row.style.cssText = 'display:flex;align-items:center;gap:6px';
     const input = document.createElement('input');
     input.type = 'text';
     input.dataset.role = 'shell-code';
-    input.placeholder = 'kód';
+    input.placeholder = 'code';
     input.style.cssText = [
       'flex:0 0 12ch', 'font:inherit', 'color:inherit', 'background:transparent',
       'border:1px solid var(--vb-window-key, #667788)', 'border-radius:4px',
@@ -115,6 +151,12 @@ export class ShellWindow extends BaseWindow {
     term.dataset.role = 'shell-term';
     term.style.cssText = 'flex:1 1 auto;min-height:0;display:none';
     this.termEl = term;
+    // vnitřní scrollbar xtermu schovat (kreslí ho rám okna); scrollbar-width
+    // nezná starší WebKit, proto i ::-webkit-scrollbar
+    const hide = document.createElement('style');
+    hide.textContent = '[data-role="shell-term"] .xterm-viewport{scrollbar-width:none}'
+      + '[data-role="shell-term"] .xterm-viewport::-webkit-scrollbar{width:0;height:0}';
+    term.appendChild(hide);
 
     body.append(lock, term);
     this.body = body;
@@ -135,8 +177,8 @@ export class ShellWindow extends BaseWindow {
     }
     if (state === 'exited') {
       this.state = 'exited';
-      const code = extra.code == null ? '' : ` (kód ${extra.code})`;
-      this.write(`\r\n\x1b[2m[proces skončil${code}]\x1b[0m\r\n`);
+      const code = extra.code == null ? '' : ` (exit ${extra.code})`;
+      this.write(`\r\n\x1b[2m[process finished${code}]\x1b[0m\r\n`);
       return;
     }
     this.state = 'locked';
@@ -188,11 +230,17 @@ export class ShellWindow extends BaseWindow {
     });
     this.term = term;
     this.fit = fit;
+    this.scroll = new XtermScrollProxy(term);
     if (this.pending) {
       term.write(this.pending);          // historie z initu (reconnect/F5)
       this.pending = '';
     }
     this._fit();
+    // Scrollbar: xterm scrolluje ve vlastním viewportu – navážeme na něj RÁM
+    // okna (wm/frame.js), aby okno nemělo dva scrollbary a WB pruh ukazoval
+    // skutečnou pozici v historii. Rám se váže líně (`_scrollTarget`), takže
+    // po vzniku terminálu mu to musíme říct.
+    this.wframe?.rebind();
     term.focus();
   }
 
@@ -212,7 +260,7 @@ export class ShellWindow extends BaseWindow {
 
   /** Scroll rámu okna sleduje terminál až po jeho vzniku (do té doby tělo). */
   _scrollTarget() {
-    return this.term ? this.termEl.querySelector('.xterm-viewport') ?? this.body : this.body;
+    return this.scroll ?? this.body;
   }
 
   close() {

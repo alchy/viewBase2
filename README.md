@@ -506,7 +506,7 @@ Na liště každého screenu je vestavěná skupina **„Options"** (view-only,
 skupiny za ní) a její obsah řídí **aktivní okno** — stejný model jako macOS
 menu bar, kde menu patří aktivní aplikaci: klik na okno grafu → „Fyzika
 běží", „Křivkové hrany (splajn)", **„3D pohled"** (živé přepnutí kamery i
-fyzikální simulace 2D/3D za běhu), **„Shluky (oblasti)"** (zapnuto = komunity
+fyzikální simulace 2D/3D za běhu), **„Clusters (regions)"** (zapnuto = komunity
 mají ve fyzice vlastní gravitační centra a graf se rozpadá na oddělené
 oblasti; vypnuto = volné rozložení jen pružinami a odpuzováním – u grafů s
 velkými huby bez rovných „plachet" hran mezi oblastmi); všechny volby se
