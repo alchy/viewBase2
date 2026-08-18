@@ -7,7 +7,7 @@
  *  jsou vidět/renderované, přesně jako na originále (jedna scanline =
  *  max 2 bitmapy); hlubší pozice pauzují i zdroje (desktop deleguje na
  *  pluginy). Navíc routuje proces-wide log záznamy do log oken. */
-import screenDepthIcon from '../assets/gadgets/screen-depth.png';
+import { DEPTH_ICON } from './gadget_icons.js';
 import { createDesktop } from './desktop.js';
 import { wirePointerDrag } from './drag.js';
 import { offsetAfterDrag, swapFrontWithNext, translateYForOffset } from './drag_reveal.js';
@@ -203,7 +203,7 @@ export class ScreenManager {
     const bar = instance.bar;
     if (!bar) return;
     this._renderTitle(screenId);
-    bar.addGadget('vb-screen-switch', screenDepthIcon,
+    bar.addGadget('vb-screen-switch', DEPTH_ICON,
       'Přepnout na další screen', () => this.cycleNext());
     this._wireDrag(screenId, bar.bar);
   }

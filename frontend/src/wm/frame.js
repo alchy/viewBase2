@@ -179,9 +179,12 @@ export class WindowFrame {
     this.hbar.style.display = this.enabled ? 'block' : 'none';
     this.win.el.style.paddingRight = this.enabled ? `${FRAME_PX}px` : '';
     this.win.el.style.paddingBottom = this.enabled ? `${FRAME_PX}px` : '';
-    // lišta okna přes celou šířku (i nad sloupcem scrollbaru), pruh pod ní
+    // lišta okna přes celou šířku (i nad sloupcem scrollbaru), pruh pod ní;
+    // padding-right lišty tak, aby gadgety (18px) licovaly se sloupcem: střed
+    // posledního gadgetu = 10px od kraje = střed rohového glyfu v 20px pruhu
     if (this.win.bar) {
       this.win.bar.style.marginRight = this.enabled ? `-${FRAME_PX}px` : '';
+      this.win.bar.style.paddingRight = this.enabled ? `${(FRAME_PX - 18) / 2}px` : '';
       this.vbar.style.top = this.enabled ? `${this.win._headerH()}px` : '0';
     }
     this.rebind();

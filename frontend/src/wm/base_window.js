@@ -7,18 +7,14 @@
  *  super() nastaví svá pole, pak zavolá this._buildBody() a this._mount().
  *  Pointer wiring jde přes sdílené `wirePointerDrag` (drag.js) – pojistky
  *  proti sticky tažení jsou tam, ne tady. */
-// Bitmapové gadgety (§3a handoveru: „bitmapy pro okna si vezmi z obrázků
-// přidaných do repa") – výřezy z docs/images/workbench-ref/, Vite je
-// zabalí do bundlu. Mapování na naši funkcionalitu: zavřít = obrysový
-// čtverec (vlevo na referenční liště), minimalizovat = zoom gadget
-// (čtverec s menším obdélníkem), obnovit = depth gadget (dva překryté
-// obdélníky – „vytáhni okno zpátky nahoru").
-import closeIcon from '../assets/gadgets/close.png';
-import depthIcon from '../assets/gadgets/depth.png';
-import resizeIcon from '../assets/gadgets/resize.png';
-import screenDepthIcon from '../assets/gadgets/screen-depth.png';
-import zoomIcon from '../assets/gadgets/zoom.png';
+// Gadgety: původně bitmapy vyříznuté z docs/images/workbench-ref/ (§3a
+// handoveru), dnes inline SVG s jednotnou 1px linkou (wm/gadget_icons.js –
+// designové sjednocení: minimalizace i sizing gadget stejnou slabou linkou
+// jako depth). Mapování: zavřít = obrysový obdélník (vlevo na liště),
+// minimalizovat = okno s menším oknem, depth = dva překryté obdélníky („za
+// ostatní okna"; v doku obnovit), sizing = malý+velký čtverec v rohu.
 import { wirePointerDrag } from './drag.js';
+import { CLOSE_ICON, DEPTH_ICON, MINIMIZE_ICON, RESIZE_ICON } from './gadget_icons.js';
 import { SCREEN_BAR_HEIGHT } from './drag_reveal.js';
 import { FRAME_PX, WindowFrame } from './frame.js';
 
@@ -219,7 +215,7 @@ export class BaseWindow {
     // (programové close() zůstává, řeší náhradu okna se stejným id)
     this.closeGadget = null;
     if (this.closable) {
-      this.closeGadget = this._gadget('close', closeIcon);
+      this.closeGadget = this._gadget('close', CLOSE_ICON);
       this.closeGadget.addEventListener('click', (e) => {
         e.stopPropagation();
         this.close();
@@ -236,7 +232,7 @@ export class BaseWindow {
       'white-space:nowrap', 'overflow:hidden', 'text-overflow:ellipsis',
     ].join(';');
 
-    this.minGadget = this._gadget('minimize', zoomIcon);
+    this.minGadget = this._gadget('minimize', MINIMIZE_ICON);
     this.minGadget.addEventListener('click', (e) => {
       e.stopPropagation();
       this.minimize();
@@ -245,14 +241,14 @@ export class BaseWindow {
     // Depth gadget – STEJNÁ ikona i funkce jako na liště screenu vpravo
     // nahoře (přepnutí screenu za ostatní): klik pošle okno ZA ostatní okna,
     // každé okno má své Z (uživatelský požadavek, WB 1.3 reference).
-    this.depthGadget = this._gadget('depth', screenDepthIcon);
+    this.depthGadget = this._gadget('depth', DEPTH_ICON);
     this.depthGadget.title = 'Za ostatní okna';
     this.depthGadget.addEventListener('click', (e) => {
       e.stopPropagation();
       this.sendToBack();
     });
 
-    this.restoreGadget = this._gadget('restore', depthIcon);
+    this.restoreGadget = this._gadget('restore', DEPTH_ICON);
     this.restoreGadget.addEventListener('click', (e) => {
       e.stopPropagation();
       this.restore();
@@ -344,7 +340,9 @@ export class BaseWindow {
       se.style.width = `${px}px`;
       se.style.height = `${px}px`;
       const glyph = se.firstElementChild;
-      if (glyph) { glyph.style.right = on ? '1px' : '4px'; glyph.style.bottom = on ? '1px' : '5px'; }
+      // rastr: glyf 16px uprostřed 20px pruhu (střed 10px od kraje) = pod
+      // gadgety lišty (18px + padding 1px → střed taky 10px), viz frame.js
+      if (glyph) { glyph.style.right = on ? '2px' : '4px'; glyph.style.bottom = on ? '2px' : '5px'; }
     }
     if (this.size && !this.isMinimized) this._applySize(this.size.w, this.size.h);
   }
@@ -381,8 +379,8 @@ export class BaseWindow {
           // glyf: v barvě lišty na krabičce (workbench), jinak barva textu
           // těla – ne --vb-window-gadget, ta by na modrém těle splynula
           'background:var(--vb-window-grip-fg, var(--vb-window-body-fg, #8a93a3))',
-          `-webkit-mask:url("${resizeIcon}") center/16px 16px no-repeat`,
-          `mask:url("${resizeIcon}") center/16px 16px no-repeat`,
+          `-webkit-mask:url("${RESIZE_ICON}") center/16px 16px no-repeat`,
+          `mask:url("${RESIZE_ICON}") center/16px 16px no-repeat`,
           'pointer-events:none',
         ].join(';');
         grip.appendChild(glyph);
