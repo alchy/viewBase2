@@ -49,12 +49,19 @@ odpovídá na jednu otázku:
 |---|---|
 | **[Instalace a spuštění](docs/instalace.md)** | jak knihovnu přidat do vlastního projektu, jaké má závislosti a co vznikne při prvním spuštění (`~/.viewbase`, uživatel, QR pro autentikátor) |
 | **[Model: projekt → screeny → okna](docs/okna.md)** | hlavní referenční text: `Project`/`Screen` a všechny typy oken (log, konzole, HTML, shell, formulář, graf) i jejich API |
-| **[Zabezpečená okna, relace a TLS](docs/zabezpeceni.md)** | `secured=True`, kód z autentikátoru, relace prohlížeče s expirací, certifikáty a povinné TLS mimo loopback |
+| **[Zabezpečení: okna, relace, autorizace, TLS](docs/zabezpeceni.md)** | `secured=True` a kód z autentikátoru; relace s expirací; **autorizace jako vlastnost registrace události**; **kontrola `Origin`** (WebSocket neprochází CORS); TLS včetně self-signed certifikátu a reverzní proxy; co se loguje a co se do logu nikdy nedostane |
 | **[Témata a chrome oken](docs/temata.md)** | vestavěná témata, CSS proměnné, gadgety, dok minimalizovaných oken, scrollbary, výběr textu |
 | **[Multi-screen Workbench](docs/multiscreen.md)** | víc screenů na jednom serveru, přepínání, drag-reveal, `ScreenMenu` |
 | **[Ukázky](docs/ukazky.md)** | screenshoty ze živého běhu |
 | **[Veřejné API a příklady](docs/api.md)** | co je API pro vývojáře a co vnitřek knihovny; tabulka spustitelných příkladů v `examples/` |
 | **[Architektura](docs/architektura.md)** | jak to uvnitř drží pohromadě, struktura repozitáře, vývoj a stav |
+
+Než instanci vystavíte ven, přečtěte si
+[Zabezpečení](docs/zabezpeceni.md) — hlavně dvě věci, které nejsou vidět:
+**autorizace je vlastnost registrace události** (`_register(..., needs=…)`,
+bez toho registrace skončí chybou) a **`Origin` se kontroluje při WebSocket
+handshaku** (bez nastavení musí sedět na `Host`, jinak
+`allowed_origins=[…]`), protože WebSocket neprochází CORS.
 
 Návrhové dokumenty (proč je něco udělané právě takhle) jsou v
 [`docs/superpowers/specs/`](docs/superpowers/specs/), implementační plány

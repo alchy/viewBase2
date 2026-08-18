@@ -6,9 +6,16 @@
 
 ---
 
-Zabezpečení stojí na třech vrstvách, které spolu souvisí, ale dají se
-číst zvlášť: **zámek okna** (co se vůbec pošle po drátě), **relace**
-(komu a jak dlouho) a **TLS** (aby to po cestě nešlo odposlechnout).
+Zabezpečení stojí na vrstvách, které spolu souvisí, ale dají se číst zvlášť:
+
+| vrstva | otázka, na kterou odpovídá |
+|---|---|
+| **zámek okna** | co se vůbec pošle po drátě (níž na téhle stránce) |
+| **relace a granty** | komu a jak dlouho |
+| [**autorizace**](#autorizace-co-smí-která-událost) | která zpráva co smí |
+| [**Origin**](#odkud-smí-přijít-stránka-origin) | odkud smí přijít stránka, která se připojí |
+| [**TLS**](#tls-a-reverzní-proxy) | aby to po cestě nešlo odposlechnout |
+| [**log a audit**](#log-co-se-zaznamená-a-co-uvidíte) | co se z toho dá zpětně dohledat |
 
 - **Zabezpečená okna** — `secured=True` na kterémkoli okně (jako `closable=`):
   okno se do prohlížeče pošle jen jako **prázdný rám**, obsah (HTML, hodnoty
@@ -208,7 +215,30 @@ Je to **doplněk auditu příkazů**, ne náhrada: audit dá čistý příkaz na
 `info` (a jde vždycky), tenhle stream ukáže i to, co se do příkazu nakonec
 nedostalo — historii, opravy, přerušení.
 
-### Autorizace je vlastnost registrace události
+
+
+### Sanace toho, co jde do logu
+
+Do logu tečou cizí vstupy — příkazy, payloady událostí, syrové zprávy od
+klienta. Nejde o log4j (Python logging nic nevyhodnocuje), ale o tři reálné
+věci, které řeší `log.sanitize` v jednom místě pro všechny cesty:
+
+| útok | co by se stalo | co se s tím dělá |
+|---|---|---|
+| ESC sekvence | `docker logs` se čte v terminálu; `\x1b[2J` smaže obrazovku, obarví cizí řádky nebo schová vlastní | řídicí znaky se nahradí čitelným `\x1b` |
+| podvržení řádku | `\n` v cizím textu vyrobí záznam, který vypadá jako od serveru | zalomení se escapuje, jeden záznam = jeden řádek |
+| zaplavení | jedna zpráva utopí zbytek logu | ořízne se na 2000 znaků a připíše se, kolik chybí |
+
+Razítko je vždy celé, `YYYY-MM-DD HH:MM:SS` — v konzoli serveru, v `docker
+logs` i v log okně v prohlížeči. U instance, která běží dny a jejíž log se
+vyhodnocuje zpětně, je bez data řádek k ničemu.
+
+Do auditu jde **zdroj (IP)** u každé události; IP doplňuje server, ne klient,
+takže si ji nikdo nepřepíše payloadem.
+
+---
+
+## Autorizace: co smí která událost
 
 Každá vnitřní událost při registraci **deklaruje, co k ní je potřeba**, a
 `dispatch_event` to vynutí dřív, než se k ní dostane handler:
@@ -224,9 +254,23 @@ jednom místě místo čtení devíti funkcí. Vzniklo to z konkrétní zkušeno
 dokud se kontrola psala v každém handleru zvlášť, **pět z devíti událostí ji
 nemělo** a nikdo si toho několik týdnů nevšiml.
 
-`Needs.NONE` u `window_unlock` je záměr: to je cesta, jak grant získat
-(chrání ji kód z autentikátoru a rate limit). `menu_select` nenese nic
-tajného, `shell_new` vyrábí zamčené okno a má strop.
+Celá mapa (`graph_window.py`, konstruktor) vypadá takhle:
+
+| událost | potřebuje | proč |
+|---|---|---|
+| `shell_input`, `shell_resize` | `GRANT` | klávesy a velikost do procesu okna |
+| `html_event`, `window_submit` | `GRANT` | klik, submit a hodnoty polí okna |
+| `terminal_input` | `GRANT` | řádek do konzole okna |
+| `window_lock` | `GRANT` | zamknout jde jen to, co mám odemčené |
+| `window_unlock` | `NONE` | **cesta, jak grant získat** — chrání ji kód z autentikátoru a rate limit |
+| `shell_new` | `NONE` | nové okno vzniká zamčené a platí strop `MAX_SHELL_WINDOWS` |
+| `menu_select` | `NONE` | volá autorský callback, nic tajného za tím nestojí |
+
+Uživatelské události (`@graph.on(...)`) grant neřeší: autor si je zavádí sám
+a knihovna nemá jak poznat, jestli sahají na okno.
+
+Hlídá to `python/tests/test_event_authorization.py` — projde registr strojově,
+takže desátá událost sadu shodí, dokud se u ní autor nerozhodne.
 
 ### Odemčení platí u každé zprávy, ne jen při otevření okna
 
@@ -250,26 +294,9 @@ takže se z něj bez kódu nic nespustí, ale vyrábět je donekonečna nejde:
 platí strop `MAX_SHELL_WINDOWS` (8) a každý požadavek i odmítnutí jsou v
 auditu.
 
-### Sanace toho, co jde do logu
+---
 
-Do logu tečou cizí vstupy — příkazy, payloady událostí, syrové zprávy od
-klienta. Nejde o log4j (Python logging nic nevyhodnocuje), ale o tři reálné
-věci, které řeší `log.sanitize` v jednom místě pro všechny cesty:
-
-| útok | co by se stalo | co se s tím dělá |
-|---|---|---|
-| ESC sekvence | `docker logs` se čte v terminálu; `\x1b[2J` smaže obrazovku, obarví cizí řádky nebo schová vlastní | řídicí znaky se nahradí čitelným `\x1b` |
-| podvržení řádku | `\n` v cizím textu vyrobí záznam, který vypadá jako od serveru | zalomení se escapuje, jeden záznam = jeden řádek |
-| zaplavení | jedna zpráva utopí zbytek logu | ořízne se na 2000 znaků a připíše se, kolik chybí |
-
-Razítko je vždy celé, `YYYY-MM-DD HH:MM:SS` — v konzoli serveru, v `docker
-logs` i v log okně v prohlížeči. U instance, která běží dny a jejíž log se
-vyhodnocuje zpětně, je bez data řádek k ničemu.
-
-Do auditu jde **zdroj (IP)** u každé události; IP doplňuje server, ne klient,
-takže si ji nikdo nepřepíše payloadem.
-
-### Odkud smí přijít stránka (Origin)
+## Odkud smí přijít stránka (Origin)
 
 WebSocket **neprochází CORS**: cizí stránka otevřená v prohlížeči diváka se
 může připojit na váš server a prohlížeč jí v tom nezabrání. Grant tím
@@ -289,6 +316,10 @@ vb.Project(port=8443, tls=True,
 Klient bez hlavičky `Origin` (curl, vlastní skript, testy) projde — není to
 prohlížeč, takže ho cizí stránka zneužít nemůže. Odmítnutí jde do auditu:
 `websocket refused – origin 'https://utocnik.example' not allowed`.
+
+---
+
+## TLS a reverzní proxy
 
 ### Za reverzní proxy (nginx, Traefik)
 
