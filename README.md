@@ -571,6 +571,13 @@ vývojáři přes `define_type`/`update_node`.
             (SHA-256 5A:79:DF:…; covers localhost, 127.0.0.1, ::1, stroj.local)
   ```
 
+  Server při startu vypíše adresu včetně schématu — na TLS portu **`http://`
+  neodpoví vůbec** (klient dostane prázdnou odpověď, protože mluví plaintextem
+  do socketu čekajícího TLS handshake). Přesměrovat na témže portu proto nejde;
+  co jde, je druhý plaintextový listener: `http_redirect=True` ho postaví na
+  `port + 1`, `http_redirect=8080` na konkrétní port a odpovídá 308 na
+  `https://…` se zachovanou cestou i dotazem.
+
   Vlastní certifikát: `tls=vb.Tls("cert.pem", "key.pem")`. Self-signed
   certifikát prohlížeč **napoprvé neuzná** — buď ho jednou potvrdíte, nebo
   importujete do důvěryhodných; JavaScript to za vás udělat nemůže, o důvěře

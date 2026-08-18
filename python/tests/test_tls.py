@@ -129,3 +129,26 @@ def test_project_tls_true_certifikat_vyrobi_a_pouzije(_tls_home):
     assert "vb.firma.cz" in project.tls.uvicorn_kwargs()["ssl_certfile"] or True
     from viewbase import tls as tlsmod
     assert "vb.firma.cz" in tlsmod.san_names(project.tls.cert)
+
+
+@needs_openssl
+def test_plaintextovy_port_presmeruje_na_tls(_tls_home):
+    """Na TÉMŽE portu přesměrovat nejde (klient mluví plaintextem do socketu
+    čekajícího TLS handshake → prázdná odpověď). Druhý listener ano."""
+    import httpx
+
+    screen = vb.Screen(title="R")
+    graph = vb.GraphWindow(screen=screen)
+    graph.add_node("a")
+    project = vb.Project(port=0, tls=True, http_redirect=60123)
+    handle = project.serve(screen, block=False)
+    try:
+        odpoved = httpx.get("http://127.0.0.1:60123/screen?x=1",
+                            follow_redirects=False, timeout=5)
+        assert odpoved.status_code == 308            # trvalé, zachová metodu
+        cil = odpoved.headers["location"]
+        assert cil.startswith("https://") and cil.endswith("/screen?x=1")
+        assert f":{handle.port}/" in cil             # míří na TLS port služby
+    finally:
+        project.stop()
+        graph.close()

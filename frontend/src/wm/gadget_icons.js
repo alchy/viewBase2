@@ -13,6 +13,11 @@
  *  - resize (sizing): malý čtverec v levém horním rohu spojený s větším
  *    vpravo dole. */
 
+/** Přirozená velikost ikony v px. Maska se kreslí PŘESNĚ takhle velká –
+ *  roztažení na velikost tlačítka rozmaže 1px linku (base_window._gadget,
+ *  screen_bar.addGadget); tlačítko smí být větší kvůli ploše na klik. */
+export const ICON_PX = 16;
+
 function svg(body) {
   const doc = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">`
     + `<g fill="none" stroke="#000" stroke-width="1" shape-rendering="crispEdges">${body}</g></svg>`;

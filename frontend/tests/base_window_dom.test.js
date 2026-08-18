@@ -276,3 +276,24 @@ describe('BaseWindow — rám se scrollbary podle tématu (Workbench)', () => {
     expect(win.wframe.enabled).toBe(true);
   });
 });
+
+describe('BaseWindow — gadgety', () => {
+  beforeEach(() => {
+    store.clear();
+    vi.stubGlobal('localStorage', fakeStorage);
+  });
+
+  it('maska ikony se kreslí v původní velikosti, ne roztažená na tlačítko', () => {
+    // 16×16 ikona roztažená na 18×18 tlačítko (×1.125) rozmaže 1px linku a
+    // některé hrany vyjdou tlustší – gadgety pak vypadají různě zvýrazněné
+    // (uživatelská poznámka). Tlačítko zůstává větší kvůli ploše na klik.
+    const win = makeWindow('gadgety');
+    const gadgety = [...win.el.querySelectorAll('[data-gadget]')];
+    expect(gadgety.length).toBeGreaterThanOrEqual(2);
+    for (const g of gadgety) {
+      expect(g.style.cssText).toContain('16px 16px');
+      expect(g.style.cssText).not.toContain('100% 100%');
+      expect(g.style.width).toBe('18px');            // hit-area beze změny
+    }
+  });
+});

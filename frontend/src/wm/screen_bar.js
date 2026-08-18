@@ -15,6 +15,8 @@
  *  Volba položky (příkaz i checkbox) dropdown VŽDY zavře – „zvolím,
  *  menu se zavře" (uživatelská oprava; dřív checkbox nechával dropdown
  *  otevřený pro vícenásobné přepínání). */
+import { ICON_PX } from './gadget_icons.js';
+
 export class ScreenBar {
   constructor({ container, sendEvent }) {
     this.container = container;
@@ -111,8 +113,10 @@ export class ScreenBar {
     btn.style.cssText = [
       'width:20px', 'height:16px', 'padding:0', 'border:none', 'flex:none',
       'cursor:pointer', 'background:var(--vb-screenbar-fg, #000)',
-      `-webkit-mask:url("${icon}") center/100% 100% no-repeat`,
-      `mask:url("${icon}") center/100% 100% no-repeat`,
+      // stejný důvod jako u gadgetů oken: 16×16 ikona roztažená na 20×16
+      // dostala svislé linky 1,25× tlustší než vodorovné (base_window._gadget)
+      `-webkit-mask:url("${icon}") center/${ICON_PX}px ${ICON_PX}px no-repeat`,
+      `mask:url("${icon}") center/${ICON_PX}px ${ICON_PX}px no-repeat`,
     ].join(';');
     btn.addEventListener('pointerdown', (e) => e.stopPropagation());
     btn.addEventListener('click', (e) => {

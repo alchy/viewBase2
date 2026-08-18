@@ -17,10 +17,11 @@ import uuid
 import webbrowser
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Callable
 
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import mfa, protocol, sessions
@@ -388,6 +389,7 @@ class Project:
                  user: str = mfa.DEFAULT_USER,
                  tls: "Tls | bool | None" = None,
                  tls_hosts: "list[str] | tuple[str, ...] | None" = None,
+                 http_redirect: "bool | int" = False,
                  session_ttl: float | None = None,
                  session_max_age: float | None = None) -> None:
         self.host = host
@@ -398,6 +400,9 @@ class Project:
         # při první instanciaci stejně jako TOTP a QR.
         self.tls = (self_signed(host, hosts=tls_hosts) if tls is True
                     else (tls or None))
+        # Přesměrování plaintextu na TLS: na TÉMŽE portu nejde (viz
+        # _redirect_app), proto druhý listener – True = port+1, nebo číslo.
+        self.http_redirect = http_redirect
         # Relace prohlížeče: klouzavá platnost (bez aktivity vyprší) a
         # absolutní strop (po něm zase kód z autentikátoru), viz sessions.py.
         sessions.configure(ttl=session_ttl, max_age=session_max_age)
@@ -430,7 +435,8 @@ class Project:
                 graph.config["graph_window"] = False
             windows.append(graph)
         handle = serve(*windows, host=self.host, port=self.port,
-                       open_browser=open_browser, tls=self.tls, block=block)
+                       open_browser=open_browser, tls=self.tls,
+                       http_redirect=self.http_redirect, block=block)
         self._handle = handle
         return handle
 
@@ -477,6 +483,48 @@ class ServerHandle:
         self.stop()
 
 
+def _bound_port(server: uvicorn.Server, fallback: int) -> int:
+    """Skutečný port běžícího serveru (u `port=0` ho přiděluje OS)."""
+    for s in getattr(server, "servers", []):
+        for sock in getattr(s, "sockets", []):
+            try:
+                return int(sock.getsockname()[1])
+            except (OSError, IndexError, TypeError):
+                pass
+    return fallback
+
+
+def _redirect_app(target: Callable[[], str]) -> FastAPI:
+    """Malá aplikace, která všechno pošle na TLS adresu.
+
+    Přesměrovat na TÉMŽE portu nejde: klient mluví plaintextem do socketu,
+    který čeká TLS handshake, takže server nemá kam odpovědět (prohlížeč
+    hlásí prázdnou odpověď). Proto druhý, plaintextový listener – přesně jak
+    to dělá dvojice :80 → :443."""
+    app = FastAPI()
+
+    @app.get("/{cesta:path}")
+    def redirect(cesta: str, request: Request):     # noqa: ARG001
+        dotaz = request.url.query
+        # cíl se zjišťuje AŽ PŘI POŽADAVKU: u `port=0` přiděluje port OS a
+        # v době startu přesměrovače ho ještě nikdo nezná
+        return RedirectResponse(
+            f"{target()}{cesta}" + (f"?{dotaz}" if dotaz else ""), status_code=308)
+
+    return app
+
+
+def _start_redirect(host: str, port: int,
+                    target: Callable[[], str]) -> uvicorn.Server:
+    """Spusť přesměrovací listener v daemon vlákně a vrať jeho server."""
+    config = uvicorn.Config(_redirect_app(target), host=host, port=port,
+                            log_level="warning")
+    server = uvicorn.Server(config)
+    threading.Thread(target=server.run, name="viewbase-redirect",
+                     daemon=True).start()
+    return server
+
+
 def _make_server(windows: tuple[GraphWindow, ...], host: str,
                  port: int, tls: Tls | None = None) -> uvicorn.Server:
     # ws_ping_interval=None vypíná serverový keepalive ping knihovny
@@ -493,6 +541,7 @@ def _make_server(windows: tuple[GraphWindow, ...], host: str,
 
 def serve(*windows: GraphWindow, host: str = "127.0.0.1", port: int = 8080,
           open_browser: bool = False, tls: Tls | None = None,
+          http_redirect: "bool | int" = False,
           block: bool = True) -> ServerHandle | None:
     """Spustí server nad jedním nebo víc GraphWindow (multi-screen – víc
     grafových oken vyžaduje, aby mělo každé svůj `screen=`, viz `create_app`).
@@ -507,9 +556,23 @@ def serve(*windows: GraphWindow, host: str = "127.0.0.1", port: int = 8080,
     require_tls(host, tls, secured_windows=any(w.has_secured_window()
                                                for w in windows))
     first_run_setup()                    # ~/.viewbase, uživatel, TOTP + QR
+    # ADRESA DO LOGU: s TLS server na `http://` neodpoví vůbec (klient dostane
+    # prázdnou odpověď) – bez vypsané adresy se na to dá snadno naletět.
+    adresa = f"{scheme_for(tls)}://{host or '127.0.0.1'}:{port}/"
     if tls is not None:
-        _system_log(f"TLS zapnuté (cert {tls.cert})")
+        _system_log(f"listening on {adresa} (TLS, cert {tls.cert}; "
+                    "plain http:// will NOT answer on this port)")
+    else:
+        _system_log(f"listening on {adresa}")
     server = _make_server(windows, host, port, tls)
+    if tls is not None and http_redirect:
+        # `http_redirect=True` → port+1, nebo konkrétní číslo portu
+        rport = port + 1 if http_redirect is True else int(http_redirect)
+        _start_redirect(
+            host, rport,
+            lambda: (f"{scheme_for(tls)}://{host or '127.0.0.1'}:"
+                     f"{_bound_port(server, port)}/"))
+        _system_log(f"plain http on port {rport} redirects to {adresa}")
     if open_browser:
         url = f"{scheme_for(tls)}://{host}:{port}/"
         threading.Timer(0.7, webbrowser.open, args=(url,)).start()

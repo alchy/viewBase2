@@ -14,7 +14,7 @@
 // minimalizovat = okno s menším oknem, depth = dva překryté obdélníky („za
 // ostatní okna"; v doku obnovit), sizing = malý+velký čtverec v rohu.
 import { wirePointerDrag } from './drag.js';
-import { CLOSE_ICON, DEPTH_ICON, MINIMIZE_ICON, RESIZE_ICON } from './gadget_icons.js';
+import { CLOSE_ICON, DEPTH_ICON, ICON_PX, MINIMIZE_ICON, RESIZE_ICON } from './gadget_icons.js';
 import { SCREEN_BAR_HEIGHT } from './drag_reveal.js';
 import { findFreeSlot, resolveDockDrag } from './dock.js';
 import { FRAME_PX, WindowFrame } from './frame.js';
@@ -316,8 +316,13 @@ export class BaseWindow {
       'flex:0 0 auto', 'width:18px', 'height:18px', 'padding:0',
       'border:none', 'cursor:pointer',
       'background:var(--vb-window-gadget, #5a6573)',
-      `-webkit-mask:url("${icon}") center/100% 100% no-repeat`,
-      `mask:url("${icon}") center/100% 100% no-repeat`,
+      // MASKA V PŮVODNÍ VELIKOSTI (16×16), ne roztažená na tlačítko:
+      // `100% 100%` škálovalo ikonu na 18×18 (×1.125), takže se 1px linka
+      // rozmazala a některé hrany vyšly tlustší – gadgety pak vypadaly
+      // různě zvýrazněné (uživatelská poznámka). Tlačítko zůstává větší
+      // kvůli ploše na klik, ikona je pixel-přesná.
+      `-webkit-mask:url("${icon}") center/${ICON_PX}px ${ICON_PX}px no-repeat`,
+      `mask:url("${icon}") center/${ICON_PX}px ${ICON_PX}px no-repeat`,
     ].join(';');
     return g;
   }
@@ -424,8 +429,8 @@ export class BaseWindow {
           // glyf: v barvě lišty na krabičce (workbench), jinak barva textu
           // těla – ne --vb-window-gadget, ta by na modrém těle splynula
           'background:var(--vb-window-grip-fg, var(--vb-window-body-fg, #8a93a3))',
-          `-webkit-mask:url("${RESIZE_ICON}") center/16px 16px no-repeat`,
-          `mask:url("${RESIZE_ICON}") center/16px 16px no-repeat`,
+          `-webkit-mask:url("${RESIZE_ICON}") center/${ICON_PX}px ${ICON_PX}px no-repeat`,
+          `mask:url("${RESIZE_ICON}") center/${ICON_PX}px ${ICON_PX}px no-repeat`,
           'pointer-events:none',
         ].join(';');
         grip.appendChild(glyph);
