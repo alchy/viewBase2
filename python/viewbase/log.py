@@ -62,14 +62,24 @@ def sanitize(message: object, limit: int = MAX_MESSAGE) -> str:
 
 @dataclass(frozen=True)
 class LogRecord:
+    """Jeden záznam. Pořadí polí je zároveň pořadím ve výpisu: KDY (razítko
+    doplní výpis), CO je to zač (level), KDO (session), ODKUD (ip) a teprve
+    pak detail. Dřív bylo „kdo" a „odkud" nalepené v textu zprávy, takže se
+    to špatně četlo i parsovalo."""
+
     level: str
     source: str
     message: str
     component: str | None = None
+    #: prefix session id (celé je přihlašovací údaj, do logu nepatří)
+    session: str | None = None
+    #: IP protistrany; doplňuje ji server, ne klient
+    ip: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {"level": self.level, "source": self.source,
-                "message": self.message, "component": self.component}
+                "message": self.message, "component": self.component,
+                "session": self.session, "ip": self.ip}
 
 
 class LogBus:
@@ -89,7 +99,8 @@ class LogBus:
                 self._subscribers.remove(callback)
 
     def publish(self, level: str, source: str, message: str,
-                component: str | None = None) -> LogRecord:
+                component: str | None = None, session: str | None = None,
+                ip: str | None = None) -> LogRecord:
         """Zveřejni záznam. Text se VŽDY sanuje – viz `sanitize`."""
         if level not in LOG_LEVELS:
             raise ValueError(f"level musí být jedno z {LOG_LEVELS}")
@@ -100,7 +111,9 @@ class LogBus:
                 f"source '{source}' vyžaduje component z {COMPONENTS}"
                 " – z logu musí jít poznat, který modul mluví")
         record = LogRecord(level=level, source=source,
-                            message=sanitize(message), component=component)
+                            message=sanitize(message), component=component,
+                            session=sanitize(session) if session else None,
+                            ip=sanitize(ip) if ip else None)
         with self._lock:
             subscribers = list(self._subscribers)
         for callback in subscribers:

@@ -300,14 +300,14 @@ class WindowsMixin:
         if bezici >= self.MAX_SHELL_WINDOWS:
             self._log_auth("warning",
                            f"shell_new refused – {bezici} shell windows already "
-                           f"open (limit {self.MAX_SHELL_WINDOWS}) "
-                           f"{self._origin(event)}")
+                           f"open (limit {self.MAX_SHELL_WINDOWS})",
+                           **self._origin(event))
             return
         with self._lock:
             self._shell_seq = getattr(self, "_shell_seq", 0) + 1
             wid = f"cli-{self._shell_seq}"
-        self._log_auth("info", f"shell window '{wid}' requested "
-                               f"{self._origin(event)}")
+        self._log_auth("info", f"shell window '{wid}' requested",
+                       **self._origin(event))
         self.open_shell(ShellWindow(wid, title=f"Shell CLI {self._shell_seq}",
                                     cols=100, rows=28, width=820, height=440))
 
@@ -345,8 +345,9 @@ class WindowsMixin:
             return                              # tahle relace už grant má
         if not window.unlocks_with(getattr(event, "code", None)):
             # AUDIT: co se stalo, ne čím se to zkoušelo – kód do logu nepatří
-            self._log_auth("warning", f"invalid code for window "
-                                      f"'{window.window_id}' {self._origin(event)}")
+            self._log_auth("warning",
+                           f"invalid code for window '{window.window_id}'",
+                           **self._origin(event))
             self._emit_html("window_state", window.window_id, state="locked",
                             error="Invalid code")
             return
@@ -355,7 +356,8 @@ class WindowsMixin:
         sessions.store.grant(sid, window.window_id)
         window.state = "open"                # souhrn pro log/introspekci
         self._log_auth("info", f"window '{window.window_id}' unlocked – "
-                               f"{self._auth_kind(window)} {self._origin(event)}")
+                               f"{self._auth_kind(window)}",
+                       **self._origin(event))
         with self._lock:
             live = self._window_live.get(window.window_id)
             spec = {**window.public_spec(True), "action": "open_window",
@@ -387,8 +389,8 @@ class WindowsMixin:
             self._actions.append({**window.lock_spec(), "action": "open_window",
                                   "only_sid": sid})
         window.on_locked()
-        self._log_auth("info", f"window '{window.window_id}' locked by the user "
-                               f"{self._origin(event)}")
+        self._log_auth("info", f"window '{window.window_id}' locked by the user",
+                       **self._origin(event))
 
     @staticmethod
     def _auth_kind(window: Any) -> str:
@@ -417,28 +419,25 @@ class WindowsMixin:
             return True
         duvod = ("expired or unknown session" if not sessions.store.known(sid)
                  else "session has no grant for this window")
-        self._log_auth("warning", f"input to window '{wid}' refused – {duvod} "
-                                  f"{self._origin(event)}")
+        self._log_auth("warning", f"input to window '{wid}' refused – {duvod}",
+                       **self._origin(event))
         return False
 
     @staticmethod
-    def _origin(event: Any) -> str:
-        """Odkud událost přišla – do auditní stopy.
+    def _origin(event: Any) -> dict[str, str | None]:
+        """Kdo a odkud – jako SLOUPCE logu, ne jako text ve zprávě.
 
-        IP doplňuje SERVER (`remote_ip`, viz server.peer_of), ne klient, a
-        z relace jde do logu jen prefix: k rozlišení „byl to týž prohlížeč?"
-        stačí, celé sid je přihlašovací údaj a do logu nepatří."""
-        ip = getattr(event, "remote_ip", None) or "?"
-        sid = getattr(event, "sid", None)
-        rel = f", session {str(sid)[:8]}…" if sid else ""
-        return f"from {ip}{rel}"
+        IP doplňuje SERVER (`remote_ip`, viz server.peer_of), ne klient;
+        z relace jde do logu jen prefix (celé sid je přihlašovací údaj)."""
+        return {"sid": getattr(event, "sid", None),
+                "ip": getattr(event, "remote_ip", None)}
 
     @staticmethod
-    def _log_auth(level: str, message: str) -> None:
+    def _log_auth(level: str, message: str, **kdo: Any) -> None:
         """Auditní stopa zámku okna – komponenta `security`, takže jde do
         log okna i na stdout serveru VŽDYCKY, bez ohledu na `log_level`
         (viz logger.Logger.audit). Systémový text, NIKDY tajemství."""
-        logger.audit(message, level=level)
+        logger.audit(message, level=level, **kdo)
 
     def _on_shell_input(self, event) -> None:
         """Klávesy z prohlížeče do procesu (jen běžícího a odemčeného okna)."""
@@ -459,11 +458,10 @@ class WindowsMixin:
     def _log_keystrokes(self, window_id: str, text: str, sekundy: float,
                         znaku: int) -> None:
         """Hotová dávka kláves do ladicího logu (`log_level="debug"`)."""
-        puvod = self._shell_origin.get(window_id, "from ?")
         # `data='…'` – bez ohraničení nepozná parser, kde sekvence končí
-        logger.debug(f"shell '{window_id}' keys {puvod} "
+        logger.debug(f"shell '{window_id}' keys "
                      f"({sekundy:.0f} s, {znaku} znaků): data={quoted(text)}",
-                     component="windows")
+                     component="windows", **self._shell_origin.get(window_id, {}))
 
     def _log_shell_command(self, window_id: str, prikaz: str) -> None:
         """Auditní stopa příkazu v shell okně.
@@ -486,9 +484,9 @@ class WindowsMixin:
             os_user = getpass.getuser()
         except Exception:                                    # noqa: BLE001
             os_user = "?"
-        puvod = self._shell_origin.get(window_id, "from ?")
         logger.audit(f"shell '{window_id}' command by '{mfa.active_user()}' "
-                     f"{puvod}, os user '{os_user}': command={quoted(prikaz)}")
+                     f"(os user '{os_user}'): command={quoted(prikaz)}",
+                     **self._shell_origin.get(window_id, {}))
 
     def _on_shell_resize(self, event) -> None:
         """Nová velikost terminálu z prohlížeče → SIGWINCH procesu."""

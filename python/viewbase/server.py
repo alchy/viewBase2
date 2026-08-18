@@ -210,15 +210,14 @@ def create_app(*windows: GraphWindow) -> FastAPI:
             # RELACE: prohlížeč si drží `vb_sid` v localStorage a posílá ho
             # v hello. Neznámé/vypršelé id se neoživuje – klient dostane nové
             # a prázdné (sessions.touch), takže granty nejdou „vzkřísit".
-            sid = sessions.store.touch(hello.get("sid"), origin=f"from {peer}")
+            sid = sessions.store.touch(hello.get("sid"), origin=peer)
             # Sdílený zámek: snapshoty + zařazení mezi klienty je atomické
             # vůči broadcast kroku. Pending delty se NEzahazují – příští
             # broadcast je pošle všem (novému klientovi jako idempotentní
             # upsert), takže seq navazuje pro staré i nové klienty.
             # AUDIT: kdo se odkud připojil. Jde do logu vždycky, i když je
             # `log_level` nastavená nahoru – jinak by šlo zamést za sebou.
-            logger.audit(f"client {client_id} connected from {peer}"
-                         f" (session {sid[:8]}…)")
+            logger.audit(f"client {client_id} connected", sid=sid, ip=peer)
             async with state_lock:
                 for window in windows_list:
                     # snapshot PER RELACI: zabezpečená okna bez grantu jdou
@@ -238,8 +237,9 @@ def create_app(*windows: GraphWindow) -> FastAPI:
                 except ValueError:
                     # vadná zpráva je na vystavené instanci stopa, ne jen
                     # diagnostika – proto audit (prahem neprojde do ticha)
-                    logger.audit(f"malformed message from client {client_id}"
-                                 f" ({peer}): {raw[:200]!r}", level="warning")
+                    logger.audit(f"malformed message from client {client_id}: "
+                                 f"{raw[:200]!r}", level="warning",
+                                 sid=sid, ip=peer)
                     continue
                 if msg.get("type") == "event" and isinstance(msg.get("event"), str):
                     payload = msg.get("payload")
@@ -250,8 +250,8 @@ def create_app(*windows: GraphWindow) -> FastAPI:
                     if target is None:
                         logger.warning(
                             f"event with unknown screen_id from client "
-                            f"{client_id} ({peer}): {msg.get('screen_id')!r}",
-                            component="server")
+                            f"{client_id}: {msg.get('screen_id')!r}",
+                            component="server", sid=sid, ip=peer)
                         continue
                     # `sid` do payloadu doplňuje SERVER, ne klient: jinak by
                     # si kdokoli mohl přiřknout cizí relaci a s ní její granty.
@@ -261,21 +261,22 @@ def create_app(*windows: GraphWindow) -> FastAPI:
                     # z něj byl řádek na stisk – ten se skládá do dávek ve
                     # windows_mixin (viz keystrokes.py).
                     if msg["event"] != "shell_input":
-                        logger.debug(f"event '{msg['event']}' from {peer} "
+                        logger.debug(f"event '{msg['event']}' "
                                      f"(client {client_id}): {redacted(payload)}",
-                                     component="server")
+                                     component="server", sid=sid, ip=peer)
                     target.dispatch_event(
                         msg["event"],
                         {**payload, "client_id": client_id, "sid": sid,
                          "remote_ip": peer})
                 else:
-                    logger.audit(f"unexpected message from client {client_id}"
-                                 f" ({peer}): {raw[:200]!r}", level="warning")
+                    logger.audit(f"unexpected message from client {client_id}: "
+                                 f"{raw[:200]!r}", level="warning",
+                                 sid=sid, ip=peer)
         except WebSocketDisconnect:
             pass
         finally:
             clients.pop(ws, None)
-            logger.audit(f"client {client_id} from {peer} disconnected")
+            logger.audit(f"client {client_id} disconnected", sid=sid, ip=peer)
 
     @app.post("/api/event")
     def inject_event(message: dict, request: Request) -> dict:
@@ -296,9 +297,9 @@ def create_app(*windows: GraphWindow) -> FastAPI:
         # instanci to ukáže, co kdo zkouší volat, ale běžný provoz aplikace
         # tím log nezaplaví. Odmítnuté pokusy jdou do auditu níž – ty musí
         # být vidět vždycky.
-        logger.debug(f"from {peer_of(request)}: event "
-                     f"{message.get('event')!r} {redacted(message.get('payload'))}",
-                     source="backend_api", component="rest")
+        logger.debug(f"event {message.get('event')!r} "
+                     f"{redacted(message.get('payload'))}",
+                     source="backend_api", component="rest", ip=peer_of(request))
         event = message.get("event")
         payload = message.get("payload") or {}
         if not isinstance(event, str) or not isinstance(payload, dict):
@@ -307,8 +308,8 @@ def create_app(*windows: GraphWindow) -> FastAPI:
         # autentizace, takže klávesy do shellu smí posílat JEN prohlížeč přes
         # WS – jinak by stačil jeden curl na spuštění čehokoli na stroji.
         if event.startswith(("shell_", "window_unlock", "window_lock")):
-            logger.audit(f"REST attempt to call '{event}' from "
-                         f"{peer_of(request)} – refused", level="warning")
+            logger.audit(f"REST attempt to call '{event}' – refused",
+                         level="warning", ip=peer_of(request))
             return JSONResponse(status_code=403, content={
                 "ok": False,
                 "error": ("shell_*, window_unlock and window_lock are not "

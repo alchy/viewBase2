@@ -44,9 +44,10 @@ def test_vyprseni_relace_je_v_logu(zaznamy):
     store.grant(sid, "mzdy")
     cas[0] += 101
     store.touch(None)                          # cokoli spustí úklid
-    text = _texty(zaznamy)
-    assert f"session {sid[:8]}… expired" in text
-    assert "idle" in text and "1 grants revoked" in text
+    vyprseni = [z for z in zaznamy if "session expired" in z.message]
+    assert vyprseni, _texty(zaznamy)
+    assert vyprseni[0].session == sid[:8]        # „kdo" je sloupec, ne text
+    assert "idle" in vyprseni[0].message and "1 grants revoked" in vyprseni[0].message
 
 
 def test_absolutni_strop_se_pozna_od_neaktivity(zaznamy):
@@ -61,10 +62,10 @@ def test_absolutni_strop_se_pozna_od_neaktivity(zaznamy):
 
 
 def test_predlozena_vyprsela_relace_jde_do_auditu(zaznamy):
-    sessions.store.touch("uz-neexistuje", origin="from 89.24.1.2")
+    sessions.store.touch("uz-neexistuje", origin="89.24.1.2")   # origin = IP
     zaznam = [z for z in zaznamy if "stale session" in z.message]
     assert zaznam and zaznam[0].component == "security"
-    assert "89.24.1.2" in zaznam[0].message
+    assert zaznam[0].ip == "89.24.1.2"           # „odkud" je sloupec
 
 
 def test_vstup_do_okna_bez_grantu_se_odmitne_a_zaloguje(zaznamy):
@@ -87,7 +88,8 @@ def test_vstup_do_okna_bez_grantu_se_odmitne_a_zaloguje(zaznamy):
     time.sleep(0.4)
     odmitnuti = [z for z in zaznamy if "refused" in z.message]
     assert odmitnuti, "vstup bez grantu prošel!"
-    assert "no grant" in odmitnuti[0].message and "89.24.1.2" in odmitnuti[0].message
+    assert "no grant" in odmitnuti[0].message
+    assert odmitnuti[0].ip == "89.24.1.2"
     assert "whoami" not in w.scrollback         # do procesu se nic nedostalo
     c.close_window("sh")
     c.close()
@@ -126,6 +128,6 @@ def test_shell_new_ma_strop_a_zaznam(zaznamy):
     time.sleep(0.6)
     assert len(c._reg.of_kind(SW)) == WindowsMixin.MAX_SHELL_WINDOWS  # noqa: SLF001
     odmitnuti = [z for z in zaznamy if "shell_new refused" in z.message]
-    assert odmitnuti and "89.24.1.2" in odmitnuti[0].message
+    assert odmitnuti and odmitnuti[0].ip == "89.24.1.2"
     assert any("requested" in z.message for z in zaznamy)
     c.close()

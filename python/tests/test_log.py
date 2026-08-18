@@ -37,9 +37,10 @@ def test_unsubscribe_stops_delivery():
 def test_as_dict():
     bus = LogBus()
     record = bus.publish("error", "frontend", "boom")
+    # pořadí polí = pořadí ve výpisu: co, kdo, odkud, teprve detail
     assert record.as_dict() == {
         "level": "error", "source": "frontend", "message": "boom",
-        "component": None}
+        "component": None, "session": None, "ip": None}
 
 
 def test_all_levels_and_sources_valid():

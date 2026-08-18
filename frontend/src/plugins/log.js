@@ -47,15 +47,21 @@ function formatTime(value) {
   return `${den} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
-/** Jeden řádek do log okna: `YYYY-MM-DD HH:MM:SS [level] source/comp: zpráva`.
+/** Jeden řádek do log okna. POŘADÍ SLOUPCŮ je stejné jako v logu serveru
+ *  (uživatelský požadavek): **kdy → jak vážné → kdo → odkud → co → detail**.
+ *
+ *      2026-08-18 16:45:12 [info] xzFBo_ya 89.24.1.2 backend_program/security: …
+ *
+ *  `session` a `ip` doplňuje server (klient si je nepřepíše) a chybí u
+ *  hlášek, které se nikoho konkrétního netýkají – pak se sloupec vynechá.
  *  component chybí u frontend/backend_user – nejsou jeden ze čtyř modulů.
  *  `record.timestamp` (Date/ISO string) je nepovinný – main.js ho razítkuje
- *  při příjmu (uživatelský požadavek: „log má vždy timestamp"); bez něj
- *  (např. přímé volání v testech) se čas prostě vynechá. */
+ *  při příjmu; bez něj (např. přímé volání v testech) se čas vynechá. */
 export function formatLogLine(record) {
   const tag = record.component ? `${record.source}/${record.component}` : record.source;
   const time = record.timestamp ? `${formatTime(record.timestamp)} ` : '';
-  return `${time}[${record.level}] ${tag}: ${record.message}`;
+  const kdo = [record.session, record.ip].filter(Boolean).join(' ');
+  return `${time}[${record.level}] ${kdo ? `${kdo} ` : ''}${tag}: ${record.message}`;
 }
 
 const MAX_ROWS = 1000;   // živý tail nesmí růst do nekonečna – nejstarší (nahoře) odpadají

@@ -66,7 +66,7 @@ class SessionStore:
 
     # -- relace ------------------------------------------------------------
 
-    def touch(self, sid: str | None, origin: str = "") -> str:
+    def touch(self, sid: str | None, origin: str = "") -> str:   # origin = IP
         """Zaeviduj/prodluž relaci a vrať platné sid.
 
         Neznámé (nebo vypršelé) sid se NEOŽIVÍ – vrátí se nové, prázdné.
@@ -86,8 +86,8 @@ class SessionStore:
             if sid:
                 from .logger import logger
 
-                logger.audit(f"stale session {str(sid)[:8]}… presented "
-                             f"{origin or 'from ?'} – issuing a new one")
+                logger.audit("stale session presented – issuing a new one",
+                             sid=sid, ip=origin or None)
             fresh = new_sid()
             self._sessions[fresh] = {"born": now, "seen": now, "grants": {}}
             return fresh
@@ -156,16 +156,16 @@ class SessionStore:
         for sid, rel in mrtve:
             del self._sessions[sid]
             duvod = ("idle" if now - rel["seen"] > self.ttl else "max age")
-            self._ohlas(f"session {sid[:8]}… expired ({duvod} after "
+            self._ohlas(f"session expired ({duvod} after "
                         f"{now - rel['born']:.0f} s, {len(rel['grants'])} grants "
-                        "revoked)")
+                        "revoked)", sid)
 
     @staticmethod
-    def _ohlas(message: str) -> None:
+    def _ohlas(message: str, sid: str | None = None) -> None:
         """Zpráva o životním cyklu relace do ladicího logu (`log_level=debug`)."""
         from .logger import logger
 
-        logger.debug(message, component="server")
+        logger.debug(message, component="server", sid=sid)
 
     def clear(self) -> None:
         """Zapomeň všechny relace (restart serveru, testy)."""

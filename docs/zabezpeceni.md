@@ -135,14 +135,23 @@ stroji přehodit úroveň a zamést za sebou. Pozná se podle komponenty
 `security` (není to pátá úroveň: úspěšné odemčení je `info`, odmítnutý kód
 `warning`):
 
+Řádek má **pevné pořadí sloupců**: kdy → jak vážné → **kdo** (prefix relace)
+→ **odkud** (IP) → co (komponenta) → detail. Chybějící sloupec drží místo
+pomlčkou, takže se log dá číst i strojově po pozicích:
+
 ```
-2026-08-18 15:50:57 INFO    viewbase [security] client 8b5bd7d6 connected from 89.24.x.x (session xzFBo_ya…)
-2026-08-18 15:50:57 DEBUG   viewbase [server]   event 'window_unlock' from 89.24.x.x: {'window_id': 'mzdy', 'code': '<6 znaků>'}
-2026-08-18 15:50:57 WARNING viewbase [security] invalid code for window 'mzdy' from 89.24.x.x, session xzFBo_ya…
-2026-08-18 15:51:04 INFO    viewbase [security] window 'mzdy' unlocked – token of user 'workbench' from 89.24.x.x
-2026-08-18 15:51:09 WARNING viewbase [security] REST attempt to call 'shell_input' from 89.24.x.x – refused
-2026-08-18 15:51:12 INFO    viewbase [security] client 8b5bd7d6 from 89.24.x.x disconnected
+2026-08-18 16:49:02 INFO    9K5eXLQo 127.0.0.1       [security] client 95d2bc7e connected
+2026-08-18 16:49:02 DEBUG   9K5eXLQo 127.0.0.1       [server]   event 'window_unlock': {'window_id': 'sh', 'code': '<6 znaků>'}
+2026-08-18 16:49:02 WARNING 9K5eXLQo 127.0.0.1       [security] invalid code for window 'sh'
+2026-08-18 16:49:03 INFO    9K5eXLQo 127.0.0.1       [security] window 'sh' unlocked – token of user 'workbench'
+2026-08-18 16:49:04 DEBUG   9K5eXLQo 127.0.0.1       [windows]  shell 'sh' keys (0 s, 3 znaků): data='id[enter]'
+2026-08-18 16:49:04 INFO    9K5eXLQo 127.0.0.1       [security] shell 'sh' command by 'workbench' (os user 'j'): command='id'
+2026-08-18 16:49:05 INFO    -        -               [server]   listening on https://127.0.0.1:60000/
 ```
+
+Stejné pořadí má i log okno v prohlížeči
+(`2026-08-18 16:49:02 [warning] 9K5eXLQo 127.0.0.1 backend_program/security: …`).
+Ze session id jde do logu jen **prefix** — celé je přihlašovací údaj.
 
 ### Příkazy v shell okně
 

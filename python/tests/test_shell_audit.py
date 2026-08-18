@@ -97,7 +97,8 @@ def test_prikaz_se_zaloguje_s_obema_identitami(zaznamy):
     assert radek.component == "security"          # audit, ne diagnostika
     assert "by 'workbench'" in radek.message      # uživatel viewbase
     assert f"os user '{getpass.getuser()}'" in radek.message   # uživatel OS
-    assert "89.24.1.2" in radek.message           # odkud
+    assert radek.ip == "89.24.1.2"                # odkud (sloupec, ne text)
+    assert radek.session                          # kdo (prefix relace)
     c.close_window("sh")
     c.close()
 

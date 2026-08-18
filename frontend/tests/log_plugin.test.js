@@ -77,3 +77,25 @@ describe('formatLogLine', () => {
     expect(line).toBe('[info] backend_user: ahoj');
   });
 });
+
+describe('formatLogLine – sloupce kdo/odkud', () => {
+  it('pořadí: čas, úroveň, relace, ip, zdroj, zpráva', () => {
+    // stejné pořadí jako v logu serveru: kdy → jak vážné → kdo → odkud → detail
+    const line = formatLogLine(rec({
+      level: 'warning', source: 'backend_program', component: 'security',
+      message: "invalid code for window 'mzdy'",
+      session: 'xzFBo_ya', ip: '89.24.1.2',
+      timestamp: new Date(2026, 7, 18, 16, 45, 12),
+    }));
+    expect(line).toBe("2026-08-18 16:45:12 [warning] xzFBo_ya 89.24.1.2 "
+      + "backend_program/security: invalid code for window 'mzdy'");
+  });
+
+  it('hláška bez relace a ip sloupce vynechá', () => {
+    const line = formatLogLine(rec({
+      level: 'info', source: 'backend_program', component: 'server',
+      message: 'listening on https://127.0.0.1:60000/',
+    }));
+    expect(line).toBe('[info] backend_program/server: listening on https://127.0.0.1:60000/');
+  });
+});

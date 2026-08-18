@@ -112,7 +112,9 @@ def test_startovni_hlaska_ma_cele_razitko(capsys):
 
     Logger().system("listening on https://127.0.0.1:60000/")
     out = capsys.readouterr().out
-    assert re.match(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} viewbase: listening", out)
+    # kdy, severity, kdo, odkud, komponenta, detail
+    assert re.match(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} INFO\s+-\s+-\s+"
+                    r"\[server\]\s+listening", out), out
 
 
 def test_handler_pro_kontejner_ma_cele_razitko(monkeypatch):

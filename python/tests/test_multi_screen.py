@@ -143,7 +143,8 @@ def test_log_record_relayed_over_ws():
             assert msg == {"type": "log", "level": "warning",
                            "source": "backend_program",
                            "message": "reconnect klienta",
-                           "component": "server"}
+                           "component": "server",
+                           "session": None, "ip": None}
 
 
 def test_vb_log_relayed_over_ws():
