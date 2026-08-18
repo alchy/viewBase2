@@ -60,12 +60,8 @@ export class GraphWindow extends BaseWindow {
     this.onResize?.();
   }
 
-  /** Titulek grafu = titulek canvasu (dorazí až s `init`, může se změnit
-   *  reconnectem) – volá graf plugin z onInit. */
-  setTitle(text) {
-    this.title = text;
-    this.titleEl.textContent = text;
-  }
+  // Titulek grafu = titulek canvasu (dorazí až s `init`, může se změnit
+  // reconnectem) – graf plugin volá zděděné BaseWindow#setTitle.
 
   /** Živé informace o síti v LIŠTĚ GRAFOVÉHO OKNA (uživatelská oprava:
    *  „speciální okno pro síť nese informace o typu sítě (2D/3D atp.) a

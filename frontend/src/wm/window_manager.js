@@ -63,7 +63,9 @@ export class WindowManager {
    *  téže „aplikace", přesně jako na macOS menu pořád patří aplikaci
    *  (rozhodnutí uživatele: nemění se + skrýt na prázdném screenu). */
   _setActive(win) {
+    if (this.activeWindow !== win) this.activeWindow?.setFocused?.(false);
     this.activeWindow = win;
+    win.setFocused?.(true);          // indikátor fokusu v liště (za titulkem)
     if (win.getOptionsItems() != null) this.optionsSource = win;
     this.refreshOptions();
   }

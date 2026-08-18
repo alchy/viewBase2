@@ -113,8 +113,7 @@ export class DetailWindow extends BaseWindow {
 
   update({ title, rows }) {
     if (title != null) {
-      this.title = title;
-      this.titleEl.textContent = title;
+      this.setTitle(title);
     }
     if (rows != null) {
       this.rows = rows;

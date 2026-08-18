@@ -397,6 +397,10 @@ vývojáři přes `define_type`/`update_node`.
   doprava i dolů — jako u běžných window managerů), ale vždy zůstane
   uchopitelný kus lišty, za který se okno vrátí; nahoru se lišta okna nikdy
   nedostane pod lištu obrazovky s Options.
+- **Indikátor fokusu** — v liště hned **za textem titulku** svítí drobná
+  plná značka na okně, které je aktivní (patří mu Options i klávesnice).
+  Je to jediný vyplněný prvek v jinak linkovém chrome, takže se neplete s
+  gadgety; barvu bere z textu lišty, u `cyber` má neonový glow.
 - **Minimalizace** — gadget minimalizace okno jen **zmenší** na proužek s
   celým titulkem (šířka podle textu + odstup 10 znaků před gadgety) vlevo
   dole; jinak se chová jako každé jiné okno: má **všechny gadgety**

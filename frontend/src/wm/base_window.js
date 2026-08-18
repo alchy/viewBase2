@@ -236,11 +236,28 @@ export class BaseWindow {
     // názvu okna řadí zleva… necentruje se"), hned za close gadgetem,
     // pokud okno nějaký má. flex:1 tlačí metriky/gadgety doprava.
     this.titleEl = document.createElement('div');
-    this.titleEl.textContent = this.title;
     this.titleEl.style.cssText = [
-      'flex:1', 'text-align:left', 'font-weight:600',
-      'white-space:nowrap', 'overflow:hidden', 'text-overflow:ellipsis',
+      'flex:1', 'min-width:0', 'display:flex', 'align-items:center', 'gap:6px',
+      'text-align:left', 'font-weight:600', 'overflow:hidden',
     ].join(';');
+    this.titleTextEl = document.createElement('span');
+    this.titleTextEl.textContent = this.title;
+    this.titleTextEl.style.cssText =
+      'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0';
+    // INDIKÁTOR FOKUSU hned za textem titulku (uživatelský požadavek):
+    // drobná plná značka – jediný vyplněný prvek v jinak linkovém chrome,
+    // takže se nedá splést s gadgetem (ty jsou 1px obrys vpravo). Svítí jen
+    // na aktivním okně = tom, kterému patří Options i klávesnice; barvu bere
+    // z textu lišty, glow z tématu (cyber). Přepíná WindowManager._setActive.
+    this.focusEl = document.createElement('span');
+    this.focusEl.dataset.role = 'vb-focus';
+    this.focusEl.title = 'Aktivní okno';
+    this.focusEl.style.cssText = [
+      'flex:0 0 auto', 'width:5px', 'height:5px', 'border-radius:1px',
+      'background:currentColor', 'box-shadow:var(--vb-frame-glow, none)',
+      'opacity:0.85', 'display:none',
+    ].join(';');
+    this.titleEl.append(this.titleTextEl, this.focusEl);
 
     this.minGadget = this._gadget('minimize', MINIMIZE_ICON);
     this.minGadget.addEventListener('click', (e) => {
@@ -577,6 +594,18 @@ export class BaseWindow {
    *  kopírování render-options kódu do každého typu okna (DRY). */
   getOptionsItems() {
     return this.optionsProvider ? this.optionsProvider() : null;
+  }
+
+  /** Titulek okna (text v liště); indikátor fokusu za ním zůstává. */
+  setTitle(text) {
+    this.title = text;
+    this.titleTextEl.textContent = text;
+  }
+
+  /** Zapni/vypni indikátor fokusu (volá WindowManager při změně aktivního
+   *  okna – jinak by se muselo hlídat na deseti místech). */
+  setFocused(on) {
+    this.focusEl.style.display = on ? '' : 'none';
   }
 
   /** Klik kamkoli do okna (pointerdown v _mount) = přenes dopředu A aktivuj
