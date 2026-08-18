@@ -68,3 +68,16 @@ def test_kod_se_prelozi_na_nejnizsi_slibene_verzi():
             spatne.append(f"{soubor.relative_to(KOREN)}:{chyba.lineno} {chyba.msg}")
     assert not spatne, (f"requires-python slibuje {floor[0]}.{floor[1]}, "
                         f"ale nepřeloží se: {spatne}")
+
+
+def test_testy_nesahaji_do_skutecneho_domova():
+    """Zábradlí (viz conftest.py): celá sada běží nad tmp domovem. Bez toho
+    si testy zapisovaly jednorázové kódy do `~/.viewbase` skutečného
+    uživatele."""
+    import os
+
+    from viewbase import mfa
+
+    domov = mfa.home()
+    assert os.environ.get("VIEWBASE_HOME"), "VIEWBASE_HOME musí být nastavené"
+    assert pathlib.Path.home() / ".viewbase" != domov

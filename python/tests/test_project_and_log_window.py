@@ -114,3 +114,28 @@ def test_project_zaregistruje_uzivatele_pri_prvnim_startu(tmp_path, monkeypatch,
         assert "registrace" not in druhy and tajemstvi not in druhy
     finally:
         mfa.reset_state()
+
+
+def test_prvni_instanciace_pripravi_domov_i_pres_stare_api(tmp_path, monkeypatch, capsys):
+    """Setup po prvním spuštění nesmí viset na `Project`: kdo použije starší
+    `vb.serve(graph, …)`, musí dostat totéž – adresář, uživatele, TOTP i QR."""
+    pytest.importorskip("pyotp")
+    from viewbase import mfa
+
+    monkeypatch.setenv("VIEWBASE_HOME", str(tmp_path))
+    mfa.reset_state()
+    try:
+        graph = vb.GraphWindow(title="Staré API")
+        handle = vb.serve(graph, port=0, block=False)
+        try:
+            assert (tmp_path / "users.json").exists()
+            assert (tmp_path / "user-workbench" / "totp-workbench.svg").exists()
+            assert (tmp_path / "user-workbench" / "totp-workbench.txt").exists()
+            assert mfa.registered("workbench")
+            assert oct((tmp_path / "users.json").stat().st_mode)[-3:] == "600"
+            assert oct(tmp_path.stat().st_mode)[-3:] == "700"
+            assert "uživatel instance: workbench" in capsys.readouterr().out
+        finally:
+            handle.stop()
+    finally:
+        mfa.reset_state()

@@ -286,6 +286,36 @@ def create_app(*windows: GraphWindow) -> FastAPI:
     return app
 
 
+def first_run_setup() -> None:
+    """Setup instance – po PRVNÍM spuštění nesmí nic chybět.
+
+    Založí `~/.viewbase` (0700), `users.json` (0600) s uživatelem instance
+    (výchozí `workbench`), vygeneruje mu TOTP tajemství a QR do jeho adresáře
+    (`user-<jméno>/totp-<jméno>.svg|.txt`) a vypíše systémové texty. Podruhé
+    je to no-op – tajemství i QR už existují (a chybějící QR se dorobí ze
+    stávajícího tajemství, viz mfa.ensure_user).
+
+    Sedí ve sdílené `serve()`, aby ho dostal KAŽDÝ vstupní bod: `vb.serve(...)`
+    i `Project.serve(...)`. Kdyby byl jen v Projectu, uživatel staršího API by
+    zabezpečená okna otevřel bez připraveného prostředí."""
+    user = mfa.active_user()
+    mfa.ensure_user(user)
+    users = mfa.describe_users()
+    _system_log(f"uživatel instance: {user}"
+                + (f"; registrovaní: {', '.join(users)}" if users else ""))
+    if not mfa.available():
+        # Kdo má TOTP zaregistrované, ale spustí instanci v prostředí bez
+        # `pyotp`, jinak jen kouká, proč mu autentikátor nefunguje.
+        _system_log(
+            "pyotp v tomhle prostředí chybí – zabezpečená okna se odemykají "
+            "jednorázovým kódem ze souboru"
+            + (f" (uživatel '{user}' má přitom TOTP zaregistrované, "
+               "kód z autentikátoru fungovat NEBUDE); "
+               if mfa.registered(user) else "; ")
+            + "TOTP zapne: pip install pyotp qrcode "
+              "(standardní závislosti viewbase)", "warning")
+
+
 def _system_log(message: str, level: str = "info") -> None:
     """Systémová hláška při startu: do KONZOLE serveru i na log bus.
 
@@ -331,25 +361,6 @@ class Project:
         drátě nese přes skrytého hostitele (interní GraphWindow s
         `config["graph_window"] = False`; frontend pro něj grafové okno
         ani pipeline vůbec nevytvoří)."""
-        # Registrace při PRVNÍM spuštění instance (uživatelské rozhodnutí):
-        # tajemství + QR vzniknou tady, na jednom očekávatelném místě hned po
-        # startu, ne až u prvního zamčeného okna uprostřed výpisu aplikace.
-        # Podruhé je to no-op – tajemství už v users.json je.
-        mfa.ensure_user(self.user)
-        users = mfa.describe_users()
-        _system_log(f"uživatel instance: {self.user}"
-                    + (f"; registrovaní: {', '.join(users)}" if users else ""))
-        if not mfa.available():
-            # Kdo má TOTP zaregistrované, ale spustí instanci v prostředí bez
-            # `pyotp`, jinak jen kouká, proč mu autentikátor nefunguje.
-            _system_log(
-                "pyotp v tomhle prostředí chybí – zabezpečená okna se odemykají "
-                "jednorázovým kódem ze souboru"
-                + (f" (uživatel '{self.user}' má přitom TOTP zaregistrované, "
-                   "kód z autentikátoru fungovat NEBUDE); "
-                   if mfa.registered(self.user) else "; ")
-                + "TOTP zapne: pip install pyotp qrcode "
-                  "(standardní závislosti viewbase)", "warning")
         windows = []
         for surface in surfaces:
             if hasattr(surface, "snapshot"):     # přímo GraphWindow
@@ -438,6 +449,7 @@ def serve(*windows: GraphWindow, host: str = "127.0.0.1", port: int = 8080,
     volný, `handle.stop()` server ukončí."""
     if not windows:
         raise ValueError("serve() vyžaduje aspoň jeden GraphWindow")
+    first_run_setup()                    # ~/.viewbase, uživatel, TOTP + QR
     server = _make_server(windows, host, port)
     if open_browser:
         threading.Timer(
