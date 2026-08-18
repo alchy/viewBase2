@@ -32,6 +32,18 @@ export const DEPTH_ICON = svg(
   + '<rect x="5.5" y="6.5" width="9" height="7"/>',
 );
 
+/** Indikátor fokusu: stylizované oko „<o>" – mandle s kolečkem uvnitř,
+ *  jemnou 1px linkou jako gadgety. Výška 12px = svislá proporce glyfů
+ *  ostatních gadgetů (jejich obrysy zabírají 11 z 16 jednotek viewBoxu),
+ *  aby oko v liště opticky sedělo do stejného rastru. */
+export const FOCUS_EYE_ICON = 'data:image/svg+xml;utf8,' + encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 12" width="16" height="12">'
+  + '<g fill="none" stroke="#000" stroke-width="1">'
+  + '<path d="M0.5 6 Q8 0.5 15.5 6 Q8 11.5 0.5 6 Z"/>'
+  + '<circle cx="8" cy="6" r="2.5"/>'
+  + '</g></svg>',
+);
+
 export const RESIZE_ICON = svg(
   '<rect x="2.5" y="2.5" width="4" height="4"/>'
   + '<rect x="6.5" y="6.5" width="7" height="7"/>',

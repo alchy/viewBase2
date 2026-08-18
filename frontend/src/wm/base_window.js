@@ -14,7 +14,9 @@
 // minimalizovat = okno s menším oknem, depth = dva překryté obdélníky („za
 // ostatní okna"; v doku obnovit), sizing = malý+velký čtverec v rohu.
 import { wirePointerDrag } from './drag.js';
-import { CLOSE_ICON, DEPTH_ICON, MINIMIZE_ICON, RESIZE_ICON } from './gadget_icons.js';
+import {
+  CLOSE_ICON, DEPTH_ICON, FOCUS_EYE_ICON, MINIMIZE_ICON, RESIZE_ICON,
+} from './gadget_icons.js';
 import { SCREEN_BAR_HEIGHT } from './drag_reveal.js';
 import { findFreeSlot, resolveDockDrag } from './dock.js';
 import { FRAME_PX, WindowFrame } from './frame.js';
@@ -245,17 +247,18 @@ export class BaseWindow {
     this.titleTextEl.style.cssText =
       'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0';
     // INDIKÁTOR FOKUSU hned za textem titulku (uživatelský požadavek):
-    // drobná plná značka – jediný vyplněný prvek v jinak linkovém chrome,
-    // takže se nedá splést s gadgetem (ty jsou 1px obrys vpravo). Svítí jen
-    // na aktivním okně = tom, kterému patří Options i klávesnice; barvu bere
-    // z textu lišty, glow z tématu (cyber). Přepíná WindowManager._setActive.
+    // stylizované oko „<o>" jemnou linkou (gadget_icons.js#FOCUS_EYE_ICON) –
+    // kreslí se jako maska, barvu bere z textu lišty. Svítí jen na aktivním
+    // okně = tom, kterému patří Options i klávesnice. Přepíná
+    // WindowManager._setActive.
     this.focusEl = document.createElement('span');
     this.focusEl.dataset.role = 'vb-focus';
     this.focusEl.title = 'Aktivní okno';
     this.focusEl.style.cssText = [
-      'flex:0 0 auto', 'width:5px', 'height:5px', 'border-radius:1px',
-      'background:currentColor', 'box-shadow:var(--vb-frame-glow, none)',
-      'opacity:0.85', 'display:none',
+      'flex:0 0 auto', 'width:16px', 'height:12px',
+      'background:currentColor', 'opacity:0.85', 'display:none',
+      `-webkit-mask:url("${FOCUS_EYE_ICON}") center/16px 12px no-repeat`,
+      `mask:url("${FOCUS_EYE_ICON}") center/16px 12px no-repeat`,
     ].join(';');
     this.titleEl.append(this.titleTextEl, this.focusEl);
 
