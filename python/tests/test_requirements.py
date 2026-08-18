@@ -112,3 +112,38 @@ def test_testy_nesahaji_do_skutecneho_domova():
     domov = mfa.home()
     assert os.environ.get("VIEWBASE_HOME"), "VIEWBASE_HOME musí být nastavené"
     assert pathlib.Path.home() / ".viewbase" != domov
+
+
+def test_gitignore_kryje_citlive_soubory():
+    """Logy nesou od verze s auditem shellu i to, co kdo napsal do terminálu
+    (tedy i heslo na výzvu `sudo`), a stav instance může skončit v klonu,
+    když se `VIEWBASE_HOME` nasměruje sem (kontejnery, testy)."""
+    import subprocess
+
+    citlive = ["server.log", "users.json", ".viewbase/users.json",
+               "cert.pem", "key.pem", ".env",
+               "user-workbench/totp-workbench.txt",
+               "user-workbench/onetime-sh.txt"]
+    hotovo = subprocess.run(["git", "check-ignore", *citlive],
+                            cwd=KOREN.parent, capture_output=True, text=True)
+    ignorovane = set(hotovo.stdout.split())
+    chybi = [c for c in citlive if c not in ignorovane]
+    assert not chybi, f"do gitu by prošlo: {chybi}"
+
+
+def test_v_repu_nejsou_retezce_vypadajici_jako_tajemstvi():
+    """Mockupy v dokumentaci mají mít placeholder, ne hodnotu."""
+    import re
+    import subprocess
+
+    base32 = re.compile(r"\b[A-Z2-7]{26,}\b")
+    soubory = subprocess.run(["git", "ls-files", "*.md", "*.py"],
+                             cwd=KOREN.parent, capture_output=True, text=True)
+    nalezy = []
+    for jmeno in soubory.stdout.split():
+        cesta = KOREN.parent / jmeno
+        if "static" in jmeno or not cesta.is_file():
+            continue
+        for shoda in base32.findall(cesta.read_text("utf-8", errors="ignore")):
+            nalezy.append(f"{jmeno}: {shoda[:12]}…")
+    assert not nalezy, f"vypadá jako tajemství: {nalezy}"

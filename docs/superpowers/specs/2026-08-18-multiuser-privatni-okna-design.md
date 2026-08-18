@@ -109,7 +109,8 @@ loopback jen s `shell_allow_remote=True`.
 ```json
 {"version": 2,
  "users": {
-   "jindrich": {"auth": "totp", "totp_secret": "…", "roles": ["admin"],
+   "jindrich": {"auth": "totp", "totp_secret": "<base32, NIKDY do gitu>",
+                "roles": ["admin"],
                 "created": "2026-08-18T11:15:03", "last_login": "…"},
    "hana":     {"auth": "sso",  "roles": ["operator"]},
    "kiosk":    {"auth": "none", "roles": ["viewer"]}}}
