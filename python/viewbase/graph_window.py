@@ -5,16 +5,16 @@ import logging
 import re
 import threading
 import types
-import uuid
-from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Callable, Iterator
 
-from .controls import ControlWindow, HtmlWindow, ShellWindow, TerminalWindow, validate_values
-from . import sessions
-from .log import bus as log_bus
+from .controls import ControlWindow, HtmlWindow, ShellWindow, TerminalWindow
 from .menu import ScreenMenu
+from .events_mixin import EventsMixin
+from .flows_mixin import FlowsMixin
+from .graph_util import QUALITIES, _edge_key, _validated_theme
+from .windows_mixin import WindowsMixin
 
 if TYPE_CHECKING:
     from .screen import Screen
@@ -23,33 +23,17 @@ logger = logging.getLogger("viewbase")
 
 _LABEL_KEY = re.compile(r"\{([^{}]+)\}")
 
-BUILTIN_THEMES = ("modern", "cyber", "workbench-gray", "workbench-amiga")
-QUALITIES = ("low", "high", "auto")
 
 # Sentinel „argument nezadán" – odlišuje `update_node(a)` (typ/label nech být)
 # od `update_node(a, type=None)` (typ zruš, uzel spadne na styl tématu).
 _KEEP: Any = object()
 
 
-def _validated_theme(theme: Any) -> Any:
-    """Název vestavěného tématu, nebo dict (klient ho merguje přes modern)."""
-    if isinstance(theme, str):
-        if theme not in BUILTIN_THEMES:
-            raise ValueError(
-                f"Neznámé téma '{theme}' – vestavěná: {', '.join(BUILTIN_THEMES)};"
-                " vlastní téma předej jako dict")
-        return theme
-    if isinstance(theme, dict):
-        return theme
-    raise ValueError("theme musí být název vestavěného tématu nebo dict")
 
 
-def _edge_key(source: str, target: str) -> tuple[str, str]:
-    """Neorientovaná hrana má kanonický klíč: lexikograficky seřazenou dvojici."""
-    return (source, target) if source <= target else (target, source)
 
 
-class GraphWindow:
+class GraphWindow(EventsMixin, FlowsMixin, WindowsMixin):
     """Grafové OKNO na screenu – speciální instance okna (window-first
     model: screen je plocha, všechno na ní jsou okna; graf je jen jeden
     z typů, vedle log/control/terminal oken). Zároveň thread-safe model
@@ -153,36 +137,6 @@ class GraphWindow:
             "remove_edges": {},   # key -> True
         }
 
-    def detail_window(self, rows: list[tuple[str, str]] | None = None,
-                      width_chars: int = 42, open_on_click: bool = True) -> None:
-        """Nakonfiguruj detailní okno (Amiga Workbench). Uloží se do config a
-        odejde klientovi v init. `rows` je seznam dvojic (popisek, meta_klíč),
-        nebo None = okno zobrazí všechna meta. `width_chars` je šířka těla
-        v monospace znacích. `open_on_click` zapíná otevření okna při kliknutí."""
-        if not isinstance(width_chars, int) or isinstance(width_chars, bool) \
-                or width_chars <= 0:
-            raise ValueError("width_chars musí být kladné celé číslo")
-        if not isinstance(open_on_click, bool):
-            raise ValueError("open_on_click musí být bool")
-        normalized: list[list[str]] | None
-        if rows is None:
-            normalized = None
-        else:
-            if not isinstance(rows, (list, tuple)):
-                raise ValueError("rows musí být None nebo seznam dvojic (str, str)")
-            normalized = []
-            for pair in rows:
-                if not isinstance(pair, (list, tuple)) or len(pair) != 2 \
-                        or not all(isinstance(x, str) for x in pair):
-                    raise ValueError(
-                        "rows musí být None nebo seznam dvojic (str, str)")
-                normalized.append([pair[0], pair[1]])
-        with self._lock:
-            self.config["detail_window"] = {
-                "rows": normalized,
-                "width_chars": width_chars,
-                "open_on_click": open_on_click,
-            }
 
     # ---- typy ----------------------------------------------------------
 
@@ -209,459 +163,39 @@ class GraphWindow:
             self._actions.append({"action": "define_type", "name": name,
                                   "style": dict(style)})
 
-    def define_flow_type(self, name: str, *, color: str | None = None,
-                         size: float = 1.0, speed: float = 1.0) -> None:
-        """Definuj typ toku (jako typ uzlu). Bez `color` dostane tok barvu
-        z kategorické palety aktivního tématu (řeší klient podle indexu typu)."""
-        with self._lock:
-            self._flow_types[name] = {
-                "color": color, "size": float(size), "speed": float(speed)}
 
-    def _flow_type_index(self, name: str | None) -> int | None:
-        """Index typu v pořadí registrace (pro výběr barvy z palety na klientu)."""
-        if name is None:
-            return None
-        return list(self._flow_types).index(name)
 
-    def _resolve_flow_path(self, source: str | None, target: str | None,
-                           path: list[str] | None) -> list[str]:
-        """Sestav cestu toku. `path=[...]` = přesná cesta (každá sousední dvojice
-        musí být existující hrana). Jen `(source, target)` = knihovna **sama najde
-        nejkratší cestu** po hranách (BFS) — stačí zadat konce A→C, mezikroky ne."""
-        if path is not None:
-            resolved = list(path)
-            if len(resolved) < 2:
-                raise ValueError("flow path musi mit aspon 2 uzly")
-            for node_id in resolved:
-                if node_id not in self._nodes:
-                    raise ValueError(f"flow: uzel '{node_id}' neexistuje")
-            for a, b in zip(resolved, resolved[1:]):
-                if _edge_key(a, b) not in self._edges:
-                    raise ValueError(
-                        f"flow: hrana {a}-{b} neexistuje - tok jede jen po hranach")
-            return resolved
-        if source is not None and target is not None:
-            return self._shortest_path(source, target)
-        raise ValueError("flow vyzaduje bud (source, target), nebo path=[...]")
 
-    def _shortest_path(self, source: str, target: str) -> list[str]:
-        """BFS nejkratší cesta po hranách source→target (zadávají se jen konce).
 
-        Hrany jsou neorientované. Vyhodí ValueError, když uzel neexistuje nebo
-        cesta nevede."""
-        for node_id in (source, target):
-            if node_id not in self._nodes:
-                raise ValueError(f"flow: uzel '{node_id}' neexistuje")
-        if source == target:
-            raise ValueError("flow: source a target musi byt ruzne")
-        adjacency: dict[str, list[str]] = {}
-        for a, b in self._edges:
-            adjacency.setdefault(a, []).append(b)
-            adjacency.setdefault(b, []).append(a)
-        prev: dict[str, str | None] = {source: None}
-        queue = deque([source])
-        while queue:
-            node = queue.popleft()
-            if node == target:
-                break
-            for neighbor in adjacency.get(node, ()):
-                if neighbor not in prev:
-                    prev[neighbor] = node
-                    queue.append(neighbor)
-        if target not in prev:
-            raise ValueError(
-                f"flow: mezi '{source}' a '{target}' nevede cesta")
-        route: list[str] = []
-        node: str | None = target
-        while node is not None:
-            route.append(node)
-            node = prev[node]
-        route.reverse()
-        return route
 
-    def flow(self, source: str | None = None, target: str | None = None, *,
-             path: list[str] | None = None, type: str | None = None,
-             count: int | None = 1, interval: float = 0.2, speed: float = 1.0,
-             color: str | None = None, size: float | None = None) -> str | None:
-        """Vysli tok castic po hrane/ceste (source -> target nebo path=[...]).
-
-        `count=N` je jednorazovy (fire-and-forget; server tok neudrzi, vraci
-        None). `count=None` je trvaly: vraci `flow_id`, tok je v `init` a prezije
-        reconnect; zastaves ho `stop_flow(flow_id)`. `interval` je rozestup castic
-        v sekundach, `speed` nasobek vychozi rychlosti tematu."""
-        with self._lock:
-            if type is not None and type not in self._flow_types:
-                raise ValueError(
-                    f"Neznam typ toku '{type}' - nejdriv define_flow_type")
-            resolved = self._resolve_flow_path(source, target, path)
-            payload = {
-                "action": "flow",
-                "path": resolved,
-                "flow_type": type,
-                "type_index": self._flow_type_index(type),
-                "count": count,
-                "interval": float(interval),
-                "speed": float(speed),
-                "color": color,
-                "size": size,
-            }
-            if count is None:
-                flow_id = uuid.uuid4().hex[:8]
-                payload["flow_id"] = flow_id
-                self._flows[flow_id] = {k: v for k, v in payload.items()
-                                        if k != "action"}
-                self._actions.append(payload)
-                return flow_id
-            self._actions.append(payload)
-            return None
-
-    def stop_flow(self, flow_id: str) -> None:
-        """Zastav trvaly tok: odeber ho ze stavu a zarad akci stop_flow."""
-        with self._lock:
-            if flow_id not in self._flows:
-                raise ValueError(f"Trvaly tok '{flow_id}' neexistuje")
-            del self._flows[flow_id]
-            self._actions.append({"action": "stop_flow", "flow_id": flow_id})
 
     # ---- control okna -------------------------------------------------
 
-    def open_window(self, window: ControlWindow, *, on_submit=None,
-                    live: bool = False) -> str:
-        """Otevři/nahraď parametrické okno: ulož do stavu (pro init replay) a
-        zařaď akci open_window. on_submit dostane event s validovanými values.
-        `live=True` posílá hodnoty při každé změně (bez tlačítka Použít).
-        Pozor: při nahrazení okna stejného window_id bez on_submit se předchozí
-        callback zruší – chceš-li ho zachovat, předej on_submit znovu."""
-        with self._lock:
-            self._windows[window.window_id] = window
-            self._window_live[window.window_id] = bool(live)
-            if on_submit is not None:
-                self._window_callbacks[window.window_id] = on_submit
-            else:
-                self._window_callbacks.pop(window.window_id, None)
-            self._emit_open(window, live=bool(live))
-        if window.locked:
-            window.announce_lock()
-        return window.window_id
 
-    def close_window(self, window_id: str) -> None:
-        """Zavři okno (control i html): odeber ze stavu a zařaď akci close_window."""
-        with self._lock:
-            removed = self._windows.pop(window_id, None) is not None
-            if self._html_windows.pop(window_id, None) is not None:
-                removed = True
-                self._html_callbacks.pop(window_id, None)
-            shell = self._shell_windows.pop(window_id, None)
-            if shell is not None:
-                removed = True
-            if not removed:
-                raise ValueError(f"Okno '{window_id}' neexistuje")
-            self._window_callbacks.pop(window_id, None)
-            self._window_live.pop(window_id, None)
-            self._actions.append(
-                {"action": "close_window", "window_id": window_id})
-        if shell is not None:
-            self._shell_stop(shell)          # proces nepřežije zavření okna
 
-    def open_terminal(self, window: TerminalWindow, *, on_input=None) -> str:
-        """Otevři/nahraď konzolové okno: ulož do stavu (init replay) a zařaď akci
-        open_window (kind:"terminal"). `on_input` dostane event s .line (řádek,
-        co uživatel napsal). Do okna se píše přes `terminal_write`."""
-        with self._lock:
-            self._terminals[window.window_id] = window
-            if on_input is not None:
-                self._terminal_callbacks[window.window_id] = on_input
-            else:
-                self._terminal_callbacks.pop(window.window_id, None)
-            self._emit_open(window)
-        if window.locked:
-            window.announce_lock()
-        return window.window_id
 
-    def terminal_write(self, window_id: str, text: str) -> None:
-        """Připiš řádek do konzolového okna (delta terminal_append klientům)."""
-        with self._lock:
-            if window_id not in self._terminals:
-                raise ValueError(f"Terminál '{window_id}' neexistuje")
-            self._actions.append({"action": "terminal_append",
-                                  "window_id": window_id, "text": str(text)})
 
-    def _on_terminal_input(self, event) -> None:
-        """Interní handler eventu terminal_input: zavolej on_input okna s řádkem."""
-        window_id = getattr(event, "window_id", None)
-        line = getattr(event, "line", None)
-        if not isinstance(line, str):
-            return
-        with self._lock:
-            callback = self._terminal_callbacks.get(window_id)
-        if callback is not None:
-            callback(event)
 
-    def open_html(self, window: HtmlWindow, *, on_event=None) -> str:
-        """Otevři/nahraď HTML okno: ulož do stavu (init replay) a zařaď akci
-        open_window (kind:"html"). `on_event` dostane event s `.event`
-        (hodnota `data-vb-event` kliknutého prvku / odeslaného formuláře),
-        `.value` (`data-vb-value`, nebo None), `.values` (u submitu
-        <form data-vb-event="…"> dict hodnot polí podle `name` – JSON objekt,
-        který sestavil prohlížeč; u kliku {}) a `.window_id`. Do okna se píše přes
-        `html_set` / `html_append`. Nahrazení okna stejného window_id bez
-        `on_event` předchozí callback zruší (stejně jako open_terminal)."""
-        with self._lock:
-            self._html_windows[window.window_id] = window
-            window._owner = self             # prvky odteď posílají html_set/html_patch
-            if on_event is not None:
-                self._html_callbacks[window.window_id] = on_event
-            else:
-                self._html_callbacks.pop(window.window_id, None)
-            self._emit_open(window)
-        if window.locked:
-            window.announce_lock()
-        return window.window_id
 
-    def _drop_if_locked(self, window: Any) -> bool:
-        """Má obsah zabezpečeného okna vůbec komu jít?
 
-        Zahazuje se jen tehdy, když okno NEMÁ ODEMČENÉ ŽÁDNÁ RELACE – jinak
-        akce vznikne a doručí se právě těm relacím, které grant mají (značku
-        `grant` doplní drain_actions, filtruje broadcast v server.py). Dřív
-        se tady rozhodovalo podle globálního `window.locked`, takže po prvním
-        odemčení tekl obsah všem."""
-        if not getattr(window, "secured", False):
-            return False
-        return not sessions.store.sids_with(window.window_id)
 
-    def html_set(self, window_id: str, html: str) -> None:
-        """Nahraď celý obsah HTML okna (akce html_set klientům; okno si
-        obsah pamatuje pro replay po reconnectu, viz HtmlWindow.MAX_HTML)."""
-        with self._lock:
-            window = self._html_windows.get(window_id)
-            if window is None:
-                raise ValueError(f"HTML okno '{window_id}' neexistuje")
-            window.set_html(html)
-            self._actions.append({"action": "html_set",
-                                  "window_id": window_id, "html": window.html})
 
-    def html_append(self, window_id: str, html: str) -> None:
-        """Připiš HTML fragment na konec okna (streamový výpis; klient drží
-        konec jako terminál). Akce html_append klientům."""
-        with self._lock:
-            window = self._html_windows.get(window_id)
-            if window is None:
-                raise ValueError(f"HTML okno '{window_id}' neexistuje")
-            window.append_html(html)
-            self._actions.append({"action": "html_append",
-                                  "window_id": window_id, "html": str(html)})
 
-    def _emit_html(self, action: str, window_id: str, **fields: Any) -> None:
-        """Akce k oknu (prvky HTML okna, výstup shellu, stavy zámku). Zamčenému
-        oknu se obsah neposílá – dostane ho až po odemčení."""
-        with self._lock:
-            window = (self._html_windows.get(window_id)
-                      or self._shell_windows.get(window_id))
-            if (window is not None and self._drop_if_locked(window)
-                    and action != "window_state"):
-                return
-            self._actions.append({"action": action, "window_id": window_id, **fields})
-
-    def _on_html_event(self, event) -> None:
-        """Interní handler eventu html_event (klik na [data-vb-event] nebo
-        submit <form data-vb-event> v HTML okně): doplň `.value` (None, když
-        prvek data-vb-value nemá) a `.values` (dict hodnot polí okna podle
-        `name`), předej oknu (prvky: aktualizace `.value`, handlery prvků a
-        `okno.on_event`) a zavolej `on_event` z open_html."""
-        window_id = getattr(event, "window_id", None)
-        if not isinstance(getattr(event, "event", None), str):
-            return
-        if not hasattr(event, "value"):
-            event.value = None
-        if not isinstance(getattr(event, "values", None), dict):
-            event.values = {}
-        with self._lock:
-            window = self._html_windows.get(window_id)
-            callback = self._html_callbacks.get(window_id)
-        if window is not None:
-            window._dispatch(event)          # prvky: .value, on_click/on_change/on_submit
-        if callback is not None:
-            callback(event)
 
     # ---- shell okno (spec 2026-08-18) ------------------------------------
 
-    def open_shell(self, window: ShellWindow) -> str:
-        """Otevři shell okno: uloží do stavu (init replay), zařadí akci
-        open_window. PTY se NESPOUŠTÍ – okno je zamčené a odemykací kód se
-        vypíše do konzole serveru (`unlock=None` spustí shell rovnou)."""
-        with self._lock:
-            self._shell_windows[window.window_id] = window
-            window._owner = self
-            self._emit_open(window)
-        if window.locked:
-            window.announce_lock()          # TOTP registrace / jednorázový kód
-        else:
-            self._shell_start(window)
-        return window.window_id
 
-    def _shell_start(self, window: ShellWindow) -> None:
-        """Spusť PTY proces okna a nasměruj jeho výstup klientům."""
-        from .pty_shell import PtyShell
 
-        if window.pty is not None:
-            return
-        wid = window.window_id
 
-        def on_data(text: str) -> None:
-            window.append_scrollback(text)
-            self._emit_html("shell_data", wid, data=text)   # sdílená cesta akcí
 
-        def on_exit(code: int | None) -> None:
-            self._emit_html("shell_state", wid, state="exited", code=code)
 
-        try:
-            window.pty = PtyShell(window.command, cwd=window.cwd, env=window.env,
-                                  cols=window.cols, rows=window.rows,
-                                  on_data=on_data, on_exit=on_exit)
-            window.pty.start()
-        except Exception as chyba:                       # noqa: BLE001
-            window.pty = None
-            self._emit_html("shell_state", wid, state="failed", error=str(chyba))
-            logger.exception("Shell window '%s' failed to start", wid)
-            return
-        self._emit_html("shell_state", wid, state="running")
 
-    def _shell_stop(self, window: ShellWindow) -> None:
-        """Zabij proces okna (zavření okna, konec programu)."""
-        pty = window.pty
-        if pty is not None:
-            pty.terminate()
 
-    def _on_shell_new(self, event) -> None:
-        """Položka „System → Shell CLI" na liště screenu: otevři NOVÉ shell
-        okno. Okno je (jako každé jiné) ZAMČENÉ – odemykací kód se vypíše do
-        konzole serveru, takže i tahle cesta vyžaduje přístup ke stroji.
-        Aplikace může volbu vypnout: `GraphWindow(shell_cli=False)`."""
-        if not self.config.get("shell_cli", True):
-            return
-        with self._lock:
-            self._shell_seq = getattr(self, "_shell_seq", 0) + 1
-            wid = f"cli-{self._shell_seq}"
-        self.open_shell(ShellWindow(wid, title=f"Shell CLI {self._shell_seq}",
-                                    cols=100, rows=28, width=820, height=440))
 
-    def _emit_open(self, window: Any, **extra: Any) -> None:
-        """Zařaď `open_window` a u zabezpečeného okna ohlas zámek.
 
-        Čtyři `open_*` metody (control, terminál, HTML, shell) tenhle blok
-        měly každá zvlášť – při každé změně zámku se musel opravit čtyřikrát.
-        Volá se UVNITŘ `self._lock`, `announce_lock` až po něm (tiskne a
-        registruje TOTP, což pod zámkem být nemusí)."""
-        self._actions.append({**window.public_spec(), "action": "open_window",
-                              **extra})
 
-    def has_secured_window(self) -> bool:
-        """Je na screenu okno se `secured=True`? (Rozhoduje o povinném TLS
-        při poslechu mimo loopback, viz tls.require_tls.)"""
-        return any(getattr(w, "secured", False)
-                   for w in self._secured_windows().values())
 
-    def _secured_windows(self) -> dict[str, Any]:
-        """Všechna okna se zámkem (jeden mechanismus napříč typy)."""
-        with self._lock:
-            return {**self._windows, **self._terminals,
-                    **self._html_windows, **self._shell_windows}
 
-    def _on_window_unlock(self, event) -> None:
-        """Klient poslal kód k zamčenému oknu (JAKÉHOKOLI typu). Při shodě se
-        pošle skutečné `open_window` i s obsahem a zavolá hook okna (shell
-        spustí PTY). Nesprávný kód se odmítne – TOTP má rate limit a ochranu
-        proti opakovanému použití (viewbase.mfa)."""
-        window = self._secured_windows().get(getattr(event, "window_id", None))
-        sid = getattr(event, "sid", None)
-        if window is None or not getattr(window, "secured", False):
-            return
-        if sessions.store.has(sid, window.window_id):
-            return                              # tahle relace už grant má
-        if not window.unlocks_with(getattr(event, "code", None)):
-            # AUDIT: co se stalo, ne čím se to zkoušelo – kód do logu nepatří
-            self._log_auth("warning", f"invalid code for window '{window.window_id}'")
-            self._emit_html("window_state", window.window_id, state="locked",
-                            error="Invalid code")
-            return
-        # GRANT PRO TUHLE RELACI, ne globální přepnutí okna: obsah dostane
-        # jen ten, kdo kód zadal, a jen do vypršení relace (sessions.py).
-        sessions.store.grant(sid, window.window_id)
-        window.state = "open"                # souhrn pro log/introspekci
-        self._log_auth("info", f"window '{window.window_id}' unlocked – "
-                               f"{self._auth_kind(window)}")
-        with self._lock:
-            live = self._window_live.get(window.window_id)
-            spec = {**window.public_spec(True), "action": "open_window",
-                    "only_sid": sid}         # obsah JEN téhle relaci
-            if live is not None:
-                spec["live"] = bool(live)
-            self._actions.append(spec)
-        window.on_unlocked()
-
-    def _on_window_lock(self, event) -> None:
-        """Divák si v Options → „Lock Window" řekl o zamčení zpátky (opak
-        `window_unlock`). Okno se klientům pošle znovu jen jako prázdný rám –
-        obsah se přestane posílat a příště si okno zase řekne o kód.
-
-        Zamknout jde JEN okno se `secured=True`: u ostatních není čím odemykat
-        a tichý zámek by je udělal nepřístupnými."""
-        window = self._secured_windows().get(getattr(event, "window_id", None))
-        sid = getattr(event, "sid", None)
-        if window is None or not getattr(window, "secured", False):
-            return
-        if not sessions.store.has(sid, window.window_id):
-            return                          # tahle relace ho stejně nemá
-        # Zamyká se RELACE, ne okno pro všechny: kdo si okno odemkl vedle,
-        # o obsah nepřijde. („Lock all windows" zamkne všem – jiná akce.)
-        sessions.store.revoke(sid, window.window_id)
-        if not sessions.store.sids_with(window.window_id):
-            window.state = "locked"         # souhrn: nikdo už ho odemčené nemá
-        with self._lock:
-            self._actions.append({**window.lock_spec(), "action": "open_window",
-                                  "only_sid": sid})
-        window.on_locked()
-        self._log_auth("info", f"window '{window.window_id}' locked by the user")
-
-    @staticmethod
-    def _auth_kind(window: Any) -> str:
-        """Čím se okno odemklo – do auditní stopy (bez tajemství)."""
-        from . import mfa
-
-        if mfa.available() and mfa.load_users().get(mfa.active_user()):
-            return f"token of user '{mfa.active_user()}'"
-        return "one-time code"
-
-    @staticmethod
-    def _log_auth(level: str, message: str) -> None:
-        """Auditní stopa zámku okna do log okna i logu serveru. Systémový
-        text, NIKDY tajemství (kód, QR, URI) – uživatelské rozhodnutí."""
-        log_bus.publish(level, "backend_program", message, component="windows")
-
-    def _on_shell_input(self, event) -> None:
-        """Klávesy z prohlížeče do procesu (jen běžícího a odemčeného okna)."""
-        window = self._shell_windows.get(getattr(event, "window_id", None))
-        data = getattr(event, "data", None)
-        if window is None or window.pty is None or not isinstance(data, str):
-            return
-        window.pty.write(data)
-
-    def _on_shell_resize(self, event) -> None:
-        """Nová velikost terminálu z prohlížeče → SIGWINCH procesu."""
-        window = self._shell_windows.get(getattr(event, "window_id", None))
-        if window is None:
-            return
-        try:
-            cols = int(getattr(event, "cols", 0))
-            rows = int(getattr(event, "rows", 0))
-        except (TypeError, ValueError):
-            return
-        if cols <= 0 or rows <= 0:
-            return
-        window.cols, window.rows = cols, rows
-        if window.pty is not None:
-            window.pty.resize(cols, rows)
 
     def pin_menu(self, menu: ScreenMenu) -> None:
         """Připni ScreenMenu na screen bar (§8 designu) – uloží se do stavu
@@ -695,23 +229,6 @@ class GraphWindow:
             self._actions.append({"action": "set_edge_style", "style": style,
                                   "elasticity": elasticity})
 
-    def _on_window_submit(self, event) -> None:
-        """Interní handler eventu window_submit: validuj values proti specu
-        okna, ulož je (pro init replay) a zavolej callback okna."""
-        window_id = getattr(event, "window_id", None)
-        raw = getattr(event, "values", None)
-        if not isinstance(raw, dict):
-            return
-        with self._lock:
-            window = self._windows.get(window_id)
-            if window is None:
-                return
-            clean = validate_values(window.spec()["fields"], raw)
-            window.apply(clean)
-            callback = self._window_callbacks.get(window_id)
-        if callback is not None:
-            event.values = clean
-            callback(event)
 
     # ---- uzly ----------------------------------------------------------
 
@@ -887,17 +404,6 @@ class GraphWindow:
             self._pending["remove_edges"][key] = True
         self._invalidate_flows_locked(key)
 
-    def _invalidate_flows_locked(self, edge_key: tuple[str, str]) -> None:
-        """Zruš trvalé toky, jejichž cesta vede přes odstraněnou hranu.
-        Pokrývá i remove_node – kaskáda maže všechny hrany uzlu a každá
-        cesta přes uzel některou z nich používá. Bez invalidace by stale
-        tok zůstal v initu navždy a klient by mu hromadil částice."""
-        doomed = [fid for fid, f in self._flows.items()
-                  if any(_edge_key(a, b) == edge_key
-                         for a, b in zip(f["path"], f["path"][1:]))]
-        for fid in doomed:
-            del self._flows[fid]
-            self._actions.append({"action": "stop_flow", "flow_id": fid})
 
     # ---- import grafů ---------------------------------------------------
 
@@ -1010,24 +516,7 @@ class GraphWindow:
 
     # ---- snapshot ------------------------------------------------------
 
-    def _window_specs(self, sid: str | None) -> list[dict[str, Any]]:
-        """Specifikace VŠECH oken pro init snapshot jedné relace.
 
-        Čtyři kolekce oken (control, terminál, HTML, shell) se tu dřív
-        procházely čtyřmi skoro totožnými comprehension – jediný rozdíl je
-        `live` u control oken. Volá se pod `self._lock` (viz snapshot)."""
-        out = [{**w.public_spec(self._unlocked(sid, wid)),
-                "live": self._window_live.get(wid, False)}
-               for wid, w in self._windows.items()]
-        for kolekce in (self._terminals, self._html_windows, self._shell_windows):
-            out += [w.public_spec(self._unlocked(sid, wid))
-                    for wid, w in kolekce.items()]
-        return out
-
-    def _unlocked(self, sid: str | None, window_id: str) -> bool:
-        """Má tahle relace grant k tomuhle oknu? (Jediná otázka, podle které
-        se rozhoduje, co uvidí – viz sessions.py.)"""
-        return sessions.store.has(sid, window_id)
 
     def snapshot(self, sid: str | None = None) -> dict[str, Any]:
         """Úplný stav pro init zprávu KONKRÉTNÍ relace. Pozn.: pending delty
@@ -1086,107 +575,18 @@ class GraphWindow:
 
     # ---- periodické úlohy ----------------------------------------------
 
-    def every(self, seconds: float, *,
-              name: str | None = None) -> Callable[[Callable], Callable]:
-        """Dekorátor: registruj periodickou úlohu – knihovna ji po startu
-        serveru spouští v daemon vlákně, žádný threading v uživatelském
-        kódu. První tik po uplynutí intervalu. Výjimka se zaloguje a smyčka
-        běží dál. Registruj před vb.serve(); pozdější registrace se jen
-        zaloguje a ignoruje."""
-        interval = float(seconds)
-        if interval <= 0:
-            raise ValueError("every: interval musí být kladný počet sekund")
 
-        def register(func: Callable[[], None]) -> Callable[[], None]:
-            task_name = name or getattr(func, "__name__", "úloha")
-            with self._lock:
-                if self._tasks_stop is not None:
-                    logger.warning(
-                        "every(): task '%s' registered after the server started"
-                        " – ignored", task_name)
-                    return func
-                self._tasks.append(
-                    {"interval": interval, "name": task_name, "func": func})
-            return func
-        return register
 
-    def start_periodic_tasks(self) -> threading.Event:
-        """Spusť every() úlohy (volá server v lifespanu). Vrátí stop event;
-        idempotentní – opakované volání vrátí týž event."""
-        with self._lock:
-            if self._tasks_stop is not None:
-                return self._tasks_stop
-            stop = threading.Event()
-            self._tasks_stop = stop
-            tasks = list(self._tasks)
-        for task in tasks:
-            threading.Thread(
-                target=self._run_periodic, args=(task, stop),
-                name=f"viewbase-every-{task['name']}", daemon=True).start()
-        return stop
-
-    @staticmethod
-    def _run_periodic(task: dict[str, Any], stop: threading.Event) -> None:
-        while not stop.wait(task["interval"]):
-            try:
-                task["func"]()
-            except Exception:
-                logger.exception("Exception in every() task '%s'", task["name"])
 
     # ---- eventy ----------------------------------------------------------
 
-    def on(self, event: str,
-           func: Callable[[Any], None]) -> Callable[[Any], None]:
-        """Obecná registrace handleru eventu — vlastní eventy zvenčí přes
-        REST `/api/event` (např. „terminal_write" pushnutý časovačem)."""
-        return self._register(event, func)
 
-    def on_click(self, func: Callable[[Any], None]) -> Callable[[Any], None]:
-        """Dekorátor: klik na uzel. Event nese `.node_id` a `.client_id`;
-        handler běží v thread-poolu, takže smí blokovat i mutovat canvas."""
-        return self._register("node_click", func)
 
-    def on_hover(self, func: Callable[[Any], None]) -> Callable[[Any], None]:
-        """Dekorátor: najetí myší na uzel (`.node_id`, throttlováno klientem)."""
-        return self._register("node_hover", func)
 
-    def on_background_click(
-            self, func: Callable[[Any], None]) -> Callable[[Any], None]:
-        """Dekorátor: klik mimo uzly – typicky zrušení výběru/zvýraznění."""
-        return self._register("background_click", func)
 
-    def on_view_change(
-            self, func: Callable[[Any], None]) -> Callable[[Any], None]:
-        """Dekorátor: pohyb kamery. Event nese `.position`, `.target`, `.zoom`
-        (klient posílá throttlovaně, ~10×/s)."""
-        return self._register("view_change", func)
 
-    def _register(self, event: str,
-                  func: Callable[[Any], None]) -> Callable[[Any], None]:
-        with self._lock:
-            self._handlers.setdefault(event, []).append(func)
-        return func
 
-    def dispatch_event(self, name: str, payload: dict[str, Any]) -> None:
-        """Spustí handlery eventu ve sdíleném thread-poolu (smí blokovat).
-        Neznámý event je no-op; výjimka handleru se zaloguje, server běží dál."""
-        with self._lock:
-            if self._closed:
-                return
-            handlers = list(self._handlers.get(name, ()))
-        if not handlers:
-            return
-        event = types.SimpleNamespace(**payload)
-        for handler in handlers:
-            self._executor.submit(self._run_handler, handler, name, event)
 
-    @staticmethod
-    def _run_handler(handler: Callable[[Any], None], name: str,
-                     event: types.SimpleNamespace) -> None:
-        try:
-            handler(event)
-        except Exception:
-            logger.exception("Exception in handler for event '%s'", name)
 
     def close(self) -> None:
         """Ukonči thread-pool handlerů i every() úlohy. Idempotentní; další
