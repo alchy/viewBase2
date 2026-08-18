@@ -77,7 +77,10 @@ def test_user_and_frontend_source_component_optional():
 
 
 def test_components_cover_four_module_split():
-    assert set(COMPONENTS) == {"graph", "gui", "windows", "rest", "server"}
+    # `security` je šestá komponenta, ne pátá úroveň: audit se pozná podle ní
+    # (viz logger.Logger.audit) a prahem `log_level` neprochází
+    assert set(COMPONENTS) == {"graph", "gui", "windows", "rest", "server",
+                               "security"}
 
 
 def test_log_shortcut_uses_backend_user_source_on_global_bus():

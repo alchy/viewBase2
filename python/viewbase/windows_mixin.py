@@ -16,15 +16,13 @@ Co mixin očekává od hostitelské třídy (kontrakt, ne magie):
 """
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from . import sessions
 from .controls import (ControlWindow, HtmlWindow, ShellWindow, TerminalWindow,
                        validate_values)
-from .log import bus as log_bus
 
-logger = logging.getLogger("viewbase")
+from .logger import logger
 
 
 class WindowsMixin:
@@ -258,7 +256,8 @@ class WindowsMixin:
         except Exception as chyba:                       # noqa: BLE001
             window.pty = None
             self._emit_html("shell_state", wid, state="failed", error=str(chyba))
-            logger.exception("Shell window '%s' failed to start", wid)
+            logger.exception(f"shell window '{wid}' failed to start",
+                             component="windows")
             return
         self._emit_html("shell_state", wid, state="running")
 
@@ -315,7 +314,8 @@ class WindowsMixin:
             return                              # tahle relace už grant má
         if not window.unlocks_with(getattr(event, "code", None)):
             # AUDIT: co se stalo, ne čím se to zkoušelo – kód do logu nepatří
-            self._log_auth("warning", f"invalid code for window '{window.window_id}'")
+            self._log_auth("warning", f"invalid code for window "
+                                      f"'{window.window_id}' {self._origin(event)}")
             self._emit_html("window_state", window.window_id, state="locked",
                             error="Invalid code")
             return
@@ -324,7 +324,7 @@ class WindowsMixin:
         sessions.store.grant(sid, window.window_id)
         window.state = "open"                # souhrn pro log/introspekci
         self._log_auth("info", f"window '{window.window_id}' unlocked – "
-                               f"{self._auth_kind(window)}")
+                               f"{self._auth_kind(window)} {self._origin(event)}")
         with self._lock:
             live = self._window_live.get(window.window_id)
             spec = {**window.public_spec(True), "action": "open_window",
@@ -356,7 +356,8 @@ class WindowsMixin:
             self._actions.append({**window.lock_spec(), "action": "open_window",
                                   "only_sid": sid})
         window.on_locked()
-        self._log_auth("info", f"window '{window.window_id}' locked by the user")
+        self._log_auth("info", f"window '{window.window_id}' locked by the user "
+                               f"{self._origin(event)}")
 
     @staticmethod
     def _auth_kind(window: Any) -> str:
@@ -368,10 +369,23 @@ class WindowsMixin:
         return "one-time code"
 
     @staticmethod
+    def _origin(event: Any) -> str:
+        """Odkud událost přišla – do auditní stopy.
+
+        IP doplňuje SERVER (`remote_ip`, viz server.peer_of), ne klient, a
+        z relace jde do logu jen prefix: k rozlišení „byl to týž prohlížeč?"
+        stačí, celé sid je přihlašovací údaj a do logu nepatří."""
+        ip = getattr(event, "remote_ip", None) or "?"
+        sid = getattr(event, "sid", None)
+        rel = f", session {str(sid)[:8]}…" if sid else ""
+        return f"from {ip}{rel}"
+
+    @staticmethod
     def _log_auth(level: str, message: str) -> None:
-        """Auditní stopa zámku okna do log okna i logu serveru. Systémový
-        text, NIKDY tajemství (kód, QR, URI) – uživatelské rozhodnutí."""
-        log_bus.publish(level, "backend_program", message, component="windows")
+        """Auditní stopa zámku okna – komponenta `security`, takže jde do
+        log okna i na stdout serveru VŽDYCKY, bez ohledu na `log_level`
+        (viz logger.Logger.audit). Systémový text, NIKDY tajemství."""
+        logger.audit(message, level=level)
 
     def _on_shell_input(self, event) -> None:
         """Klávesy z prohlížeče do procesu (jen běžícího a odemčeného okna)."""

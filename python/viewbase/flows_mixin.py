@@ -9,13 +9,12 @@ Kontrakt vůči hostitelské třídě: `self._lock`, `self._flow_types`,
 `self._flow_seq`."""
 from __future__ import annotations
 
-import logging
 import uuid
 from collections import deque
 
 from .graph_util import _edge_key
 
-logger = logging.getLogger("viewbase")
+from .logger import logger
 
 
 class FlowsMixin:

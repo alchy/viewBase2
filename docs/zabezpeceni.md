@@ -113,4 +113,51 @@ Zabezpečení stojí na třech vrstvách, které spolu souvisí, ale dají se
 
 ---
 
+## Log: co se zaznamená a co uvidíte
+
+Dvě věci, které se snadno pletou:
+
+- **Filtr v log okně** je POHLED. Divák si v `Options` odškrtne úrovně a
+  zdroje, které chce vidět; na tom, co aplikace zaznamenává, to nic nemění.
+- **`log_level`** je ZDROJ. Určuje, co vůbec vznikne:
+
+  ```python
+  vb.Project(port=8443, tls=True, log_level="debug")   # sandbox: chci vidět všechno
+  project.log_level = "warning"                        # …a zase ztišit, za běhu
+  ```
+
+  Úrovně jsou čtyři (`debug`, `info`, `warning`, `error`), výchozí je
+  `warning` — provozní server má mlčet o rutině a mluvit o problémech.
+
+**Bezpečnostní audit prahem neprochází** — zaznamená se vždycky, i s
+`log_level="error"`. Kdyby ho šlo utišit nastavením, stačilo by na vystaveném
+stroji přehodit úroveň a zamést za sebou. Pozná se podle komponenty
+`security` (není to pátá úroveň: úspěšné odemčení je `info`, odmítnutý kód
+`warning`):
+
+```
+INFO    viewbase [security] client 86ce512d connected from 89.24.x.x (session P5wz2aVD…)
+DEBUG   viewbase [server]   event 'window_unlock' from 89.24.x.x: {'window_id': 'mzdy', 'code': '<6 znaků>'}
+WARNING viewbase [security] invalid code for window 'mzdy' from 89.24.x.x, session P5wz2aVD…
+INFO    viewbase [security] window 'mzdy' unlocked – token of user 'workbench' from 89.24.x.x
+WARNING viewbase [security] REST attempt to call 'shell_input' from 89.24.x.x – refused
+INFO    viewbase [security] client 86ce512d from 89.24.x.x disconnected
+```
+
+Do auditu jde **zdroj (IP)** u každé události; IP doplňuje server, ne klient,
+takže si ji nikdo nepřepíše. Za reverzní proxy je protistranou proxy —
+uvicorn věří `X-Forwarded-For` jen od adres v `forwarded_allow_ips`
+(výchozí `127.0.0.1`), jinak by si zdroj mohl kdokoli nastavit hlavičkou.
+
+**Tajemství se do logu nedostane.** Hodnoty klíčů `code`, `data` (klávesy do
+shellu, tedy i hesla, která tam někdo píše), `sid`, `password`, `secret` a
+`token` se nahradí délkou (`<6 znaků>`). Zbytek payloadu zůstává, aby se
+dalo ladit.
+
+Záznamy tečou **do dvou míst zároveň**: na sběrnici (log okno v prohlížeči)
+a na stderr, tedy do `docker logs`. Když si logování nastavuje hostitelská
+aplikace sama, knihovna jí handler nepřepisuje.
+
+---
+
 [← zpět na přehled](../README.md)

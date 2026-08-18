@@ -10,14 +10,13 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import threading
 import time
 import uuid
 import webbrowser
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 import uvicorn
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
@@ -25,11 +24,11 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import mfa, protocol, sessions
+from .logger import DEFAULT_LEVEL, logger
 from .tls import Tls, require_tls, scheme_for, self_signed
 from .graph_window import GraphWindow
 from .log import LogRecord, bus as log_bus
 
-logger = logging.getLogger("viewbase")
 
 STATIC_DIR = Path(__file__).parent / "static"
 PATCH_INTERVAL = 1 / 30
@@ -131,10 +130,7 @@ async def _broadcast_loop(windows: list[GraphWindow], windows_by_screen: dict,
                 await _broadcast_step(windows, windows_by_screen, clients,
                                       pending_logs)
         except Exception as exc:
-            logger.exception("Broadcast loop failed")
-            log_bus.publish("error", "backend_program",
-                            f"broadcast loop failed: {exc}",
-                            component="server")
+            logger.exception(f"broadcast loop failed: {exc}", component="server")
 
 
 def _make_log_relay(loop: asyncio.AbstractEventLoop):
@@ -195,6 +191,7 @@ def create_app(*windows: GraphWindow) -> FastAPI:
     async def ws_endpoint(ws: WebSocket) -> None:
         await ws.accept()
         client_id = uuid.uuid4().hex[:8]
+        peer = peer_of(ws)
         try:
             hello = protocol.decode(await ws.receive_text())
         except WebSocketDisconnect:
@@ -217,6 +214,10 @@ def create_app(*windows: GraphWindow) -> FastAPI:
             # vůči broadcast kroku. Pending delty se NEzahazují – příští
             # broadcast je pošle všem (novému klientovi jako idempotentní
             # upsert), takže seq navazuje pro staré i nové klienty.
+            # AUDIT: kdo se odkud připojil. Jde do logu vždycky, i když je
+            # `log_level` nastavená nahoru – jinak by šlo zamést za sebou.
+            logger.audit(f"client {client_id} connected from {peer}"
+                         f" (session {sid[:8]}…)")
             async with state_lock:
                 for window in windows_list:
                     # snapshot PER RELACI: zabezpečená okna bez grantu jdou
@@ -234,12 +235,10 @@ def create_app(*windows: GraphWindow) -> FastAPI:
                 try:
                     msg = protocol.decode(raw)
                 except ValueError:
-                    logger.warning("Malformed message from client %s: %r",
-                                   client_id, raw[:200])
-                    log_bus.publish(
-                        "warning", "backend_program",
-                        f"malformed message from client {client_id}: {raw[:200]!r}",
-                        component="server")
+                    # vadná zpráva je na vystavené instanci stopa, ne jen
+                    # diagnostika – proto audit (prahem neprojde do ticha)
+                    logger.audit(f"malformed message from client {client_id}"
+                                 f" ({peer}): {raw[:200]!r}", level="warning")
                     continue
                 if msg.get("type") == "event" and isinstance(msg.get("event"), str):
                     payload = msg.get("payload")
@@ -249,33 +248,32 @@ def create_app(*windows: GraphWindow) -> FastAPI:
                                              msg.get("screen_id"))
                     if target is None:
                         logger.warning(
-                            "Event with unknown screen_id from client"
-                            " %s: %r", client_id, msg.get("screen_id"))
-                        log_bus.publish(
-                            "warning", "backend_program",
-                            f"event with unknown screen_id from client"
-                            f" {client_id}: {msg.get('screen_id')!r}",
+                            f"event with unknown screen_id from client "
+                            f"{client_id} ({peer}): {msg.get('screen_id')!r}",
                             component="server")
                         continue
                     # `sid` do payloadu doplňuje SERVER, ne klient: jinak by
                     # si kdokoli mohl přiřknout cizí relaci a s ní její granty.
+                    # KAŽDÁ událost na úrovni debug: na vystavené instanci
+                    # tohle ukáže, co se kdo pokouší volat (log_level="debug").
+                    logger.debug(f"event '{msg['event']}' from {peer} "
+                                 f"(client {client_id}): {redacted(payload)}",
+                                 component="server")
                     target.dispatch_event(
                         msg["event"],
-                        {**payload, "client_id": client_id, "sid": sid})
+                        {**payload, "client_id": client_id, "sid": sid,
+                         "remote_ip": peer})
                 else:
-                    logger.warning("Unexpected message from client %s: %r",
-                                   client_id, raw[:200])
-                    log_bus.publish(
-                        "warning", "backend_program",
-                        f"unexpected message from client {client_id}: {raw[:200]!r}",
-                        component="server")
+                    logger.audit(f"unexpected message from client {client_id}"
+                                 f" ({peer}): {raw[:200]!r}", level="warning")
         except WebSocketDisconnect:
             pass
         finally:
             clients.pop(ws, None)
+            logger.audit(f"client {client_id} from {peer} disconnected")
 
     @app.post("/api/event")
-    def inject_event(message: dict) -> dict:
+    def inject_event(message: dict, request: Request) -> dict:
         """REST vstřik události — totéž, co by poslal prohlížeč přes WS.
 
         `{"event": "terminal_input", "payload": {"window_id": "konzole",
@@ -287,9 +285,15 @@ def create_app(*windows: GraphWindow) -> FastAPI:
         Každý request se loguje jako `backend_api` (pretty-printed JSON,
         §3a designu) – vidí ho log okno v prohlížeči.
         """
-        log_bus.publish("info", "backend_api",
-                        json.dumps(message, indent=2, ensure_ascii=False),
-                        component="rest")
+        # Zdroj do KAŽDÉHO záznamu: REST je bez autentizace a na vystavené
+        # instanci je právě IP to, podle čeho se pozná, kdo si hraje.
+        # Tělo požadavku je DIAGNOSTIKA (log_level="debug"): na vystavené
+        # instanci to ukáže, co kdo zkouší volat, ale běžný provoz aplikace
+        # tím log nezaplaví. Odmítnuté pokusy jdou do auditu níž – ty musí
+        # být vidět vždycky.
+        logger.debug(f"from {peer_of(request)}: event "
+                     f"{message.get('event')!r} {redacted(message.get('payload'))}",
+                     source="backend_api", component="rest")
         event = message.get("event")
         payload = message.get("payload") or {}
         if not isinstance(event, str) or not isinstance(payload, dict):
@@ -298,6 +302,8 @@ def create_app(*windows: GraphWindow) -> FastAPI:
         # autentizace, takže klávesy do shellu smí posílat JEN prohlížeč přes
         # WS – jinak by stačil jeden curl na spuštění čehokoli na stroji.
         if event.startswith(("shell_", "window_unlock", "window_lock")):
+            logger.audit(f"REST attempt to call '{event}' from "
+                         f"{peer_of(request)} – refused", level="warning")
             return JSONResponse(status_code=403, content={
                 "ok": False,
                 "error": ("shell_*, window_unlock and window_lock are not "
@@ -356,15 +362,42 @@ def first_run_setup() -> None:
               "(standard viewbase dependencies)", "warning")
 
 
-def _system_log(message: str, level: str = "info") -> None:
-    """Systémová hláška při startu: do KONZOLE serveru i na log bus.
+#: Klíče, jejichž HODNOTA se do logu nikdy nesmí dostat. `code` je odemykací
+#: kód, `data` jsou klávesy do shellu (tedy i hesla, která tam někdo píše),
+#: `sid` je přihlašovací údaj relace. Zbytek payloadu je pro ladění potřeba.
+CITLIVE_KLICE = ("code", "data", "sid", "password", "secret", "token")
 
-    Do konzole proto, že log bus nemá historii (čistý tail, viz log.py) – co
-    se stane před připojením prvního klienta, by jinak nikdo neviděl. Tyhle
-    texty jsou systémové: kdo je uživatel instance a kdo je registrovaný,
-    NIKDY tajemství (to zůstává v souborech v ~/.viewbase/, viz mfa.py)."""
-    print(f"viewbase: {message}", flush=True)
-    log_bus.publish(level, "backend_program", message, component="server")
+
+def redacted(payload: dict) -> str:
+    """Payload pro log: citlivé hodnoty nahrazené délkou, zbytek zkrácený.
+
+    Ladicí záznam každé události je na vystavené instanci k nezaplacení, ale
+    payload nese i tajemství – bez tohohle by odemykací kód i klávesy ze
+    shellu skončily v `docker logs` (nalezeno při živém testu)."""
+    bezpecny = {
+        klic: (f"<{len(str(hodnota))} znaků>" if klic in CITLIVE_KLICE
+               else str(hodnota)[:80])
+        for klic, hodnota in (payload or {}).items()}
+    return str(bezpecny)[:300]
+
+
+def peer_of(scope_owner: Any) -> str:
+    """IP protistrany (WebSocket i HTTP request), nebo `?`.
+
+    ZÁZNAM ZDROJE JE POVINNÁ ČÁST AUDITU: instance vystavená do internetu
+    musí u každé události říct, odkud přišla, jinak se z logu nedá poznat,
+    jestli kód k oknu hádal jeden stroj, nebo tisíc.
+
+    Za reverzní proxy je protistranou proxy; uvicorn respektuje
+    `X-Forwarded-For` jen od důvěryhodných adres (`forwarded_allow_ips`,
+    výchozí 127.0.0.1) – bez toho by si zdroj mohl kdokoli přepsat hlavičkou."""
+    klient = getattr(scope_owner, "client", None)
+    return getattr(klient, "host", None) or "?"
+
+
+def _system_log(message: str, level: str = "info") -> None:
+    """Systémová hláška při startu (viz logger.Logger.system)."""
+    logger.system(message, level)
 
 
 class Project:
@@ -390,6 +423,7 @@ class Project:
                  tls: "Tls | bool | None" = None,
                  tls_hosts: "list[str] | tuple[str, ...] | None" = None,
                  http_redirect: "bool | int" = False,
+                 log_level: str = DEFAULT_LEVEL,
                  session_ttl: float | None = None,
                  session_max_age: float | None = None) -> None:
         self.host = host
@@ -403,6 +437,10 @@ class Project:
         # Přesměrování plaintextu na TLS: na TÉMŽE portu nejde (viz
         # _redirect_app), proto druhý listener – True = port+1, nebo číslo.
         self.http_redirect = http_redirect
+        # CO aplikace loguje (ne co ukazuje log okno – to je pohledový filtr
+        # v prohlížeči). Výchozí `warning`: provozní server mlčí o rutině.
+        # Bezpečnostní audit tím utišit NEJDE, viz logger.Logger.audit.
+        self.log_level = log_level
         # Relace prohlížeče: klouzavá platnost (bez aktivity vyprší) a
         # absolutní strop (po něm zase kód z autentikátoru), viz sessions.py.
         sessions.configure(ttl=session_ttl, max_age=session_max_age)
@@ -439,6 +477,21 @@ class Project:
                        http_redirect=self.http_redirect, block=block)
         self._handle = handle
         return handle
+
+    @property
+    def log_level(self) -> str:
+        """Úroveň, od které se DIAGNOSTIKA zaznamenává (výchozí `warning`).
+
+        Filtr v log okně je něco jiného: ten jen vybírá, co divák VIDÍ.
+        Tohle rozhoduje, co vůbec vznikne. Dá se měnit za běhu:
+        `project.log_level = "debug"` zapne mimo jiné záznam každé příchozí
+        události i těla REST požadavků – to, co chcete na instanci vystavené
+        do internetu. Bezpečnostní audit jde do logu vždycky."""
+        return logger.level
+
+    @log_level.setter
+    def log_level(self, value: str) -> None:
+        logger.level = value
 
     def stop(self, timeout: float = 5.0) -> None:
         """Zavři službu i listener port – „close()" projektu."""

@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from viewbase import GraphWindow, Screen, create_app, log, protocol
 from viewbase.log import bus as log_bus
+from viewbase.logger import logger as vb_logger
 from viewbase.screen import reset_allocator
 
 
@@ -132,10 +133,12 @@ def test_log_record_relayed_over_ws():
             protocol.decode(ws.receive_text())   # init
             log_bus.publish("warning", "backend_program", "reconnect klienta",
                             component="server")
+            # přeskoč systémový záznam o připojení (viz test níž)
             msg = None
-            for _ in range(5):
-                msg = protocol.decode(ws.receive_text())
-                if msg["type"] == "log":
+            for _ in range(6):
+                kandidat = protocol.decode(ws.receive_text())
+                if kandidat["type"] == "log" and kandidat["level"] == "warning":
+                    msg = kandidat
                     break
             assert msg == {"type": "log", "level": "warning",
                            "source": "backend_program",
@@ -150,11 +153,15 @@ def test_vb_log_relayed_over_ws():
             ws.send_text(hello())
             protocol.decode(ws.receive_text())
             log("ahoj z uzivatelskeho kodu")
+            # mezi zprávami je i systémový záznam o připojení klienta
+            # (odkud přišel – audit vystavené instance), proto se hledá
             msg = None
-            for _ in range(5):
-                msg = protocol.decode(ws.receive_text())
-                if msg["type"] == "log":
+            for _ in range(6):
+                kandidat = protocol.decode(ws.receive_text())
+                if kandidat["type"] == "log" and kandidat["source"] == "backend_user":
+                    msg = kandidat
                     break
+            assert msg is not None
             assert msg["source"] == "backend_user"
             assert msg["message"] == "ahoj z uzivatelskeho kodu"
 
@@ -170,11 +177,14 @@ def test_rest_event_logs_as_backend_api_json():
     client = TestClient(create_app(canvas))
     got = []
     log_bus.subscribe(got.append)
+    puvodni = vb_logger.level
+    vb_logger.level = "debug"        # těla REST požadavků jsou diagnostika
     try:
         resp = client.post("/api/event", json={
             "event": "node_click", "payload": {"node_id": "a"}})
         assert resp.json() == {"ok": True}
     finally:
+        vb_logger.level = puvodni
         log_bus.unsubscribe(got.append)
     api_records = [r for r in got if r.source == "backend_api"]
     assert len(api_records) == 1

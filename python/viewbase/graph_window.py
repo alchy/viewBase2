@@ -1,7 +1,6 @@
 """GraphWindow – zdroj pravdy grafu a veřejné API knihovny."""
 from __future__ import annotations
 
-import logging
 import re
 import threading
 import types
@@ -20,7 +19,7 @@ from .windows_mixin import WindowsMixin
 if TYPE_CHECKING:
     from .screen import Screen
 
-logger = logging.getLogger("viewbase")
+from .logger import logger
 
 _LABEL_KEY = re.compile(r"\{([^{}]+)\}")
 
@@ -435,7 +434,8 @@ class GraphWindow(EventsMixin, FlowsMixin, WindowsMixin):
             for a, b, data in graph.edges(data=True):
                 sa, sb = str(a), str(b)
                 if sa == sb:
-                    logger.warning("add_graph: self-loop '%s' skipped", sa)
+                    logger.warning(f"add_graph: self-loop '{sa}' skipped",
+                                   component="graph")
                     continue
                 self._ensure_edge(sa, sb, dict(data))
 
@@ -500,8 +500,8 @@ class GraphWindow(EventsMixin, FlowsMixin, WindowsMixin):
             if key in node["meta"]:
                 return str(node["meta"][key])
             logger.warning(
-                "Node '%s': key '%s' from the label template is missing in metadata",
-                node["id"], key)
+                f"node '{node['id']}': key '{key}' from the label template is "
+                "missing in metadata", component="graph")
             return ""
 
         return _LABEL_KEY.sub(substitute, template)

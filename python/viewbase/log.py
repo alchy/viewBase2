@@ -23,7 +23,10 @@ LOG_LEVELS = ("debug", "info", "warning", "error")
 LOG_SOURCES = ("frontend", "backend_api", "backend_program", "backend_user")
 # Moduly podle §4a designu – interní log (backend_program/backend_api) musí
 # uvést jeden z nich jako `component`, aby šlo z logu poznat, kdo mluví.
-COMPONENTS = ("graph", "gui", "windows", "rest", "server")
+#: `security` je komponenta, ne úroveň: audit (kdo se odkud připojil, kdo
+#: odemkl okno, kdo hádal kód) se pozná podle ní, ne podle závažnosti –
+#: úspěšné odemčení není `warning` a odmítnutý kód není `error`.
+COMPONENTS = ("graph", "gui", "windows", "rest", "server", "security")
 _INTERNAL_SOURCES = ("backend_api", "backend_program")
 
 

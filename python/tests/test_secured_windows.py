@@ -262,8 +262,12 @@ def test_audit_stopa_zamku_je_bez_tajemstvi():
     assert "window 'panel' unlocked – token of user 'workbench'" in texty
     assert "window 'panel' locked by the user" in texty
     assert kod not in texty and "tajný text" not in texty  # nic tajného
+    # audit má vlastní KOMPONENTU (`security`), ne vlastní úroveň – podle ní
+    # se pozná bezpečnostní stopa a podle ní se dá v logu filtrovat
     assert {z.component for z in zaznamy if z.source == "backend_program"} <= {
-        "windows", "server"}
+        "security", "server"}
+    assert all(z.component == "security" for z in zaznamy
+               if "window 'panel'" in z.message)
 
 
 def test_varuje_kdyz_ma_uzivatel_totp_ale_prostredi_nema_pyotp(monkeypatch, capsys):

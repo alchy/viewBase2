@@ -8,12 +8,11 @@ Kontrakt vůči hostitelské třídě: `self._lock`, `self._handlers`,
 `self._executor`, `self._tasks`, `self._tasks_stop`, `self._closed`."""
 from __future__ import annotations
 
-import logging
 import threading
 import types
 from typing import Any, Callable
 
-logger = logging.getLogger("viewbase")
+from .logger import logger
 
 
 class EventsMixin:
@@ -33,8 +32,8 @@ class EventsMixin:
             with self._lock:
                 if self._tasks_stop is not None:
                     logger.warning(
-                        "every(): task '%s' registered after the server started"
-                        " – ignored", task_name)
+                        f"every(): task '{task_name}' registered after the "
+                        "server started – ignored", component="server")
                     return func
                 self._tasks.append(
                     {"interval": interval, "name": task_name, "func": func})
@@ -62,7 +61,8 @@ class EventsMixin:
             try:
                 task["func"]()
             except Exception:
-                logger.exception("Exception in every() task '%s'", task["name"])
+                logger.exception(f"exception in every() task '{task['name']}'",
+                                 component="server")
 
     def on(self, event: str,
            func: Callable[[Any], None]) -> Callable[[Any], None]:
@@ -115,4 +115,5 @@ class EventsMixin:
         try:
             handler(event)
         except Exception:
-            logger.exception("Exception in handler for event '%s'", name)
+            logger.exception(f"exception in handler for event '{name}'",
+                             component="server")
