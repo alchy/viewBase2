@@ -97,14 +97,32 @@ describe('HTML okno – proměnné tématu', () => {
     expect(mo.vars.get('--vb-terminal-caret')).toBe('#667788');
   });
 
-  it('sizing gadget: workbench neprůhledná krabička v barvě lišty, modern průhledný glyf', () => {
+  it('sizing gadget: workbench neprůhledná krabička v barvě lišty, modern průhledný roh v barvě knobu', () => {
     const wb = fakeRoot(); applyCssVars(resolveTheme('workbench-amiga'), wb);
     expect(wb.vars.get('--vb-window-grip-bg')).toBe('#ffffff');
     expect(wb.vars.get('--vb-window-grip-fg')).toBe('#0057af');
     expect(wb.vars.get('--vb-window-grip-border')).toBe('#0057af');
     const mo = fakeRoot(); applyCssVars(resolveTheme('modern'), mo);
     expect(mo.vars.get('--vb-window-grip-bg')).toBe('transparent');
-    expect(mo.vars.get('--vb-window-grip-fg')).toBe('#1f2430');
+    expect(mo.vars.get('--vb-window-grip-fg')).toBe('#5a6573');
+  });
+
+  it('rám oken je ve všech tématech, liší se paleta (line/knob/glow)', () => {
+    const wb = fakeRoot(); applyCssVars(resolveTheme('workbench-amiga'), wb);
+    expect(wb.vars.get('--vb-window-frame')).toBe('1');
+    expect(wb.vars.get('--vb-frame-line')).toBe('#ffffff');
+    expect(wb.vars.get('--vb-frame-knob')).toBe('#ffffff');
+    expect(wb.vars.get('--vb-frame-glow')).toBe('none');
+    const mo = fakeRoot(); applyCssVars(resolveTheme('modern'), mo);
+    expect(mo.vars.get('--vb-window-frame')).toBe('1');
+    expect(mo.vars.get('--vb-frame-line')).toBe('#c3c9d3');
+    expect(mo.vars.get('--vb-frame-knob')).toBe('#5a6573');
+    const cy = fakeRoot(); applyCssVars(resolveTheme('cyber'), cy);
+    expect(cy.vars.get('--vb-frame-knob')).toBe('#28d7fe');
+    expect(cy.vars.get('--vb-frame-glow')).toContain('rgba(40,215,254');
+    // téma smí rám vypnout
+    const off = fakeRoot(); applyCssVars(resolveTheme({ window: { frame: false } }), off);
+    expect(off.vars.get('--vb-window-frame')).toBe('0');
   });
 
   it('workbench-amiga: htmlAccent bílá (gadget splývá s modrým tělem)', () => {

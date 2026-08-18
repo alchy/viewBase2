@@ -47,17 +47,22 @@ export function applyCssVars(theme, root = document.documentElement) {
       // transparent = holé tělo okna) a kurzor (barva klíčů).
       '--vb-terminal-bg': w.terminalBg ?? w.outputBg ?? 'rgba(0,0,0,0.06)',
       '--vb-terminal-caret': w.key ?? w.gadget ?? 'auto',
-      // Sizing gadget v pravém dolním rohu: Workbench (`bevel: "hard"`) ho
-      // kreslí jako NEPRŮHLEDNOU krabičku v rámu (bílý čtverec s glyfem v
-      // barvě lišty – docs/images/workbench-ref/amigashell-hamurabi.png),
-      // obsah okna pod ním neprosvítá; ostatní témata jen glyf na těle okna.
+      // Rám okna (wm/frame.js) – scrollbary vpravo/dole + sizing gadget v
+      // rohu, aktivní plocha o pruhy menší (WB 1.3 reference docs/images/
+      // workbench-ref/window-corner-scrollbars-wb13.jpg). Stejný look ve
+      // VŠECH tématech, liší se jen paleta: `frameLine` (linky, šipky, dráha),
+      // `frameKnob` (knob), `frameGlow` (box-shadow knobu – cyber neon).
+      // Default: workbench bílá lišta na modrém těle, jinak barva gadgetů.
+      '--vb-window-frame': w.frame === false ? '0' : '1',
+      '--vb-frame-line': w.frameLine ?? (w.bevel === 'hard' ? (w.headerBg ?? '#ffffff') : (w.gadget ?? '#8a93a3')),
+      '--vb-frame-knob': w.frameKnob ?? w.frameLine ?? (w.bevel === 'hard' ? (w.headerBg ?? '#ffffff') : (w.gadget ?? '#8a93a3')),
+      '--vb-frame-glow': w.frameGlow ?? 'none',
+      // Sizing gadget v rohu rámu: Workbench neprůhledná krabička v barvě lišty
+      // s glyfem v barvě jejího textu (amigashell-hamurabi.png); ostatní témata
+      // průhledný roh (leží v rámu, ne na obsahu) s glyfem v barvě knobu.
       '--vb-window-grip-bg': w.bevel === 'hard' ? (w.headerBg ?? '#ffffff') : 'transparent',
-      '--vb-window-grip-fg': w.bevel === 'hard' ? (w.headerFg ?? w.gadget) : (w.bodyFg ?? '#8a93a3'),
-      '--vb-window-grip-border': w.bevel === 'hard' ? (w.headerFg ?? w.gadget) : 'transparent',
-      // Rám okna se scrollbary vpravo/dole (wm/frame.js) – aktivní plocha je
-      // o pruhy menší, scroll prvky nezasahují do obsahu (WB 1.3 reference
-      // docs/images/workbench-ref/window-corner-scrollbars-wb13.jpg).
-      '--vb-window-frame': w.bevel === 'hard' ? '1' : '0',
+      '--vb-window-grip-fg': w.bevel === 'hard' ? (w.headerFg ?? w.gadget) : (w.frameKnob ?? w.gadget ?? '#8a93a3'),
+      '--vb-window-grip-border': w.bevel === 'hard' ? (w.headerFg ?? w.gadget) : (w.frameLine ?? w.gadget ?? '#8a93a3'),
     };
     for (const [name, value] of Object.entries(map)) {
       if (value != null) root.style.setProperty(name, value);

@@ -23,6 +23,8 @@
     "htmlAccent": "#ffffff",
     "outputBg": "rgba(0,0,0,0.18)",
     "terminalBg": "transparent",
+    "frameLine": "#ffffff",
+    "frameKnob": "#ffffff",
     "iconSet": "workbench-classic",
     "font": "topaz-8"
   }

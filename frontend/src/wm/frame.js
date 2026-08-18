@@ -4,8 +4,8 @@
  *  okna je o tyto pruhy MENŠÍ (padding okna), takže scroll prvky nikdy
  *  nezasahují do obsahu – to je celý smysl (uživatelské rozhodnutí).
  *
- *  Zapíná ho téma (`--vb-window-frame: 1`, workbench témata s `bevel:
- *  "hard"`); modern/cyber rám nemají a scrollují nativně. Svislý knob je
+ *  Kreslí se ve VŠECH tématech (téma ho smí vypnout `frame: false`), liší
+ *  se jen paleta (--vb-frame-line/knob/glow z themes/manager.js). Svislý knob je
  *  synchronizovaný se skutečným scroll kontejnerem okna (BaseWindow.
  *  _scrollTarget – tělo, u terminálu výstupní plocha); nativní scrollbar
  *  toho kontejneru se schová. Vodorovný pruh sleduje scrollLeft téhož cíle
@@ -69,9 +69,12 @@ export class WindowFrame {
   }
 
   _build() {
-    // Barvy jako WB 1.3: prázdná dráha = tělo okna (modrá), knob, linky a
-    // šipky = barva rámu (bílá = --vb-window-grip-bg, tj. lišta okna).
-    const color = 'var(--vb-window-grip-bg, var(--vb-window-header-bg, #fff))';
+    // Barvy z tématu (themes/manager.js): prázdná dráha = tělo okna, linky a
+    // šipky = --vb-frame-line, knob = --vb-frame-knob (+ --vb-frame-glow).
+    // WB: bílá na modré; modern: šedá na bílé; cyber: cyan s glow – stejný
+    // look, jiná paleta.
+    const color = 'var(--vb-frame-line, var(--vb-window-gadget, #8a93a3))';
+    const knobColor = 'var(--vb-frame-knob, var(--vb-frame-line, #8a93a3))';
     const bg = 'transparent';
     // svislý pruh: [↑][ dráha s knobem ][↓]
     this.vbar = document.createElement('div');
@@ -95,7 +98,8 @@ export class WindowFrame {
     this.vknob.dataset.role = 'vb-frame-vknob';
     this.vknob.style.cssText = [
       'position:absolute', 'left:1px', 'right:1px', 'top:0', 'height:100%',
-      `background:${color}`, 'opacity:0.85', 'cursor:grab', 'touch-action:none',
+      `background:${knobColor}`, 'box-shadow:var(--vb-frame-glow, none)',
+      'cursor:grab', 'touch-action:none',
     ].join(';');
     this.vtrack.appendChild(this.vknob);
     this.vup = this._arrow('up', 'top:1px;left:1px');
@@ -121,7 +125,8 @@ export class WindowFrame {
     this.hknob.dataset.role = 'vb-frame-hknob';
     this.hknob.style.cssText = [
       'position:absolute', 'top:1px', 'bottom:1px', 'left:0', 'width:100%',
-      `background:${color}`, 'opacity:0.85', 'cursor:grab', 'touch-action:none',
+      `background:${knobColor}`, 'box-shadow:var(--vb-frame-glow, none)',
+      'cursor:grab', 'touch-action:none',
     ].join(';');
     this.htrack.appendChild(this.hknob);
     this.hleft = this._arrow('left', 'top:1px;left:1px');

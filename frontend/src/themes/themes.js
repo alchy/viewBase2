@@ -32,6 +32,7 @@ export const modern = {
     headerBg: '#d8dde6', headerFg: '#1f2430', gadget: '#5a6573',
     bodyBg: 'rgba(255,255,255,0.97)', bodyFg: '#1f2430', key: '#667788',
     dockBg: '#c2c9d4', shadow: '0 6px 20px rgba(0,0,0,0.22)',
+    frameLine: '#c3c9d3', frameKnob: '#5a6573',   // rám oken: šedé linky na bílém těle
   },
   flow: { size: 2.4, baseSpeed: 220, color: '#2f7fe8', opacity: 0.85 },
 };
@@ -64,6 +65,9 @@ export const cyber = {
     bodyBg: 'rgba(10,16,28,0.94)', bodyFg: '#d7f4ff', key: '#5a7d9e',
     dockBg: 'rgba(40,215,254,0.12)', shadow: '0 0 22px rgba(40,215,254,0.45)',
     outputBg: 'rgba(255,255,255,0.05)',   // výstup terminálu / <pre> HTML okna na tmavém těle
+    // rám oken: cyan linky, knob s neonovým glow
+    frameLine: 'rgba(40,215,254,0.45)', frameKnob: '#28d7fe',
+    frameGlow: '0 0 8px rgba(40,215,254,0.65)',
   },
   flow: { size: 3.0, baseSpeed: 260, color: '#28d7fe', opacity: 1.0 },
 };
