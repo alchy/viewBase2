@@ -258,10 +258,11 @@ def create_app(*windows: GraphWindow) -> FastAPI:
         # BEZPEČNOST (spec 2026-08-18 §Shell okno): tenhle endpoint je bez
         # autentizace, takže klávesy do shellu smí posílat JEN prohlížeč přes
         # WS – jinak by stačil jeden curl na spuštění čehokoli na stroji.
-        if event.startswith("shell_"):
+        if event.startswith(("shell_", "window_unlock")):
             return JSONResponse(status_code=403, content={
                 "ok": False,
-                "error": "shell_* události přes REST nejdou (jen WS z prohlížeče)"})
+                "error": ("shell_* a window_unlock přes REST nejdou "
+                          "(jen WS z prohlížeče)")})
         target = _resolve_window(windows_by_screen, message.get("screen_id"))
         if target is None:
             return {"ok": False,

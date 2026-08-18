@@ -153,7 +153,8 @@ týž graf, jen přepnutý přepínač:
 |---|---|---|
 | `LogWindow` | **systémové** okno — obsah dodává knihovna (proces-wide log, `tail -f`) | `examples/log_window.py` |
 | `TerminalWindow` | **textové/dialogové** okno — píše se do něj a umí poslat string od uživatele | `examples/terminal.py` |
-| `ShellWindow` | **skutečný terminál** — na PTY běží shell systému (vim/htop/barvy), okno zamčené na kód | `examples/shell.py` |
+| `ShellWindow` | **skutečný terminál** — na PTY běží shell systému (vim/htop/barvy), okno zamčené na kód | `examples/secured_windows.py` | **zabezpečená okna**: `secured=True`, TOTP z autentikátoru, zelená výzva ve stylu Guru Meditation |
+| `examples/shell.py` |
 | `HtmlWindow` | **panel z prvků** — heading/label/kv/table/list/bar/image/hr, button/input/number/slider/checkbox/radio/select/textarea skládané z Pythonu bez HTML; události s hodnotami se vrací do Pythonu | `examples/html_window.py` |
 | `ControlWindow` | **formulářové** okno — typovaná pole, hodnoty tečou zpět do Pythonu | `examples/prototype.py` |
 | `GraphWindow` | **grafové** okno — živý 2D/3D graf, fyzika, eventy, toky | `examples/quickstart.py` |
@@ -442,6 +443,14 @@ vývojáři přes `define_type`/`update_node`.
   doprava i dolů — jako u běžných window managerů), ale vždy zůstane
   uchopitelný kus lišty, za který se okno vrátí; nahoru se lišta okna nikdy
   nedostane pod lištu obrazovky s Options.
+- **Zabezpečená okna** — `secured=True` na kterémkoli okně (jako `closable=`):
+  okno se do prohlížeče pošle jen jako **prázdný rám**, obsah (HTML, hodnoty
+  polí, scrollback, shell) po drátě neputuje, dokud divák nezadá kód v zelené
+  výzvě ve stylu Guru Meditation. Kód je **TOTP z autentikátoru** (QR se při
+  prvním startu vypíše do konzole serveru a uloží do `~/.viewbase/`), s rate
+  limitem a ochranou proti opakovanému použití; bez extra
+  `pip install viewbase[mfa]` se použije jednorázový kód z konzole. Shell okno
+  je zabezpečené vždy. Ukázka: `examples/secured_windows.py`.
 - **Indikátor fokusu** — v liště hned **za textem titulku** svítí drobná
   plná značka na okně, které je aktivní (patří mu Options i klávesnice).
   Je to jediný vyplněný prvek v jinak linkovém chrome, takže se neplete s

@@ -22,6 +22,8 @@ import { LOG_WINDOW_ID, createLogPlugin } from '../plugins/log.js';
 import { createTerminalPlugin } from '../plugins/terminal.js';
 import { createHtmlPlugin } from '../plugins/html.js';
 import { createShellPlugin } from '../plugins/shell.js';
+import { UnlockPrompt } from '../core/unlock_prompt.js';
+import { createLockedPlugin } from './locked_window.js';
 import { applyCssVars, resolveTheme } from '../themes/manager.js';
 import { ScreenBar } from './screen_bar.js';
 import { WindowManager } from './window_manager.js';
@@ -57,8 +59,12 @@ export function createDesktop({ container, screenId, connection }) {
     for (const listener of themeListeners) listener(theme);
   }
 
+  // Zelená výzva k odemčení (styl Guru Meditation) – jedna na screen,
+  // sdílí ji zamčené okno kteréhokoli typu
+  const unlockPrompt = new UnlockPrompt(container, sendEvent);
+
   const ctx = {
-    container, screenId, store, sendEvent, windowManager, bar,
+    container, screenId, store, sendEvent, windowManager, bar, unlockPrompt,
     getTheme: () => activeTheme,
     onThemeChange: (listener) => themeListeners.push(listener),
     setOptionsFallback: (provider) => { optionsFallback = provider; },
@@ -72,6 +78,7 @@ export function createDesktop({ container, screenId, connection }) {
     createTerminalPlugin(ctx),
     createHtmlPlugin(ctx),
     createShellPlugin(ctx),
+    createLockedPlugin(ctx),
   ];
 
   // GRAF JE NA SCREENU VOLITELNÝ (uživatelská revize: „screen potřebuje i
@@ -102,7 +109,12 @@ export function createDesktop({ container, screenId, connection }) {
   const coreActions = {
     // registr typů je od toho, aby jádro nevědělo o konkrétních typech –
     // routuje se podle `kind` (control spec `kind` nenese, proto fallback)
-    open_window: (msg) => windowManager.open(msg.kind ?? 'control', msg),
+    open_window: (msg) => {
+      const win = windowManager.open(msg.kind ?? 'control', msg);
+      // odemčené okno dorazilo jako skutečný typ → zelená výzva zmizí
+      if (msg.kind !== 'locked') unlockPrompt.resolve(msg.window_id);
+      return win;
+    },
     close_window: (msg) => windowManager.close(msg.window_id),
     open_menu: (msg) => {
       store.menu = { groups: msg.groups };

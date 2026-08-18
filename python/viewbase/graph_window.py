@@ -110,7 +110,7 @@ class GraphWindow:
         self._register("terminal_input", self._on_terminal_input)
         self._register("html_event", self._on_html_event)
         self._register("shell_new", self._on_shell_new)
-        self._register("shell_unlock", self._on_shell_unlock)
+        self._register("window_unlock", self._on_window_unlock)
         self._register("shell_input", self._on_shell_input)
         self._register("shell_resize", self._on_shell_resize)
         self._register("menu_select", self._on_menu_select)
@@ -337,7 +337,9 @@ class GraphWindow:
             else:
                 self._window_callbacks.pop(window.window_id, None)
             self._actions.append(
-                {**window.spec(), "action": "open_window", "live": bool(live)})
+                {**window.public_spec(), "action": "open_window", "live": bool(live)})
+        if window.locked:
+            window.announce_lock()
         return window.window_id
 
     def close_window(self, window_id: str) -> None:
@@ -369,7 +371,9 @@ class GraphWindow:
                 self._terminal_callbacks[window.window_id] = on_input
             else:
                 self._terminal_callbacks.pop(window.window_id, None)
-            self._actions.append({**window.spec(), "action": "open_window"})
+            self._actions.append({**window.public_spec(), "action": "open_window"})
+        if window.locked:
+            window.announce_lock()
         return window.window_id
 
     def terminal_write(self, window_id: str, text: str) -> None:
@@ -407,8 +411,15 @@ class GraphWindow:
                 self._html_callbacks[window.window_id] = on_event
             else:
                 self._html_callbacks.pop(window.window_id, None)
-            self._actions.append({**window.spec(), "action": "open_window"})
+            self._actions.append({**window.public_spec(), "action": "open_window"})
+        if window.locked:
+            window.announce_lock()
         return window.window_id
+
+    def _drop_if_locked(self, window: Any) -> bool:
+        """Do zamčeného okna se obsah neposílá – klient ho stejně nemá; stav
+        si okno drží dál a odejde celý po odemčení."""
+        return bool(getattr(window, "locked", False))
 
     def html_set(self, window_id: str, html: str) -> None:
         """Nahraď celý obsah HTML okna (akce html_set klientům; okno si
@@ -433,8 +444,14 @@ class GraphWindow:
                                   "window_id": window_id, "html": str(html)})
 
     def _emit_html(self, action: str, window_id: str, **fields: Any) -> None:
-        """Akce od prvků HTML okna (html_set celého okna / html_patch prvku)."""
+        """Akce k oknu (prvky HTML okna, výstup shellu, stavy zámku). Zamčenému
+        oknu se obsah neposílá – dostane ho až po odemčení."""
         with self._lock:
+            window = (self._html_windows.get(window_id)
+                      or self._shell_windows.get(window_id))
+            if (window is not None and getattr(window, "locked", False)
+                    and action != "window_state"):
+                return
             self._actions.append({"action": action, "window_id": window_id, **fields})
 
     def _on_html_event(self, event) -> None:
@@ -467,10 +484,9 @@ class GraphWindow:
         with self._lock:
             self._shell_windows[window.window_id] = window
             window._owner = self
-            self._actions.append({**window.spec(), "action": "open_window"})
-        if window.unlock_code:
-            print(f"viewbase: shell '{window.window_id}' – odemykací kód: "
-                  f"{window.unlock_code}", flush=True)
+            self._actions.append({**window.public_spec(), "action": "open_window"})
+        if window.locked:
+            window.announce_lock()          # TOTP registrace / jednorázový kód
         else:
             self._shell_start(window)
         return window.window_id
@@ -488,7 +504,6 @@ class GraphWindow:
             self._emit_html("shell_data", wid, data=text)   # sdílená cesta akcí
 
         def on_exit(code: int | None) -> None:
-            window.state = "exited"
             self._emit_html("shell_state", wid, state="exited", code=code)
 
         try:
@@ -498,11 +513,9 @@ class GraphWindow:
             window.pty.start()
         except Exception as chyba:                       # noqa: BLE001
             window.pty = None
-            window.state = "locked"
-            self._emit_html("shell_state", wid, state="locked", error=str(chyba))
+            self._emit_html("shell_state", wid, state="failed", error=str(chyba))
             logger.exception("Shell okno '%s' se nepodařilo spustit", wid)
             return
-        window.state = "running"
         self._emit_html("shell_state", wid, state="running")
 
     def _shell_stop(self, window: ShellWindow) -> None:
@@ -524,17 +537,32 @@ class GraphWindow:
         self.open_shell(ShellWindow(wid, title=f"Shell CLI {self._shell_seq}",
                                     cols=100, rows=28, width=820, height=440))
 
-    def _on_shell_unlock(self, event) -> None:
-        """Klient poslal odemykací kód; při shodě se spustí PTY. Nesprávný kód
-        se jen odmítne (útočník bez přístupu ke konzoli serveru neuhodne)."""
-        window = self._shell_windows.get(getattr(event, "window_id", None))
-        if window is None or window.pty is not None:
+    def _secured_windows(self) -> dict[str, Any]:
+        """Všechna okna se zámkem (jeden mechanismus napříč typy)."""
+        with self._lock:
+            return {**self._windows, **self._terminals,
+                    **self._html_windows, **self._shell_windows}
+
+    def _on_window_unlock(self, event) -> None:
+        """Klient poslal kód k zamčenému oknu (JAKÉHOKOLI typu). Při shodě se
+        pošle skutečné `open_window` i s obsahem a zavolá hook okna (shell
+        spustí PTY). Nesprávný kód se odmítne – TOTP má rate limit a ochranu
+        proti opakovanému použití (viewbase.mfa)."""
+        window = self._secured_windows().get(getattr(event, "window_id", None))
+        if window is None or not getattr(window, "locked", False):
             return
         if not window.unlocks_with(getattr(event, "code", None)):
-            self._emit_html("shell_state", window.window_id, state="locked",
+            self._emit_html("window_state", window.window_id, state="locked",
                             error="Neplatný kód")
             return
-        self._shell_start(window)
+        window.state = "open"
+        with self._lock:
+            live = self._window_live.get(window.window_id)
+            spec = {**window.public_spec(), "action": "open_window"}
+            if live is not None:
+                spec["live"] = bool(live)
+            self._actions.append(spec)       # teprve teď obsah okna
+        window.on_unlocked()
 
     def _on_shell_input(self, event) -> None:
         """Klávesy z prohlížeče do procesu (jen běžícího a odemčeného okna)."""
@@ -919,12 +947,14 @@ class GraphWindow:
                 "edges": [self._public_edge(e) for e in self._edges.values()],
                 "flow_types": {n: dict(s) for n, s in self._flow_types.items()},
                 "flows": [dict(f) for f in self._flows.values()],
+                # public_spec: zamčená okna jdou klientovi jen jako prázdný
+                # rám (kind "locked"), obsah až po window_unlock
                 "windows": [
-                    {**w.spec(), "live": self._window_live.get(wid, False)}
+                    {**w.public_spec(), "live": self._window_live.get(wid, False)}
                     for wid, w in self._windows.items()]
-                + [t.spec() for t in self._terminals.values()]
-                + [h.spec() for h in self._html_windows.values()]
-                + [sh.spec() for sh in self._shell_windows.values()],
+                + [t.public_spec() for t in self._terminals.values()]
+                + [h.public_spec() for h in self._html_windows.values()]
+                + [sh.public_spec() for sh in self._shell_windows.values()],
                 "menu": self._menu.spec() if self._menu is not None else None,
             }
 

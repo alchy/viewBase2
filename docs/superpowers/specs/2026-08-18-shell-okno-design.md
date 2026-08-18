@@ -109,6 +109,30 @@ ZAMČENÉ a odemykací kód jde do konzole serveru; `shell_new` je `shell_*`, ta
 ho REST `/api/event` odmítá. Aplikace volbu schová `GraphWindow(shell_cli=False)`
 (propíše se do `config.shell_cli`, frontend skupinu nevykreslí).
 
+## Zabezpečená okna a TOTP (doplněno – zobecnění zámku)
+
+Zámek se z shell okna zobecnil na **kterékoli okno** (`secured=True`, jako
+`closable=`) – jeden mechanismus, žádné kopie v pluginech:
+
+- Python: `SecuredMixin` (controls.py) dává oknu `secured`, `state`,
+  `public_spec()`, `unlocks_with()` a hook `on_unlocked()`. **Zamčené okno se
+  posílá jen jako placeholder** `kind:"locked"` (titulek + rozměry), obsah ne;
+  akce k zamčenému oknu se zahazují. Po ověření server pošle skutečné
+  `open_window` s obsahem a zavolá hook (shell spustí PTY).
+- Událost: `window_unlock {window_id, code}` (nahradila `shell_unlock`);
+  REST `/api/event` odmítá `shell_*` **i** `window_unlock`.
+- Ověření: **TOTP** (`viewbase/mfa.py`, `pyotp`) proti tajemství v
+  `~/.viewbase/users.json` (0600, uživatel `workbench`); registrace v procesu
+  při startu – QR do konzole serveru (ASCII) + `<user>-totp.svg`, **žádný
+  `/api/mfa/setup` endpoint** (kdo vidí QR, může se zaregistrovat). Rate limit
+  5 pokusů/30 s a odmítnutí už použitého kódu. Bez extra `viewbase[mfa]`
+  fallback na jednorázový kód vypsaný do konzole.
+- Frontend: `wm/locked_window.js` (prázdný rám) + `core/unlock_prompt.js`
+  (zelená výzva) nad sdíleným `core/overlay.js`, který kreslí i Guru
+  Meditation – jedna funkce, volby `color` / `flash` / řádky / `input`;
+  vzhled podle reference (nahoře přes celou šířku, tlustý rám, jedna
+  velikost písma). Esc výzvu zruší a okno se neotevře.
+
 ## Mimo rozsah prvního kroku
 
 Windows/ConPTY, víc vlastníků vstupu (dnes: kdo odemkne, ten píše; ostatní

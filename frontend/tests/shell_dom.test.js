@@ -45,43 +45,7 @@ function setup() {
 
 const open = (wm, spec = {}) => wm.open('shell', {
   window_id: 'sh', title: 'Shell', cols: 80, rows: 24, width: 640, height: 400,
-  state: 'locked', scrollback: '', ...spec,
-});
-
-describe('ShellWindow – zámek', () => {
-  beforeEach(() => {
-    vi.stubGlobal('localStorage', fakeStorage);
-    term.written = []; term.opened = null; term.disposed = false;
-  });
-
-  it('zamčené okno ukáže výzvu ke kódu a terminál nevytváří', () => {
-    const { windowManager } = setup();
-    const win = open(windowManager);
-    expect(win).toBeInstanceOf(ShellWindow);
-    expect(win.kind).toBe('shell');
-    expect(win.lockEl.style.display).not.toBe('none');
-    expect(win.body.textContent).toContain('Unlock the shell');   // UI texty anglicky
-    expect(term.opened).toBeNull();                     // xterm až po odemčení
-  });
-
-  it('Enter v poli kódu pošle shell_unlock; do té doby žádný shell_input', () => {
-    const { windowManager, sendEvent } = setup();
-    const win = open(windowManager);
-    win.codeInput.value = '7f3c2a';
-    win.codeInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-    expect(sendEvent).toHaveBeenCalledWith({
-      type: 'event', event: 'shell_unlock', payload: { window_id: 'sh', code: '7f3c2a' },
-    });
-    expect(sendEvent).toHaveBeenCalledTimes(1);
-  });
-
-  it('shell_state locked s chybou ukáže hlášku a nechá okno zamčené', async () => {
-    const { windowManager, plugin } = setup();
-    const win = open(windowManager);
-    plugin.actions.shell_state({ window_id: 'sh', state: 'locked', error: 'Neplatný kód' });
-    expect(win.lockEl.textContent).toContain('Neplatný kód');
-    expect(term.opened).toBeNull();
-  });
+  running: true, scrollback: '', ...spec,
 });
 
 describe('ShellWindow – běžící terminál', () => {
@@ -90,19 +54,17 @@ describe('ShellWindow – běžící terminál', () => {
     term.written = []; term.opened = null; term.disposed = false;
   });
 
-  it('po shell_state running nasadí xterm, přehraje scrollback a schová zámek', async () => {
+  it('odemčené okno nasadí xterm a přehraje scrollback z initu', async () => {
     const { windowManager, plugin } = setup();
     const win = open(windowManager, { scrollback: 'stará historie\r\n' });
-    plugin.actions.shell_state({ window_id: 'sh', state: 'running' });
     await win.ready;
     expect(term.opened).toBe(win.termEl);
     expect(term.written.join('')).toContain('stará historie');
-    expect(win.lockEl.style.display).toBe('none');
   });
 
   it('shell_data píše do terminálu, klávesy jdou zpět jako shell_input', async () => {
     const { windowManager, plugin, sendEvent } = setup();
-    const win = open(windowManager, { state: 'running' });
+    const win = open(windowManager);
     await win.ready;
     plugin.actions.shell_data({ window_id: 'sh', data: 'ahoj\r\n' });
     expect(term.written.join('')).toContain('ahoj');
@@ -114,7 +76,7 @@ describe('ShellWindow – běžící terminál', () => {
 
   it('změna velikosti okna pošle shell_resize s novými cols/rows', async () => {
     const { windowManager, sendEvent } = setup();
-    const win = open(windowManager, { state: 'running' });
+    const win = open(windowManager);
     await win.ready;
     term._resize({ cols: 120, rows: 40 });
     expect(sendEvent).toHaveBeenLastCalledWith({
@@ -126,7 +88,7 @@ describe('ShellWindow – běžící terminál', () => {
 
   it('konec procesu (exited) napíše hlášku a další klávesy už neposílá', async () => {
     const { windowManager, plugin, sendEvent } = setup();
-    const win = open(windowManager, { state: 'running' });
+    const win = open(windowManager);
     await win.ready;
     plugin.actions.shell_state({ window_id: 'sh', state: 'exited', code: 7 });
     expect(term.written.join('')).toMatch(/7/);
@@ -137,7 +99,7 @@ describe('ShellWindow – běžící terminál', () => {
 
   it('scrollbar rámu okna jede po historii terminálu (xterm nemá DOM viewport)', async () => {
     const { windowManager } = setup();
-    const win = open(windowManager, { state: 'running' });
+    const win = open(windowManager);
     await win.ready;
     const proxy = win._scrollTarget();
     term.buffer.active.length = 500;                      // historie 500 řádků
@@ -155,7 +117,7 @@ describe('ShellWindow – běžící terminál', () => {
 
   it('zavření okna terminál uklidí', async () => {
     const { windowManager } = setup();
-    const win = open(windowManager, { state: 'running' });
+    const win = open(windowManager);
     await win.ready;
     win.close();
     expect(term.disposed).toBe(true);

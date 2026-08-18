@@ -27,15 +27,87 @@ def _normalize_options(options: list) -> list[dict]:
     return normalized
 
 
-class ControlWindow:
+class SecuredMixin:
+    """Zámek okna (`secured=True`) – JEDEN mechanismus pro všechny typy oken.
+
+    Zamčené okno se klientovi pošle jen jako PRÁZDNÝ RÁM (`kind:"locked"`) s
+    výzvou na kód: žádné HTML, hodnoty polí ani scrollback. To je rozdíl
+    proti překryvu v DOMu – obsah po drátě vůbec neputuje, dokud divák
+    neprokáže totožnost. Po ověření (`window_unlock`) server pošle skutečné
+    `open_window` s obsahem.
+
+    Ověřuje se TOTP z autentikátoru (viewbase.mfa); bez extra `viewbase[mfa]`
+    nebo bez registrace se použije jednorázový kód vypsaný do konzole
+    serveru (`fallback_code`). Zámek zapíná kterékoli okno stejně:
+    `HtmlWindow("panel", secured=True)` – jako `closable=`."""
+
+    def _init_lock(self, secured: bool) -> None:
+        self.secured = bool(secured)
+        self.state = "locked" if self.secured else "open"
+        # jednorázový kód (fallback bez TOTP) se generuje až při otevření,
+        # aby ho konzole vypsala jednou a jen když je opravdu potřeba
+        self.fallback_code: str | None = None
+
+    @property
+    def locked(self) -> bool:
+        return self.secured and self.state != "open"
+
+    def lock_spec(self) -> dict[str, Any]:
+        """Placeholder pro zamčené okno: rozměry a titulek ano, obsah ne."""
+        full = self.spec()
+        return {
+            "window_id": full["window_id"],
+            "title": full.get("title", ""),
+            "kind": "locked",
+            "real_kind": full.get("kind", "control"),
+            "secured": True,
+            "state": "locked",
+            "closable": full.get("closable", True),
+            "width": full.get("width"),
+            "height": full.get("height"),
+        }
+
+    def public_spec(self) -> dict[str, Any]:
+        """Co se smí poslat klientovi: zamčené → placeholder, jinak vše."""
+        if self.locked:
+            return self.lock_spec()
+        return {**self.spec(), "secured": self.secured, "state": self.state}
+
+    def unlocks_with(self, code: Any) -> bool:
+        """Ověř kód: TOTP uživatele, jinak jednorázový kód z konzole."""
+        from . import mfa
+
+        if mfa.available() and mfa.load_users().get(mfa.DEFAULT_USER):
+            return mfa.verify(code)
+        return (isinstance(code, str) and self.fallback_code is not None
+                and secrets.compare_digest(code.strip(), self.fallback_code))
+
+    def announce_lock(self) -> None:
+        """Zavolá se při otevření zamčeného okna: registruje TOTP (poprvé
+        vytiskne QR), a když TOTP není, vypíše jednorázový kód."""
+        from . import mfa
+
+        if mfa.available():
+            if mfa.ensure_user():
+                return
+        self.fallback_code = self.fallback_code or secrets.token_hex(4)
+        print(f"viewbase: okno '{self.window_id}' je zamčené – "
+              f"jednorázový kód: {self.fallback_code}", flush=True)
+
+    def on_unlocked(self) -> None:
+        """Hook po odemčení (shell spustí PTY; ostatní okna nic)."""
+
+
+class ControlWindow(SecuredMixin):
     """Parametrické okno: uspořádaný seznam typovaných polí."""
 
     def __init__(self, window_id: str, *, title: str = "",
-                 closable: bool = True) -> None:
+                 closable: bool = True, secured: bool = False) -> None:
         self.window_id = window_id
         self.title = title
         self.closable = bool(closable)  # False = bez gadgetu [x] (neobnovitelné)
         self._fields: list[dict[str, Any]] = []
+        self._init_lock(secured)
 
     def integer(self, key: str, label: str, *, min: int, max: int,
                 value: int, step: int = 1) -> "ControlWindow":
@@ -106,6 +178,7 @@ class ControlWindow:
         return {
             "window_id": self.window_id,
             "title": self.title,
+            "kind": "control",
             "closable": self.closable,
             "fields": [self._copy_field(f) for f in self._fields],
         }
@@ -125,7 +198,7 @@ class ControlWindow:
                 field["value"] = values[field["key"]]
 
 
-class TerminalWindow:
+class TerminalWindow(SecuredMixin):
     """Konzolové okno: prompt + append-only výstup (REPL v prohlížeči).
 
     Na rozdíl od ControlWindow nemá typovaná pole — je to I/O konzole. Server
@@ -135,7 +208,8 @@ class TerminalWindow:
 
     def __init__(self, window_id: str, *, title: str = "",
                  prompt: str = "> ", width: int = 560,
-                 closable: bool = True, input: bool = True) -> None:  # pylint: disable=redefined-builtin
+                 closable: bool = True, input: bool = True,  # pylint: disable=redefined-builtin
+                 secured: bool = False) -> None:
         if width <= 0:
             raise ValueError("width musí být kladné")
         self.window_id = window_id
@@ -144,6 +218,7 @@ class TerminalWindow:
         self.width = int(width)
         self.closable = bool(closable)  # False = bez gadgetu [x] (neobnovitelné)
         self.input = bool(input)        # False = jen výstup (živý panel bez promptu)
+        self._init_lock(secured)
 
     def spec(self) -> dict[str, Any]:
         """Popis okna pro frontend; `kind:"terminal"` ho odliší od
@@ -159,7 +234,7 @@ class TerminalWindow:
         }
 
 
-class HtmlWindow:
+class HtmlWindow(SecuredMixin):
     """HTML okno: obsah skládaný z PRVKŮ (heading/label/kv/table/list/bar/
     image/hr, button/input/number/slider/checkbox/radio/select/textarea –
     viz `viewbase.widgets`) na instanci okna, bez psaní HTML.
@@ -190,7 +265,7 @@ class HtmlWindow:
 
     def __init__(self, window_id: str, *, title: str = "",
                  width: int = 560, height: int = 320,
-                 closable: bool = True) -> None:
+                 closable: bool = True, secured: bool = False) -> None:
         if width <= 0 or height <= 0:
             raise ValueError("width i height musí být kladné")
         self.window_id = window_id
@@ -198,6 +273,7 @@ class HtmlWindow:
         self.width = int(width)
         self.height = int(height)
         self.closable = bool(closable)
+        self._init_lock(secured)
         self._raw = ""                       # html_set/html_append (pokročilí)
         self._elements: list[Any] = []       # prvky v pořadí přidání
         self._by_id: dict[str, Any] = {}
@@ -380,7 +456,7 @@ class HtmlWindow:
             fn(event)
 
 
-class ShellWindow:
+class ShellWindow(SecuredMixin):
     """Shell okno: v okně běží SKUTEČNÝ proces na pseudo-terminálu (bash/zsh,
     `htop`, `vim` – frontend je vykreslí přes xterm.js).
 
@@ -406,7 +482,7 @@ class ShellWindow:
                  env: dict[str, str] | None = None,
                  cols: int = 80, rows: int = 24,
                  width: int = 720, height: int = 420,
-                 closable: bool = True, unlock: str | None = "code") -> None:
+                 closable: bool = True, secured: bool = True) -> None:
         if width <= 0 or height <= 0:
             raise ValueError("width i height musí být kladné")
         if cols <= 0 or rows <= 0:
@@ -421,9 +497,7 @@ class ShellWindow:
         self.width = int(width)
         self.height = int(height)
         self.closable = bool(closable)
-        # zámek: kód se generuje hned, ale klientovi se NIKDY neposílá
-        self.unlock_code = secrets.token_hex(4) if unlock else None
-        self.state = "locked" if unlock else "running"
+        self._init_lock(secured)        # shell je zamčený ve výchozím stavu
         self.scrollback = ""
         self.pty: Any = None          # PtyShell po odemčení
         self._owner: Any = None       # GraphWindow po open_shell
@@ -441,19 +515,19 @@ class ShellWindow:
             "width": self.width,
             "height": self.height,
             "closable": self.closable,
-            "state": self.state,
             "scrollback": self.scrollback,
+            "running": self.pty is not None,
         }
 
     def append_scrollback(self, text: str) -> None:
         """Přidej výstup do historie a ořízni na strop (init nesmí růst)."""
         self.scrollback = (self.scrollback + text)[-self.MAX_SCROLLBACK:]
 
-    def unlocks_with(self, code: Any) -> bool:
-        """Souhlasí odemykací kód? (konstantní čas – kód je krátký)."""
-        if self.unlock_code is None:
-            return True
-        return isinstance(code, str) and secrets.compare_digest(code, self.unlock_code)
+    def on_unlocked(self) -> None:
+        """Po odemčení se teprve spustí PTY (viz GraphWindow._shell_start)."""
+        owner = getattr(self, "_owner", None)
+        if owner is not None:
+            owner._shell_start(self)
 
 
 _DROP = object()   # sentinel: hodnotu zahodit (None je validní string/enum)

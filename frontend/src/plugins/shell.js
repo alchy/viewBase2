@@ -2,14 +2,12 @@
  *  vykresluje ho xterm.js, takže fungují barvy, kurzor, Ctrl-C i
  *  celoobrazovkové programy (vim, htop, mc).
  *
- *  Okno má dva stavy:
- *  - ZAMČENO (výchozí): v těle je jen výzva na odemykací kód, který server
- *    vypsal do SVÉ konzole. Terminál ani knihovna se vůbec nenačítají –
- *    dokud uživatel neprokáže přístup ke stroji, kde viewbase běží, nejde
- *    poslat jediná klávesa (event shell_unlock je jediný, co odsud odchází).
- *  - BĚŽÍ: xterm.js se donačte DYNAMICKY (import() → vlastní chunk, ~80 kB
- *    gzip), přehraje se scrollback z initu a od té chvíle chodí klávesy
- *    (shell_input) a výstup (akce shell_data) obousměrně.
+ *  Zámek řeší JÁDRO WM, ne tenhle plugin: dokud je okno zamčené, server ho
+ *  posílá jako prázdný rám `kind:"locked"` (wm/locked_window.js + zelená
+ *  výzva core/unlock_prompt.js) a shell plugin ho vůbec nevidí. Sem dorazí
+ *  až odemčené okno – to hned donačte xterm.js (DYNAMICKY, vlastní chunk
+ *  ~84 kB gzip), přehraje scrollback z initu a od té chvíle chodí klávesy
+ *  (shell_input) a výstup (akce shell_data) obousměrně.
  *
  *  Chrome (lišta, gadgety, rám se scrollbary, indikátor fokusu) dodává
  *  BaseWindow; xterm si vlastní scrollbar nekreslí (viewport přebíráme
@@ -86,7 +84,7 @@ class XtermScrollProxy {
 }
 
 export class ShellWindow extends BaseWindow {
-  constructor({ id, title, cols, rows, width, height, state, scrollback,
+  constructor({ id, title, cols, rows, width, height, running, scrollback,
     closable, container, manager, sendEvent }) {
     super({
       id, title, widthChars: Math.max(20, Math.round((Number(width) || 720) / PX_PER_CH)),
@@ -95,15 +93,14 @@ export class ShellWindow extends BaseWindow {
     this.height = Number(height) > 0 ? Number(height) : 420;
     this.cols = Number(cols) || 80;
     this.rows = Number(rows) || 24;
-    this.state = state === 'running' ? 'running' : state === 'exited' ? 'exited' : 'locked';
+    this.state = running === false ? 'starting' : 'running';
     this.pending = String(scrollback ?? '');   // historie z initu, dokud není terminál
     this.sendEvent = sendEvent;
     this.term = null;
     this.fit = null;
-    this.ready = Promise.resolve();
     this._buildBody();
     this._mount();
-    if (this.state !== 'locked') this.ready = this._startTerminal();
+    this.ready = this._startTerminal();        // okno sem chodí už odemčené
   }
 
   _buildBody() {
@@ -115,41 +112,9 @@ export class ShellWindow extends BaseWindow {
       'font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace',
     ].join(';');
 
-    // zamčený stav: výzva ke kódu (žádný terminál, žádná klávesa ven)
-    const lock = document.createElement('div');
-    lock.dataset.role = 'shell-lock';
-    lock.style.cssText = 'display:flex;flex-direction:column;gap:6px;padding:4px 2px';
-    const hint = document.createElement('div');
-    hint.textContent = 'Unlock the shell with the code from the server console:';
-    const row = document.createElement('div');
-    row.style.cssText = 'display:flex;align-items:center;gap:6px';
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.dataset.role = 'shell-code';
-    input.placeholder = 'code';
-    input.style.cssText = [
-      'flex:0 0 12ch', 'font:inherit', 'color:inherit', 'background:transparent',
-      'border:1px solid var(--vb-window-key, #667788)', 'border-radius:4px',
-      'padding:2px 6px', 'outline:none',
-    ].join(';');
-    const err = document.createElement('span');
-    err.dataset.role = 'shell-error';
-    err.style.cssText = 'color:#e8553a';
-    input.addEventListener('keydown', (e) => {
-      if (e.key !== 'Enter') return;
-      e.stopPropagation();
-      const code = input.value.trim();
-      if (code) this._send('shell_unlock', { code });
-    });
-    row.append(input, err);
-    lock.append(hint, row);
-    this.lockEl = lock;
-    this.codeInput = input;
-    this.errEl = err;
-
     const term = document.createElement('div');
     term.dataset.role = 'shell-term';
-    term.style.cssText = 'flex:1 1 auto;min-height:0;display:none';
+    term.style.cssText = 'flex:1 1 auto;min-height:0';
     this.termEl = term;
     // vnitřní scrollbar xtermu schovat (kreslí ho rám okna); scrollbar-width
     // nezná starší WebKit, proto i ::-webkit-scrollbar
@@ -158,7 +123,7 @@ export class ShellWindow extends BaseWindow {
       + '[data-role="shell-term"] .xterm-viewport::-webkit-scrollbar{width:0;height:0}';
     term.appendChild(hide);
 
-    body.append(lock, term);
+    body.append(term);
     this.body = body;
     this.el.appendChild(body);
   }
@@ -167,12 +132,10 @@ export class ShellWindow extends BaseWindow {
     this.sendEvent?.({ type: 'event', event, payload: { window_id: this.id, ...payload } });
   }
 
-  /** Akce shell_state: zámek → běh → konec procesu. */
+  /** Akce shell_state: proces běží / skončil / se nepodařilo spustit. */
   setState(state, extra = {}) {
     if (state === 'running') {
       this.state = 'running';
-      this.errEl.textContent = '';
-      if (!this.term) this.ready = this._startTerminal();
       return;
     }
     if (state === 'exited') {
@@ -181,9 +144,10 @@ export class ShellWindow extends BaseWindow {
       this.write(`\r\n\x1b[2m[process finished${code}]\x1b[0m\r\n`);
       return;
     }
-    this.state = 'locked';
-    this.errEl.textContent = extra.error ? String(extra.error) : '';
-    this.codeInput.value = '';
+    if (state === 'failed') {
+      this.state = 'failed';
+      this.write(`\r\n\x1b[31m[${extra.error || 'failed to start'}]\x1b[0m\r\n`);
+    }
   }
 
   /** Akce shell_data: výstup PTY (než je terminál, drží se ve frontě). */
@@ -217,8 +181,6 @@ export class ShellWindow extends BaseWindow {
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
-    this.lockEl.style.display = 'none';
-    this.termEl.style.display = '';
     term.open(this.termEl);
     term.onData((data) => {
       if (this.state === 'running') this._send('shell_input', { data });
@@ -281,7 +243,7 @@ export function createShellPlugin({ container, windowManager, sendEvent, onTheme
     windowManager.get(spec.window_id)?.close();
     const win = windowManager.adopt(new ShellWindow({
       id: spec.window_id, title: spec.title, cols: spec.cols, rows: spec.rows,
-      width: spec.width, height: spec.height, state: spec.state,
+      width: spec.width, height: spec.height, running: spec.running,
       scrollback: spec.scrollback, closable: spec.closable,
       container, manager: windowManager, sendEvent,
     }));
