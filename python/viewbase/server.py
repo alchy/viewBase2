@@ -210,7 +210,7 @@ def create_app(*windows: GraphWindow) -> FastAPI:
             # RELACE: prohlížeč si drží `vb_sid` v localStorage a posílá ho
             # v hello. Neznámé/vypršelé id se neoživuje – klient dostane nové
             # a prázdné (sessions.touch), takže granty nejdou „vzkřísit".
-            sid = sessions.store.touch(hello.get("sid"))
+            sid = sessions.store.touch(hello.get("sid"), origin=f"from {peer}")
             # Sdílený zámek: snapshoty + zařazení mezi klienty je atomické
             # vůči broadcast kroku. Pending delty se NEzahazují – příští
             # broadcast je pošle všem (novému klientovi jako idempotentní

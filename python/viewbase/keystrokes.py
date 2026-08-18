@@ -6,7 +6,7 @@ zapadlo všechno ostatní. Tady se znaky skládají per okno a ven jde jedna
 dávka:
 
     [debug] shell 'sh' keys from 89.24.1.2 (14 s, 23 znaků):
-            ls -la[arrow-up][ctrl-c][enter]
+            data='ls -la[arrow-up][ctrl-c][enter]'
 
 KDY SE DÁVKA UZAVŘE (co nastane dřív):
 
@@ -58,6 +58,18 @@ ZNAKY = {
     "\x7f": "[backspace]", "\x08": "[backspace]",
     "\x1b": "[esc]", "\x00": "[nul]",
 }
+
+
+def quoted(text: str) -> str:
+    """Text do apostrofů – a apostrof uvnitř se nahradí popisem `[quote]`.
+
+    Bez ohraničení nepozná parser (ani člověk), kde sekvence kláves končí a
+    kde začíná zbytek řádku. A protože se apostrof uvnitř NEescapuje, ale
+    pojmenuje, platí jednoduché pravidlo: mezi otevíracím a zavíracím
+    apostrofem žádný další není. Escapování zpětným lomítkem by tuhle
+    jistotu nedalo (`'it\\'s'` se dá přečíst dvěma způsoby podle toho,
+    jestli parser escapy zná)."""
+    return "'" + text.replace("'", "[quote]") + "'"
 
 
 def describe(text: str) -> str:

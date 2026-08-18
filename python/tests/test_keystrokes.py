@@ -1,7 +1,7 @@
 """Klávesy do shellu se logují po dávkách, ne řádek na stisk."""
 import pytest
 
-from viewbase.keystrokes import KeystrokeLog, describe
+from viewbase.keystrokes import KeystrokeLog, describe, quoted
 
 
 class Hodiny:
@@ -77,3 +77,12 @@ def test_flush_bez_obsahu_nic_nehlasi(log, davky):
     log.flush("sh")
     log.tick()
     assert davky == []
+
+
+def test_sekvence_je_ohranicena_a_apostrof_se_pojmenuje():
+    """Parser musí poznat, kde sekvence končí. Apostrof uvnitř se proto
+    NEescapuje, ale pojmenuje – mezi otevíracím a zavíracím apostrofem tak
+    žádný další není a nezáleží na tom, jestli parser escapy zná."""
+    assert quoted("ls -la[enter]") == "'ls -la[enter]'"
+    assert quoted(describe("echo 'ahoj'\r")) == "'echo [quote]ahoj[quote][enter]'"
+    assert quoted("it's").count("'") == 2        # jen ohraničení

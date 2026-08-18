@@ -184,6 +184,11 @@ DEBUG viewbase [windows] shell 'sh' keys from 89.24.1.2, session -CYK2Jlc…
 DEBUG viewbase [windows] shell 'sh' keys … (0 s, 21 znaků): cet dva znaky celkem[enter]
 ```
 
+Sekvence je **ohraničená** (`data='…'`), aby šlo poznat, kde končí — a
+apostrof uvnitř se nahradí popisem `[quote]` místo escapování. Mezi
+otevíracím a zavíracím apostrofem tak žádný další není a parser nemusí umět
+escapy: `command='echo [quote]ahoj[quote]'`.
+
 Neviditelné klávesy se **pojmenují**, ne vyhvězdičkují: `[enter]`, `[tab]`,
 `[backspace]`, `[delete]`, `[arrow-up]`, `[page-down]`, `[ctrl-c]`, `[esc]`.
 Hvězdička by řekla jen „něco tu bylo" a stříškový zápis (`^[[A`) chce
@@ -193,6 +198,28 @@ nepřepíše terminál toho, kdo log čte.
 Je to **doplněk auditu příkazů**, ne náhrada: audit dá čistý příkaz na úrovni
 `info` (a jde vždycky), tenhle stream ukáže i to, co se do příkazu nakonec
 nedostalo — historii, opravy, přerušení.
+
+### Odemčení platí u každé zprávy, ne jen při otevření okna
+
+Grant relace se ověřuje u **všech** cest, kterými se dá do okna psát —
+`shell_input`, `shell_resize`, `html_event`, `window_submit`,
+`terminal_input`. Odmítnutí jde do auditu i s důvodem, a ten rozlišuje dva
+různé případy:
+
+```
+WARNING [security] input to window 'sh' refused – session has no grant for this window from 89.24.1.2
+WARNING [security] input to window 'sh' refused – expired or unknown session from 89.24.1.2
+```
+
+Životní cyklus relace je vidět taky: vypršení v `debug`
+(`session Poqzc6Pp… expired (idle after 902 s, 1 grants revoked)`) a
+předložení už neplatné relace v auditu
+(`stale session _gHGQkTu… presented from 89.24.1.2 – issuing a new one`).
+
+`System → Shell CLI` je otevřená každému připojenému — okno vzniká zamčené,
+takže se z něj bez kódu nic nespustí, ale vyrábět je donekonečna nejde:
+platí strop `MAX_SHELL_WINDOWS` (8) a každý požadavek i odmítnutí jsou v
+auditu.
 
 ### Sanace toho, co jde do logu
 

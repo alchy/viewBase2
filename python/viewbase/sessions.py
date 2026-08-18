@@ -66,18 +66,28 @@ class SessionStore:
 
     # -- relace ------------------------------------------------------------
 
-    def touch(self, sid: str | None) -> str:
+    def touch(self, sid: str | None, origin: str = "") -> str:
         """Zaeviduj/prodluž relaci a vrať platné sid.
 
         Neznámé (nebo vypršelé) sid se NEOŽIVÍ – vrátí se nové, prázdné.
         Kdyby se oživilo, stačilo by si zapamatovat staré id a po vypršení se
-        vrátit k dřív získaným grantům."""
+        vrátit k dřív získaným grantům.
+
+        `origin` (odkud přišlo) jde do auditu, když někdo předloží relaci,
+        která už neexistuje – po vypršení je to běžný reconnect, ale na
+        vystavené instanci je to zároveň to, co je vidět při zkoušení
+        cizích id."""
         with self._lock:
             now = self._clock()
             self._gc(now)
             if sid and sid in self._sessions:
                 self._sessions[sid]["seen"] = now
                 return sid
+            if sid:
+                from .logger import logger
+
+                logger.audit(f"stale session {str(sid)[:8]}… presented "
+                             f"{origin or 'from ?'} – issuing a new one")
             fresh = new_sid()
             self._sessions[fresh] = {"born": now, "seen": now, "grants": {}}
             return fresh
@@ -135,12 +145,27 @@ class SessionStore:
     # -- úklid -------------------------------------------------------------
 
     def _gc(self, now: float) -> None:
-        """Zahoď relace za klouzavou platností nebo za absolutním stropem."""
-        mrtve = [sid for sid, rel in self._sessions.items()
+        """Zahoď relace za klouzavou platností nebo za absolutním stropem.
+
+        Vypršení se ZAZNAMENÁVÁ (debug): jinak se z logu nedá poznat rozdíl
+        mezi „divák odešel" a „relace mu vypršela pod rukama", a přitom to
+        vysvětluje, proč si okno najednou zase řeklo o kód."""
+        mrtve = [(sid, rel) for sid, rel in self._sessions.items()
                  if now - rel["seen"] > self.ttl
                  or now - rel["born"] > self.max_age]
-        for sid in mrtve:
+        for sid, rel in mrtve:
             del self._sessions[sid]
+            duvod = ("idle" if now - rel["seen"] > self.ttl else "max age")
+            self._ohlas(f"session {sid[:8]}… expired ({duvod} after "
+                        f"{now - rel['born']:.0f} s, {len(rel['grants'])} grants "
+                        "revoked)")
+
+    @staticmethod
+    def _ohlas(message: str) -> None:
+        """Zpráva o životním cyklu relace do ladicího logu (`log_level=debug`)."""
+        from .logger import logger
+
+        logger.debug(message, component="server")
 
     def clear(self) -> None:
         """Zapomeň všechny relace (restart serveru, testy)."""

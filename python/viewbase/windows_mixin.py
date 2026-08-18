@@ -22,10 +22,15 @@ from . import sessions
 from .controls import (ControlWindow, HtmlWindow, ShellWindow, TerminalWindow,
                        validate_values)
 
+from .keystrokes import quoted
 from .logger import logger
 
 
 class WindowsMixin:
+    #: Kolik shell oken smí naráz existovat (System → Shell CLI je otevřená
+    #: pro každého připojeného; bez stropu jde vyrobit libovolně mnoho).
+    MAX_SHELL_WINDOWS = 8
+
     def detail_window(self, rows: list[tuple[str, str]] | None = None,
                       width_chars: int = 42, open_on_click: bool = True) -> None:
         """Nakonfiguruj detailní okno (Amiga Workbench). Uloží se do config a
@@ -129,6 +134,9 @@ class WindowsMixin:
         line = getattr(event, "line", None)
         if not isinstance(line, str):
             return
+        okno = self._reg.get(window_id)
+        if okno is not None and not self._grant_ok(event, okno):
+            return
         with self._lock:
             callback = self._terminal_callbacks.get(window_id)
         if callback is not None:
@@ -208,6 +216,9 @@ class WindowsMixin:
         window_id = getattr(event, "window_id", None)
         if not isinstance(getattr(event, "event", None), str):
             return
+        okno = self._reg.get(window_id, HtmlWindow)
+        if okno is not None and not self._grant_ok(event, okno):
+            return
         if not hasattr(event, "value"):
             event.value = None
         if not isinstance(getattr(event, "values", None), dict):
@@ -277,12 +288,26 @@ class WindowsMixin:
         """Položka „System → Shell CLI" na liště screenu: otevři NOVÉ shell
         okno. Okno je (jako každé jiné) ZAMČENÉ – odemykací kód se vypíše do
         konzole serveru, takže i tahle cesta vyžaduje přístup ke stroji.
-        Aplikace může volbu vypnout: `GraphWindow(shell_cli=False)`."""
+        Aplikace může volbu vypnout: `GraphWindow(shell_cli=False)`.
+
+        AUTORIZACE: kód se ověřuje až u okna, ne tady – nové okno je zamčené,
+        takže se z něj bez kódu nedá nic spustit. Kdokoli připojený ale může
+        okna VYRÁBĚT, a to je samo o sobě zneužitelné (každé si drží PTY slot
+        a jednorázový kód), proto strop a záznam do auditu."""
         if not self.config.get("shell_cli", True):
+            return
+        bezici = len(self._reg.of_kind(ShellWindow))
+        if bezici >= self.MAX_SHELL_WINDOWS:
+            self._log_auth("warning",
+                           f"shell_new refused – {bezici} shell windows already "
+                           f"open (limit {self.MAX_SHELL_WINDOWS}) "
+                           f"{self._origin(event)}")
             return
         with self._lock:
             self._shell_seq = getattr(self, "_shell_seq", 0) + 1
             wid = f"cli-{self._shell_seq}"
+        self._log_auth("info", f"shell window '{wid}' requested "
+                               f"{self._origin(event)}")
         self.open_shell(ShellWindow(wid, title=f"Shell CLI {self._shell_seq}",
                                     cols=100, rows=28, width=820, height=440))
 
@@ -374,6 +399,28 @@ class WindowsMixin:
             return f"token of user '{mfa.active_user()}'"
         return "one-time code"
 
+    def _grant_ok(self, event: Any, window: Any) -> bool:
+        """Smí tahle relace do okna psát?
+
+        NALEZENO PŘI KONTROLE: `shell_input` grant vůbec neověřoval – stačilo
+        se připojit a psát do shellu, který odemkl někdo jiný, a po vypršení
+        relace to platilo dál. Odemčení musí platit u KAŽDÉ zprávy, ne jen
+        při otevírání okna; nezabezpečených oken se to netýká.
+
+        Odmítnutí jde do auditu i s důvodem – vypršelá relace vypadá jinak
+        než pokus psát do cizího okna."""
+        if not getattr(window, "secured", False):
+            return True
+        sid = getattr(event, "sid", None)
+        wid = window.window_id
+        if sessions.store.has(sid, wid):
+            return True
+        duvod = ("expired or unknown session" if not sessions.store.known(sid)
+                 else "session has no grant for this window")
+        self._log_auth("warning", f"input to window '{wid}' refused – {duvod} "
+                                  f"{self._origin(event)}")
+        return False
+
     @staticmethod
     def _origin(event: Any) -> str:
         """Odkud událost přišla – do auditní stopy.
@@ -399,6 +446,8 @@ class WindowsMixin:
         data = getattr(event, "data", None)
         if window is None or window.pty is None or not isinstance(data, str):
             return
+        if not self._grant_ok(event, window):
+            return
         # Odkud klávesy přišly – k příkazu, který z nich vznikne (audit).
         # Skládá se až v PtyShell (po Enteru), proto se původ pamatuje tady.
         self._shell_origin[window.window_id] = self._origin(event)
@@ -411,8 +460,9 @@ class WindowsMixin:
                         znaku: int) -> None:
         """Hotová dávka kláves do ladicího logu (`log_level="debug"`)."""
         puvod = self._shell_origin.get(window_id, "from ?")
+        # `data='…'` – bez ohraničení nepozná parser, kde sekvence končí
         logger.debug(f"shell '{window_id}' keys {puvod} "
-                     f"({sekundy:.0f} s, {znaku} znaků): {text}",
+                     f"({sekundy:.0f} s, {znaku} znaků): data={quoted(text)}",
                      component="windows")
 
     def _log_shell_command(self, window_id: str, prikaz: str) -> None:
@@ -438,12 +488,12 @@ class WindowsMixin:
             os_user = "?"
         puvod = self._shell_origin.get(window_id, "from ?")
         logger.audit(f"shell '{window_id}' command by '{mfa.active_user()}' "
-                     f"{puvod}, os user '{os_user}': {prikaz}")
+                     f"{puvod}, os user '{os_user}': command={quoted(prikaz)}")
 
     def _on_shell_resize(self, event) -> None:
         """Nová velikost terminálu z prohlížeče → SIGWINCH procesu."""
         window = self._reg.get(getattr(event, "window_id", None), ShellWindow)
-        if window is None:
+        if window is None or not self._grant_ok(event, window):
             return
         try:
             cols = int(getattr(event, "cols", 0))
@@ -462,6 +512,9 @@ class WindowsMixin:
         window_id = getattr(event, "window_id", None)
         raw = getattr(event, "values", None)
         if not isinstance(raw, dict):
+            return
+        okno = self._reg.get(window_id, ControlWindow)
+        if okno is not None and not self._grant_ok(event, okno):
             return
         with self._lock:
             window = self._reg.get(window_id, ControlWindow)

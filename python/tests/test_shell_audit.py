@@ -30,7 +30,12 @@ def zaznamy():
 
 
 def _prikazy(zaznamy):
-    return [z.message.split(": ", 1)[1] for z in zaznamy if "' command by " in z.message]
+    """Příkazy z auditní stopy; v logu jsou ohraničené `command='…'`, aby
+    šlo poznat, kde sekvence končí (parser i člověk)."""
+    import re
+
+    return [m.group(1) for z in zaznamy
+            if (m := re.search(r"command='(.*)'$", z.message))]
 
 
 def _wait(fn, timeout=6.0):
@@ -110,5 +115,24 @@ def test_audit_jde_vypnout(zaznamy):
                                      "sid": sid})
     time.sleep(0.6)
     assert _prikazy(zaznamy) == []
+    c.close_window("sh")
+    c.close()
+
+
+def test_apostrof_v_prikazu_nerozbije_ohraniceni(zaznamy):
+    """`echo 'ahoj'` nesmí rozseknout `command='…'` v půlce."""
+    c = GraphWindow()
+    w = ShellWindow("sh", command=["/bin/bash", "--norc", "-i"])
+    c.open_shell(w)
+    sid = sessions.store.touch(None)
+    c.dispatch_event("window_unlock", {"window_id": "sh", "code": w.fallback_code,
+                                       "sid": sid})
+    assert _wait(lambda: w.pty is not None and w.pty.alive)
+    c.dispatch_event("shell_input", {"window_id": "sh", "data": "echo 'ahoj'\n",
+                                     "sid": sid})
+    assert _wait(lambda: _prikazy(zaznamy) == ["echo [quote]ahoj[quote]"])
+    (radek,) = [z for z in zaznamy if "command=" in z.message]
+    assert radek.message.count("command='") == 1
+    assert radek.message.endswith("'")
     c.close_window("sh")
     c.close()
