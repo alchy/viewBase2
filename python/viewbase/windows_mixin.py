@@ -9,8 +9,8 @@ Co mixin očekává od hostitelské třídy (kontrakt, ne magie):
 
 - `self._lock` – zámek stavu; metody, které zapisují, ho drží,
 - `self._actions` – fronta akcí ke klientům (`drain_actions`),
-- kolekce oken `self._windows`, `self._terminals`, `self._html_windows`,
-  `self._shell_windows` a mapy `self._window_live`, `self._window_callbacks`,
+- `self._reg` – registr oken (`window_registry.WindowRegistry`) a mapy
+  `self._window_live`, `self._window_callbacks`, `self._terminal_callbacks`,
   `self._html_callbacks`, `self._detail_spec`,
 - `self._register(event, handler)` – zapojení handleru události.
 """
@@ -20,7 +20,8 @@ import logging
 from typing import Any
 
 from . import sessions
-from .controls import ShellWindow, validate_values
+from .controls import (ControlWindow, HtmlWindow, ShellWindow, TerminalWindow,
+                       validate_values)
 from .log import bus as log_bus
 
 logger = logging.getLogger("viewbase")
@@ -66,7 +67,7 @@ class WindowsMixin:
         Pozor: při nahrazení okna stejného window_id bez on_submit se předchozí
         callback zruší – chceš-li ho zachovat, předej on_submit znovu."""
         with self._lock:
-            self._windows[window.window_id] = window
+            self._reg.add(window)
             self._window_live[window.window_id] = bool(live)
             if on_submit is not None:
                 self._window_callbacks[window.window_id] = on_submit
@@ -78,30 +79,34 @@ class WindowsMixin:
         return window.window_id
 
     def close_window(self, window_id: str) -> None:
-        """Zavři okno (control i html): odeber ze stavu a zařaď akci close_window."""
+        """Zavři okno KTERÉHOKOLI typu: odeber ze stavu a zařaď `close_window`.
+
+        Se čtyřmi mapami tahle metoda uměla control, HTML a shell, ale na
+        terminálu spadla na `ValueError`, přestože i terminálové okno má
+        zavírací gadget – rozdíl, který nikdo nezamýšlel, jen ho nikdo
+        nevyhrabal ze čtyř větví. S jedním registrem důvod pro něj mizí.
+
+        Granty relací k oknu se ruší taky: kdyby zůstaly, nové okno se
+        stejným `window_id` by se odemklo samo (viz sessions.py)."""
         with self._lock:
-            removed = self._windows.pop(window_id, None) is not None
-            if self._html_windows.pop(window_id, None) is not None:
-                removed = True
-                self._html_callbacks.pop(window_id, None)
-            shell = self._shell_windows.pop(window_id, None)
-            if shell is not None:
-                removed = True
-            if not removed:
+            window = self._reg.remove(window_id)
+            if window is None:
                 raise ValueError(f"Okno '{window_id}' neexistuje")
-            self._window_callbacks.pop(window_id, None)
-            self._window_live.pop(window_id, None)
+            for mapa in (self._window_callbacks, self._window_live,
+                         self._terminal_callbacks, self._html_callbacks):
+                mapa.pop(window_id, None)
+            sessions.store.revoke_window(window_id)
             self._actions.append(
                 {"action": "close_window", "window_id": window_id})
-        if shell is not None:
-            self._shell_stop(shell)          # proces nepřežije zavření okna
+        if isinstance(window, ShellWindow):
+            self._shell_stop(window)         # proces nepřežije zavření okna
 
     def open_terminal(self, window: TerminalWindow, *, on_input=None) -> str:
         """Otevři/nahraď konzolové okno: ulož do stavu (init replay) a zařaď akci
         open_window (kind:"terminal"). `on_input` dostane event s .line (řádek,
         co uživatel napsal). Do okna se píše přes `terminal_write`."""
         with self._lock:
-            self._terminals[window.window_id] = window
+            self._reg.add(window)
             if on_input is not None:
                 self._terminal_callbacks[window.window_id] = on_input
             else:
@@ -114,7 +119,7 @@ class WindowsMixin:
     def terminal_write(self, window_id: str, text: str) -> None:
         """Připiš řádek do konzolového okna (delta terminal_append klientům)."""
         with self._lock:
-            if window_id not in self._terminals:
+            if self._reg.get(window_id, TerminalWindow) is None:
                 raise ValueError(f"Terminál '{window_id}' neexistuje")
             self._actions.append({"action": "terminal_append",
                                   "window_id": window_id, "text": str(text)})
@@ -140,7 +145,7 @@ class WindowsMixin:
         `html_set` / `html_append`. Nahrazení okna stejného window_id bez
         `on_event` předchozí callback zruší (stejně jako open_terminal)."""
         with self._lock:
-            self._html_windows[window.window_id] = window
+            self._reg.add(window)
             window._owner = self             # prvky odteď posílají html_set/html_patch
             if on_event is not None:
                 self._html_callbacks[window.window_id] = on_event
@@ -167,7 +172,7 @@ class WindowsMixin:
         """Nahraď celý obsah HTML okna (akce html_set klientům; okno si
         obsah pamatuje pro replay po reconnectu, viz HtmlWindow.MAX_HTML)."""
         with self._lock:
-            window = self._html_windows.get(window_id)
+            window = self._reg.get(window_id, HtmlWindow)
             if window is None:
                 raise ValueError(f"HTML okno '{window_id}' neexistuje")
             window.set_html(html)
@@ -178,7 +183,7 @@ class WindowsMixin:
         """Připiš HTML fragment na konec okna (streamový výpis; klient drží
         konec jako terminál). Akce html_append klientům."""
         with self._lock:
-            window = self._html_windows.get(window_id)
+            window = self._reg.get(window_id, HtmlWindow)
             if window is None:
                 raise ValueError(f"HTML okno '{window_id}' neexistuje")
             window.append_html(html)
@@ -189,8 +194,7 @@ class WindowsMixin:
         """Akce k oknu (prvky HTML okna, výstup shellu, stavy zámku). Zamčenému
         oknu se obsah neposílá – dostane ho až po odemčení."""
         with self._lock:
-            window = (self._html_windows.get(window_id)
-                      or self._shell_windows.get(window_id))
+            window = self._reg.get(window_id, (HtmlWindow, ShellWindow))
             if (window is not None and self._drop_if_locked(window)
                     and action != "window_state"):
                 return
@@ -210,7 +214,7 @@ class WindowsMixin:
         if not isinstance(getattr(event, "values", None), dict):
             event.values = {}
         with self._lock:
-            window = self._html_windows.get(window_id)
+            window = self._reg.get(window_id, HtmlWindow)
             callback = self._html_callbacks.get(window_id)
         if window is not None:
             window._dispatch(event)          # prvky: .value, on_click/on_change/on_submit
@@ -222,7 +226,7 @@ class WindowsMixin:
         open_window. PTY se NESPOUŠTÍ – okno je zamčené a odemykací kód se
         vypíše do konzole serveru (`unlock=None` spustí shell rovnou)."""
         with self._lock:
-            self._shell_windows[window.window_id] = window
+            self._reg.add(window)
             window._owner = self
             self._emit_open(window)
         if window.locked:
@@ -296,8 +300,7 @@ class WindowsMixin:
     def _secured_windows(self) -> dict[str, Any]:
         """Všechna okna se zámkem (jeden mechanismus napříč typy)."""
         with self._lock:
-            return {**self._windows, **self._terminals,
-                    **self._html_windows, **self._shell_windows}
+            return self._reg.all()
 
     def _on_window_unlock(self, event) -> None:
         """Klient poslal kód k zamčenému oknu (JAKÉHOKOLI typu). Při shodě se
@@ -372,7 +375,7 @@ class WindowsMixin:
 
     def _on_shell_input(self, event) -> None:
         """Klávesy z prohlížeče do procesu (jen běžícího a odemčeného okna)."""
-        window = self._shell_windows.get(getattr(event, "window_id", None))
+        window = self._reg.get(getattr(event, "window_id", None), ShellWindow)
         data = getattr(event, "data", None)
         if window is None or window.pty is None or not isinstance(data, str):
             return
@@ -380,7 +383,7 @@ class WindowsMixin:
 
     def _on_shell_resize(self, event) -> None:
         """Nová velikost terminálu z prohlížeče → SIGWINCH procesu."""
-        window = self._shell_windows.get(getattr(event, "window_id", None))
+        window = self._reg.get(getattr(event, "window_id", None), ShellWindow)
         if window is None:
             return
         try:
@@ -402,7 +405,7 @@ class WindowsMixin:
         if not isinstance(raw, dict):
             return
         with self._lock:
-            window = self._windows.get(window_id)
+            window = self._reg.get(window_id, ControlWindow)
             if window is None:
                 return
             clean = validate_values(window.spec()["fields"], raw)
@@ -418,12 +421,12 @@ class WindowsMixin:
         Čtyři kolekce oken (control, terminál, HTML, shell) se tu dřív
         procházely čtyřmi skoro totožnými comprehension – jediný rozdíl je
         `live` u control oken. Volá se pod `self._lock` (viz snapshot)."""
-        out = [{**w.public_spec(self._unlocked(sid, wid)),
-                "live": self._window_live.get(wid, False)}
-               for wid, w in self._windows.items()]
-        for kolekce in (self._terminals, self._html_windows, self._shell_windows):
-            out += [w.public_spec(self._unlocked(sid, wid))
-                    for wid, w in kolekce.items()]
+        out = []
+        for wid, w in self._reg:
+            spec = w.public_spec(self._unlocked(sid, wid))
+            if isinstance(w, ControlWindow):     # `live` má smysl jen u formuláře
+                spec["live"] = self._window_live.get(wid, False)
+            out.append(spec)
         return out
 
     def _unlocked(self, sid: str | None, window_id: str) -> bool:

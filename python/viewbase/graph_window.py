@@ -14,6 +14,7 @@ from .menu import ScreenMenu
 from .events_mixin import EventsMixin
 from .flows_mixin import FlowsMixin
 from .graph_util import QUALITIES, _edge_key, _validated_theme
+from .window_registry import WindowRegistry
 from .windows_mixin import WindowsMixin
 
 if TYPE_CHECKING:
@@ -72,14 +73,14 @@ class GraphWindow(EventsMixin, FlowsMixin, WindowsMixin):
         self._node_types: dict[str, dict[str, Any]] = {}
         self._flow_types: dict[str, dict[str, Any]] = {}
         self._flows: dict[str, dict[str, Any]] = {}   # flow_id -> trvalý tok (do init)
-        self._windows: dict[str, ControlWindow] = {}
+        # JEDEN registr oken (window_registry.py) místo čtyř map podle typu:
+        # id je napříč typy jedinečné a otázka „mám okno s tímhle id?" má
+        # jedno místo, kam se ptát.
+        self._reg = WindowRegistry()
         self._window_callbacks: dict[str, Any] = {}
         self._window_live: dict[str, bool] = {}   # window_id -> live režim
-        self._terminals: dict[str, TerminalWindow] = {}
         self._terminal_callbacks: dict[str, Any] = {}   # window_id -> on_input
-        self._html_windows: dict[str, HtmlWindow] = {}
         self._html_callbacks: dict[str, Any] = {}       # window_id -> on_event
-        self._shell_windows: dict[str, ShellWindow] = {}
         self._menu: ScreenMenu | None = None   # připnuté ScreenMenu (§8 designu)
         self._seq = 0
         self._batch_depth = 0
@@ -604,7 +605,7 @@ class GraphWindow(EventsMixin, FlowsMixin, WindowsMixin):
                     {"action": "screen_remove", "screen_id": self.screen_id})
             if self._tasks_stop is not None:
                 self._tasks_stop.set()
-            shells = list(self._shell_windows.values())
+            shells = list(self._reg.of_kind(ShellWindow).values())
         for shell in shells:
             self._shell_stop(shell)          # žádný osiřelý proces po konci programu
         self._executor.shutdown(wait=False, cancel_futures=True)
