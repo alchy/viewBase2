@@ -19,7 +19,7 @@ from __future__ import annotations
 import threading
 from typing import TYPE_CHECKING, Any
 
-from .graph_window import BUILTIN_THEMES, QUALITIES, _validated_theme
+from .graph_util import BUILTIN_THEMES, QUALITIES, _validated_theme
 
 if TYPE_CHECKING:
     from .graph_window import GraphWindow
