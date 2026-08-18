@@ -88,7 +88,7 @@ def reset_zateze(event) -> None:
 
 @zatez.on_change
 def povol_reset(event) -> None:
-    reset.enabled = event.value > 0                    # .enabled = True/False za běhu"
+    reset.enabled = event.value > 0                    # .enabled = True/False za běhu
 
 
 @zatez.on_change
