@@ -29,8 +29,8 @@ export class UnlockPrompt {
     this.what = line('', 'vb-unlock-what');          // které okno se odemyká
     this.box.append(this.input);
     this.err = line('', 'vb-unlock-error');
-    this.hint = line('Authenticator code, or the one-time code from the server console.'
-      + '  Esc keeps the window locked (Options → Unlock Window).');
+    this.hint = line('Authenticator code, or the one-time code from the file named'
+      + ' in the server log.  Esc keeps the window locked.');
 
     this.input.inputMode = 'numeric';
     this.input.autocomplete = 'one-time-code';

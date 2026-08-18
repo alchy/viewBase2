@@ -487,7 +487,15 @@ vývojáři přes `define_type`/`update_node`.
 
   QR, `otpauth://` URI, ruční kód ani jednorázový kód (fallback bez `pyotp`,
   ten leží v `user-<jméno>/onetime-<okno>.txt`) se nikdy nevypíšou — jinak by
-  skončily v `docker logs`, v CI artefaktu nebo na sdílené obrazovce. QR jde **jen do konzole a na disk**,
+  skončily v `docker logs`, v CI artefaktu nebo na sdílené obrazovce.
+
+  **Pozor na prostředí:** TOTP umí ověřit jen proces, který má `pyotp`. Když
+  instanci spustíte jinde (systémový Python místo venv), okna spadnou na
+  jednorázové kódy a kód z autentikátoru se tváří jako neplatný. Start proto
+  varuje: *„pyotp v tomhle prostředí chybí … kód z autentikátoru fungovat
+  NEBUDE; TOTP zapne: pip install viewbase[mfa]"*. Registrace se tím neztrácí
+  — tajemství zůstává v `users.json` a po doinstalování `pyotp` funguje
+  původní záznam v autentikátoru dál. QR jde **jen do konzole a na disk**,
   nikdy přes HTTP — kdo ho uvidí, zaregistruje si vlastní autentikátor, takže
   ho vidí jedině ten, kdo na stroj už vidí; `/api/mfa/setup` proto neexistuje.
   Cestu k domovu přesměruje `VIEWBASE_HOME` (kontejnery, testy).

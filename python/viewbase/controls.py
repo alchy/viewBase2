@@ -96,9 +96,19 @@ class SecuredMixin:
         self.fallback_code = self.fallback_code or secrets.token_hex(4)
         path = mfa.onetime_path(self.window_id)
         mfa.write_secret_file(path, f"{self.fallback_code}\n")
-        message = (f"okno '{self.window_id}' je zamčené, TOTP není nastavené – "
+        level, why = "info", "TOTP není nastavené"
+        if mfa.registered(mfa.active_user()):
+            # TICHÁ PAST (nalezeno v provozu): uživatel má TOTP zaregistrované
+            # a naskenované v autentikátoru, ale TENHLE proces nemá `pyotp`,
+            # takže kód z autentikátoru nemá kdo ověřit a okno ho odmítá.
+            # Bez téhle hlášky to vypadá jako "špatný kód".
+            level, why = "warning", ("uživatel má TOTP zaregistrované, ale v "
+                                     "tomhle prostředí chybí pyotp – kód z "
+                                     "autentikátoru NEBUDE fungovat "
+                                     "(pip install viewbase[mfa])")
+        message = (f"okno '{self.window_id}' je zamčené, {why} – "
                    f"jednorázový kód: cat {path}")
-        mfa._log("info", message)
+        mfa._log(level, message)
         print(f"viewbase: {message}", flush=True)
 
     def on_unlocked(self) -> None:

@@ -339,6 +339,16 @@ class Project:
         users = mfa.describe_users()
         _system_log(f"uživatel instance: {self.user}"
                     + (f"; registrovaní: {', '.join(users)}" if users else ""))
+        if not mfa.available():
+            # Kdo má TOTP zaregistrované, ale spustí instanci v prostředí bez
+            # `pyotp`, jinak jen kouká, proč mu autentikátor nefunguje.
+            _system_log(
+                "pyotp v tomhle prostředí chybí – zabezpečená okna se odemykají "
+                "jednorázovým kódem ze souboru"
+                + (f" (uživatel '{self.user}' má přitom TOTP zaregistrované, "
+                   "kód z autentikátoru fungovat NEBUDE); "
+                   if mfa.registered(self.user) else "; ")
+                + "TOTP zapne: pip install viewbase[mfa]", "warning")
         windows = []
         for surface in surfaces:
             if hasattr(surface, "snapshot"):     # přímo GraphWindow

@@ -64,6 +64,14 @@ def _log(level: str, message: str) -> None:
     bus.publish(level, "backend_program", message, component="server")
 
 
+def registered(user: str | None = None) -> bool:
+    """Má uživatel zapnuté TOTP tajemství? (Nezávisle na tom, jestli ho má
+    tenhle proces čím ověřit – právě ten rozdíl je zajímavý, viz
+    `SecuredMixin.announce_lock`.)"""
+    rec = load_users().get(user or active_user()) or {}
+    return bool(rec.get("totp_secret")) and bool(rec.get("is_mfa_enabled", True))
+
+
 def describe_users() -> list[str]:
     """Uživatelé pro startovní log: `["jindrich (TOTP)", "hana (bez TOTP)"]`.
     Jen jména a způsob ověření – žádná tajemství."""

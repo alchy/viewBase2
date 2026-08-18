@@ -243,3 +243,29 @@ def test_audit_stopa_zamku_je_bez_tajemstvi():
     assert kod not in texty and "tajný text" not in texty  # nic tajného
     assert {z.component for z in zaznamy if z.source == "backend_program"} <= {
         "windows", "server"}
+
+
+def test_varuje_kdyz_ma_uzivatel_totp_ale_prostredi_nema_pyotp(monkeypatch, capsys):
+    """Past z provozu: uživatel si naskenoval QR, jenže instanci spustil v
+    prostředí bez `pyotp`. Kód z autentikátoru nemá kdo ověřit a okno ho
+    odmítá jako neplatný – musí to být z logu poznat na první pohled."""
+    from viewbase.log import bus
+
+    mfa.ensure_user()                                   # registrace s pyotp
+    monkeypatch.setattr(mfa, "available", lambda: False)  # …a teď bez něj
+    zaznamy = []
+    bus.subscribe(zaznamy.append)
+    c = GraphWindow()
+    try:
+        w = _html()
+        c.open_html(w)
+        c.drain_actions()
+    finally:
+        bus.unsubscribe(zaznamy.append)
+        c.close()
+    varovani = [z for z in zaznamy if z.level == "warning"]
+    assert varovani, "chybí varování o nefunkčním TOTP"
+    text = varovani[-1].message
+    assert "pyotp" in text and "viewbase[mfa]" in text
+    assert "NEBUDE fungovat" in text
+    assert w.fallback_code not in text                   # ani tady žádný kód
