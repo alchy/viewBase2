@@ -21,7 +21,8 @@ def test_config_in_snapshot():
                    "highlight_neighbors": 2, "quality": "auto",
                    "detail_window": {"rows": None, "width_chars": 42,
                                      "open_on_click": True},
-                   "edge_style": {"style": "line", "elasticity": 0.0}}
+                   "edge_style": {"style": "line", "elasticity": 0.0},
+                   "shell_cli": True}      # System → Shell CLI na liště screenu
 
 
 def test_invalid_dimensions_raises():

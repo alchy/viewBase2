@@ -123,6 +123,8 @@ export function createDesktop({ container, screenId, connection }) {
     ensureGraphPlugin();              // před applyTheme – renderer chce téma
     applyTheme(store.config.theme);   // téma (i CSS proměnné oken) nastav dřív
     bar.setSpec(store.menu);          // připnuté ScreenMenu přežívá reconnect (§8)
+    // vestavěná skupina System (Shell CLI) – vždy, ledaže ji server vypne
+    bar.setSystemGroup(store.config.shell_cli !== false);
     for (const spec of store.windows ?? []) {
       windowManager.open(spec.kind ?? 'control', spec);
     }

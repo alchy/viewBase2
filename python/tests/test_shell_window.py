@@ -166,3 +166,33 @@ def test_rest_api_event_neprijme_shell_eventy():
     assert (w.pty.cols, w.pty.rows) == (80, 24)        # ani resize
     c.close_window("sh")
     c.close()
+
+
+def test_shell_cli_z_gui_otevre_zamcene_okno(capsys):
+    """System → Shell CLI: klient si řekne o shell okno; vznikne ZAMČENÉ a
+    kód se vypíše do konzole serveru (jako u okna z Pythonu)."""
+    c = GraphWindow()
+    assert c.config["shell_cli"] is True                  # volba je dostupná vždy
+    c.drain_actions()
+    c.dispatch_event("shell_new", {"client_id": "x"})
+    assert _wait(lambda: any(a.get("action") == "open_window" and a.get("kind") == "shell"
+                             for a in c.peek_actions()))
+    a = [x for x in c.drain_actions() if x.get("kind") == "shell"][0]
+    assert a["state"] == "locked" and a["window_id"] == "cli-1"
+    assert a["window_id"] in capsys.readouterr().out      # kód s id okna do konzole
+
+    c.dispatch_event("shell_new", {"client_id": "x"})     # druhé okno = jiné id
+    assert _wait(lambda: any(x.get("window_id") == "cli-2" for x in c.peek_actions()))
+    for wid in ("cli-1", "cli-2"):
+        c.close_window(wid)
+    c.close()
+
+
+def test_shell_cli_lze_vypnout():
+    c = GraphWindow(shell_cli=False)
+    assert c.config["shell_cli"] is False
+    c.drain_actions()
+    c.dispatch_event("shell_new", {"client_id": "x"})
+    time.sleep(0.3)
+    assert not any(a.get("kind") == "shell" for a in c.peek_actions())
+    c.close()

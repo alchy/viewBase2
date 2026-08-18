@@ -98,6 +98,17 @@ vb.ShellWindow("logs", command=["journalctl", "-f"], unlock=None)   # bez zámku
 | zapomenutý běžící proces | PTY se zabíjí při zavření okna, `close()` grafu i konci serveru |
 | únik historie | scrollback v paměti procesu, strop 256 kB, nikdy na disk |
 
+## Otevření z GUI: System → Shell CLI (doplněno)
+
+Na liště screenu je vedle `Options` vestavěná skupina **`System`** (příkazy
+workbenche samotného, ne aplikace) s položkou **`Shell CLI`**: klik pošle
+event `shell_new`, server založí `ShellWindow` s id `cli-<n>` a otevře ho.
+Volba je **dostupná vždy** (uživatelské rozhodnutí) – nezávisle na tom, jestli
+aplikace nějaké shell okno definovala. Bezpečnost se nemění: okno vzniká
+ZAMČENÉ a odemykací kód jde do konzole serveru; `shell_new` je `shell_*`, takže
+ho REST `/api/event` odmítá. Aplikace volbu schová `GraphWindow(shell_cli=False)`
+(propíše se do `config.shell_cli`, frontend skupinu nevykreslí).
+
 ## Mimo rozsah prvního kroku
 
 Windows/ConPTY, víc vlastníků vstupu (dnes: kdo odemkne, ten píše; ostatní

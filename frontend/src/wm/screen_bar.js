@@ -21,6 +21,7 @@ export class ScreenBar {
     this.sendEvent = sendEvent;
     this.remoteGroups = [];   // ze ScreenMenu (§8), akce přes sendEvent
     this.optionsGroup = null; // { name: 'Options', items: [{key,label,checked,onToggle}] }
+    this.systemGroup = null;  // vestavěné „System" (Shell CLI) – viz setSystemGroup
     this.openGroup = null;
 
     this.el = document.createElement('div');
@@ -140,12 +141,33 @@ export class ScreenBar {
     this._render();
   }
 
-  /** Options je VŽDY první skupina zleva (uživatelská oprava), ScreenMenu
-   *  skupiny (pokud nějaké jsou) za ní. */
+  /** Vestavěná skupina „System": příkazy workbenche samotného, nezávislé na
+   *  aplikaci – dnes „Shell CLI", která si od serveru řekne o nové shell okno
+   *  (event `shell_new`; PTY se stejně spustí až po odemykacím kódu z konzole
+   *  serveru, viz plugins/shell.js). Volba je dostupná vždy, server ji může
+   *  vypnout přes `config.shell_cli === false`. */
+  setSystemGroup(enabled = true) {
+    this.systemGroup = enabled ? {
+      name: 'System',
+      local: true,
+      items: [{
+        key: 'shell-cli',
+        label: 'Shell CLI',
+        command: true,                       // příkaz, ne přepínač (bez ✓)
+        onToggle: () => this.sendEvent({ type: 'event', event: 'shell_new', payload: {} }),
+      }],
+    } : null;
+    this._render();
+  }
+
+  /** Options je VŽDY první skupina zleva (uživatelská oprava), za ní
+   *  vestavěný System a pak ScreenMenu skupiny (pokud nějaké jsou). */
   _allGroups() {
-    return this.optionsGroup
-      ? [this.optionsGroup, ...this.remoteGroups]
-      : this.remoteGroups;
+    return [
+      ...(this.optionsGroup ? [this.optionsGroup] : []),
+      ...(this.systemGroup ? [this.systemGroup] : []),
+      ...this.remoteGroups,
+    ];
   }
 
   _render() {
@@ -206,11 +228,13 @@ export class ScreenBar {
 
       if (group.local) {
         row.dataset.itemKey = item.key;
-        const check = document.createElement('span');
-        check.dataset.role = 'vb-menu-checkbox';
-        check.textContent = item.checked ? '✓' : '';
-        check.style.cssText = 'width:1em;display:inline-block;font-weight:700';
-        row.appendChild(check);
+        if (!item.command) {                 // příkaz (Shell CLI) checkbox nemá
+          const check = document.createElement('span');
+          check.dataset.role = 'vb-menu-checkbox';
+          check.textContent = item.checked ? '✓' : '';
+          check.style.cssText = 'width:1em;display:inline-block;font-weight:700';
+          row.appendChild(check);
+        }
         row.addEventListener('click', (e) => {
           e.stopPropagation();
           item.onToggle(!item.checked);

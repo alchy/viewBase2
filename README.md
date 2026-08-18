@@ -294,6 +294,12 @@ programu. Systémový `login` se nepoužívá: bez rootu stejně nepřepne
 uživatele (na Linuxu selže, na macOS jen znovu přihlásí téhož, na Windows
 neexistuje) — kdo chce jiného uživatele, řekne si o něj přes `command=`.
 
+Shell okno si divák může otevřít i **sám z GUI**: na liště screenu je vedle
+`Options` vestavěná skupina **`System` → `Shell CLI`** (dostupná vždy, nezávisle
+na tom, jestli aplikace nějaké shell okno definovala). Vzniklé okno je stejně
+**zamčené** a kód se vypíše do konzole serveru; volbu lze schovat přes
+`vb.GraphWindow(..., shell_cli=False)`.
+
 Terminál bere **paletu z tématu** (pozadí = tělo okna, ANSI barvy z palety),
 takže `ls --color` ladí se zbytkem workbenche. xterm.js leží zdrojově v repu
 (`frontend/src/vendor/xterm/`, MIT) a načítá se **až s prvním shell oknem** —
@@ -509,7 +515,8 @@ jde jen minimalizovat do doku, takže se divákovi nikdy neztratí.
 
 Na liště každého screenu je vestavěná skupina **„Options"** (view-only,
 žádné Python volání ji nezakládá; je vždy první skupina, `ScreenMenu`
-skupiny za ní) a její obsah řídí **aktivní okno** — stejný model jako macOS
+skupiny za ní) a vedle ní vestavěná skupina **„System"** (příkazy workbenche samotného,
+dnes `Shell CLI` – otevře shell okno); obsah Options řídí **aktivní okno** — stejný model jako macOS
 menu bar, kde menu patří aktivní aplikaci: klik na okno grafu → „Fyzika
 běží", „Křivkové hrany (splajn)", **„3D pohled"** (živé přepnutí kamery i
 fyzikální simulace 2D/3D za běhu), **„Clusters (regions)"** (zapnuto = komunity

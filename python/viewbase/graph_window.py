@@ -56,7 +56,8 @@ class GraphWindow:
 
     def __init__(self, *, title: str = "viewbase", dimensions: int = 3,
                  theme: Any = "modern", highlight_neighbors: int = 1,
-                 quality: str = "auto", screen: "Screen | None" = None):
+                 quality: str = "auto", screen: "Screen | None" = None,
+                 shell_cli: bool = True):
         if dimensions not in (2, 3):
             raise ValueError("dimensions musí být 2 nebo 3")
         if quality not in QUALITIES:
@@ -74,6 +75,10 @@ class GraphWindow:
             "detail_window": {
                 "rows": None, "width_chars": 42, "open_on_click": True},
             "edge_style": {"style": "line", "elasticity": 0.0},
+            # Vestavěná nabídka „System → Shell CLI" na liště screenu: divák
+            # si otevře shell okno sám (pořád zamčené odemykacím kódem z
+            # konzole serveru). `shell_cli=False` volbu schová úplně.
+            "shell_cli": bool(shell_cli),
         }
         self._lock = threading.RLock()
         self._nodes: dict[str, dict[str, Any]] = {}
@@ -104,6 +109,7 @@ class GraphWindow:
         self._register("window_submit", self._on_window_submit)
         self._register("terminal_input", self._on_terminal_input)
         self._register("html_event", self._on_html_event)
+        self._register("shell_new", self._on_shell_new)
         self._register("shell_unlock", self._on_shell_unlock)
         self._register("shell_input", self._on_shell_input)
         self._register("shell_resize", self._on_shell_resize)
@@ -504,6 +510,19 @@ class GraphWindow:
         pty = window.pty
         if pty is not None:
             pty.terminate()
+
+    def _on_shell_new(self, event) -> None:
+        """Položka „System → Shell CLI" na liště screenu: otevři NOVÉ shell
+        okno. Okno je (jako každé jiné) ZAMČENÉ – odemykací kód se vypíše do
+        konzole serveru, takže i tahle cesta vyžaduje přístup ke stroji.
+        Aplikace může volbu vypnout: `GraphWindow(shell_cli=False)`."""
+        if not self.config.get("shell_cli", True):
+            return
+        with self._lock:
+            self._shell_seq = getattr(self, "_shell_seq", 0) + 1
+            wid = f"cli-{self._shell_seq}"
+        self.open_shell(ShellWindow(wid, title=f"Shell CLI {self._shell_seq}",
+                                    cols=100, rows=28, width=820, height=440))
 
     def _on_shell_unlock(self, event) -> None:
         """Klient poslal odemykací kód; při shodě se spustí PTY. Nesprávný kód
