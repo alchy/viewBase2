@@ -128,8 +128,13 @@ Zámek se z shell okna zobecnil na **kterékoli okno** (`secured=True`, jako
   při **startu instance** (`Project.serve` → `mfa.ensure_user`): QR do konzole
   serveru (ASCII) a do `~/.viewbase/user-<jméno>/` jako `totp-<jméno>.svg`
   (obrázek) i `totp-<jméno>.txt` (týž ASCII QR ke `cat` – konzole ho ukáže jen
-  jednou, přes SSH je to jediná varianta, co funguje vždycky); vše 0600,
-  adresář 0700, **žádný `/api/mfa/setup` endpoint** (kdo vidí QR, může se
+  vždy funguje, i přes SSH); vše 0600, adresář 0700. **Do logu nejde žádné
+  tajemství** (uživatelské rozhodnutí): konzole a log okno dostanou jen
+  systémové texty – uživatel instance a registrovaní při startu, ukazatel na
+  soubor s QR a auditní stopa `neplatný kód k oknu 'x'` / `okno 'x' odemčeno –
+  token uživatele 'y'` / `okno 'x' zamčeno uživatelem`. Jednorázový kód
+  (fallback bez `pyotp`) taky do souboru (`onetime-<okno>.txt`), ne na
+  obrazovku. **Žádný `/api/mfa/setup` endpoint** (kdo vidí QR, může se
   zaregistrovat). Jméno je součástí názvu adresáře, takže se validuje. Rate limit
   5 pokusů/30 s a odmítnutí už použitého kódu. Bez extra `viewbase[mfa]`
   fallback na jednorázový kód vypsaný do konzole.

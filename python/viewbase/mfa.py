@@ -22,10 +22,15 @@ očekávatelném místě, hned po startu.
 
 REGISTRACE probíhá v procesu při prvním startu, ne přes HTTP: kdo uvidí QR
 kód, může si zaregistrovat vlastní autentikátor, takže se ukazuje jedině
-tomu, kdo už na stroj vidí – vytiskne se do KONZOLE SERVERU (ASCII QR) a
-uloží jako SVG s právy 0600. Žádný `/api/mfa/setup` endpoint tedy neexistuje;
+tomu, kdo už na stroj vidí. Žádný `/api/mfa/setup` endpoint tedy neexistuje;
 ověření jde přes existující WS událost `window_unlock` (REST `/api/event`
 `window_*`/`shell_*` události odmítá).
+
+DO LOGU NEJDE ŽÁDNÉ TAJEMSTVÍ (uživatelské rozhodnutí): QR, `otpauth://` URI
+ani ruční kód se netisknou – jsou jedině v souborech v `~/.viewbase/` s právy
+0600. Log říká jen SYSTÉMOVÉ věci: kdo jsou uživatelé, že vznikla registrace
+(a kde si ji vyzvednout) a že byl použit token. Jinak by tajemství skončilo v
+`docker logs`, v CI artefaktu nebo na sdílené obrazovce.
 
 Bez balíčků `pyotp`/`qrcode` (extra `pip install viewbase[mfa]`) knihovna
 funguje dál: použije se jednorázový kód vypsaný do konzole serveru při
@@ -50,6 +55,23 @@ ISSUER = "viewbase"
 MAX_ATTEMPTS = 5          # pokusů…
 WINDOW_S = 30.0           # …za tolik sekund (pak se čeká)
 TOTP_VALID_WINDOW = 1     # ±30 s kvůli rozjetým hodinám
+
+
+def _log(level: str, message: str) -> None:
+    """Systémová hláška do log okna i do logu serveru – NIKDY s tajemstvím."""
+    from .log import bus
+
+    bus.publish(level, "backend_program", message, component="server")
+
+
+def describe_users() -> list[str]:
+    """Uživatelé pro startovní log: `["jindrich (TOTP)", "hana (bez TOTP)"]`.
+    Jen jména a způsob ověření – žádná tajemství."""
+    out = []
+    for name, rec in sorted(load_users().items()):
+        ok = bool(rec.get("totp_secret")) and rec.get("is_mfa_enabled", True)
+        out.append(f"{name} ({'TOTP' if ok else 'bez TOTP'})")
+    return out
 
 
 def available() -> bool:
@@ -104,6 +126,21 @@ def qr_path(user: str | None = None) -> Path:
     """Kam patří jeho QR: `~/.viewbase/user-<jméno>/totp-<jméno>.svg`."""
     name = _safe_user(user or active_user())
     return user_dir(name) / f"totp-{name}.svg"
+
+
+def onetime_path(window_id: str, user: str | None = None) -> Path:
+    """Jednorázový kód okna (fallback bez `pyotp`) – taky do souboru, ne do
+    logu: `~/.viewbase/user-<jméno>/onetime-<okno>.txt`."""
+    return user_dir(user) / f"onetime-{_safe_user(window_id)}.txt"
+
+
+def write_secret_file(path: Path, content: str) -> Path:
+    """Zapiš tajemství do souboru s právy 0600 (adresář 0700)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    os.chmod(path.parent, stat.S_IRWXU)
+    path.write_text(content, "utf-8")
+    os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+    return path
 
 
 def qr_text_path(user: str | None = None) -> Path:
@@ -173,6 +210,13 @@ def ensure_user(user: str | None = None, *,
             users[user] = rec
             save_users(users)
             _announce_enrollment(user, rec["totp_secret"], announce)
+        elif not qr_text_path(user).exists():
+            # Uživatel z dřívější verze (nebo si soubory smazal): tajemství se
+            # NEMĚNÍ, jen se z něj znovu vyrobí QR – jinak by si ho nešlo
+            # naskenovat na druhé zařízení, aniž by se musel registrovat znovu.
+            _write_artifacts(user, rec["totp_secret"])
+            _log("info", f"QR uživatele '{user}' obnoven ze stávajícího "
+                         f"tajemství: cat {qr_text_path(user)}")
         return rec
 
 
@@ -194,9 +238,22 @@ def _migrate_legacy_qr(user: str) -> None:
 def _announce_enrollment(user: str, secret: str,
                          announce: Callable[[str], None] | None) -> None:
     """Vypiš QR + URI do konzole a ulož SVG (Pillow netřeba)."""
-    out = announce or (lambda text: print(text, flush=True))
+    txt, svg = _write_artifacts(user, secret)
+    # Do logu jen UKAZATEL, kde si registraci vyzvednout – žádné tajemství.
+    message = (f"nová TOTP registrace pro uživatele '{user}' – naskenuj: "
+               f"cat {txt}" + (f" (nebo otevři {svg})" if svg else ""))
+    _log("info", message)
+    (announce or (lambda text: print(f"viewbase: {text}", flush=True)))(message)
+
+
+def _write_artifacts(user: str, secret: str) -> tuple[Path, Path | None]:
+    """Vyrob QR ze známého tajemství: `.txt` (ASCII QR ke `cat`, funguje i
+    přes SSH) a `.svg` (obrázek). Obojí 0600 v adresáři uživatele – nic z toho
+    nejde do logu."""
     uri = provisioning_uri(user, secret)
-    lines = [f"viewbase: nový TOTP pro uživatele '{user}' – naskenuj v autentikátoru:"]
+    txt = qr_text_path(user)
+    svg: Path | None = qr_path(user)
+    write_secret_file(txt, f"ruční zadání: {secret}\n{uri}\n")   # aspoň URI vždy
     try:
         import io
 
@@ -206,25 +263,13 @@ def _announce_enrollment(user: str, secret: str,
         qr.add_data(uri)
         buf = io.StringIO()
         qr.print_ascii(out=buf, invert=True)
-        ascii_qr = buf.getvalue()
-        lines.append(ascii_qr)
-        folder = user_dir(user)
-        folder.mkdir(parents=True, exist_ok=True)
-        os.chmod(folder, stat.S_IRWXU)                  # 0700, jen majitel
-        svg = qr_path(user)
+        write_secret_file(txt, f"{buf.getvalue()}\nruční zadání: {secret}\n{uri}\n")
         img = qrcode.make(uri, image_factory=_svg_factory())
         img.save(str(svg))
         os.chmod(svg, stat.S_IRUSR | stat.S_IWUSR)
-        # tentýž QR v ASCII: konzole ho ukáže jen teď, tohle zůstane
-        txt = qr_text_path(user)
-        txt.write_text(f"{ascii_qr}\nruční zadání: {secret}\n{uri}\n", "utf-8")
-        os.chmod(txt, stat.S_IRUSR | stat.S_IWUSR)
-        lines.append(f"(QR taky v {svg}\n a ke skenu z konzole: cat {txt})")
     except Exception:                                   # noqa: BLE001
-        pass                                            # QR je bonus, URI stačí
-    lines.append(f"ruční zadání: {secret}")
-    lines.append(uri)
-    out("\n".join(lines))
+        svg = None                                      # QR je bonus, URI stačí
+    return txt, svg
 
 
 def _svg_factory():

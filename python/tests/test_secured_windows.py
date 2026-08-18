@@ -118,16 +118,20 @@ def test_shell_je_secured_ve_vychozim_stavu_a_pty_ceka_na_odemceni():
     c.close()
 
 
-def test_bez_mfa_se_pouzije_jednorazovy_kod_z_konzole(monkeypatch, capsys):
-    """Bez `viewbase[mfa]` (nebo bez registrace) okno vypíše jednorázový kód
-    do konzole serveru – slabší, ale funkční fallback."""
+def test_bez_mfa_se_pouzije_jednorazovy_kod_ze_souboru(monkeypatch, capsys, tmp_path):
+    """Bez `viewbase[mfa]` (nebo bez registrace) dostane okno jednorázový kód.
+    Je to tajemství jako QR: leží v souboru v `~/.viewbase/` (0600), do logu
+    jde jen cesta k němu."""
     monkeypatch.setattr(mfa, "available", lambda: False)
     c = GraphWindow()
     w = _html()
     c.open_html(w)
     c.drain_actions()
     out = capsys.readouterr().out
-    assert w.fallback_code and w.fallback_code in out
+    soubor = mfa.onetime_path("panel")
+    assert w.fallback_code and w.fallback_code not in out    # kód NE do logu
+    assert str(soubor) in out                                # jen ukazatel
+    assert soubor.read_text().strip() == w.fallback_code
     c.dispatch_event("window_unlock", {"window_id": "panel", "code": "spatny",
                                        "client_id": "x"})
     time.sleep(0.2)
@@ -163,7 +167,7 @@ def test_lock_window_zamkne_odemcene_okno_zpatky(monkeypatch, capsys):
     assert a["kind"] == "locked" and a["state"] == "locked"
     assert "tajný text" not in repr(a)            # obsah zase neputuje
     assert w.locked
-    assert kod in capsys.readouterr().out         # kód znovu do konzole serveru
+    assert str(mfa.onetime_path("panel")) in capsys.readouterr().out   # jen ukazatel
 
     # a znovu odemknout jde
     c.dispatch_event("window_unlock", {"window_id": "panel", "code": kod,
@@ -206,3 +210,36 @@ def test_lock_window_shellu_nechá_proces_bezet():
     assert not [x for x in c.peek_actions() if x.get("action") == "shell_data"]
     c.close_window("sh")
     c.close()
+
+
+def test_audit_stopa_zamku_je_bez_tajemstvi():
+    """Log říká, ŽE byl token použit (a k jakému oknu), ne ČÍM se odemykalo:
+    kód ani tajemství se do něj nikdy nedostanou."""
+    from viewbase.log import bus
+
+    zaznamy = []
+    bus.subscribe(zaznamy.append)
+    c = GraphWindow()
+    try:
+        w = _html()
+        c.open_html(w)
+        c.drain_actions()
+        kod = _kod()
+        c.dispatch_event("window_unlock", {"window_id": "panel", "code": "000000",
+                                           "client_id": "x"})
+        assert _wait(lambda: any("neplatný" in z.message for z in zaznamy))
+        c.dispatch_event("window_unlock", {"window_id": "panel", "code": kod,
+                                           "client_id": "x"})
+        assert _wait(lambda: w.state == "open")
+        c.dispatch_event("window_lock", {"window_id": "panel", "client_id": "x"})
+        assert _wait(lambda: w.state == "locked")
+    finally:
+        bus.unsubscribe(zaznamy.append)
+        c.close()
+    texty = "\n".join(z.message for z in zaznamy)
+    assert "neplatný kód k oknu 'panel'" in texty          # odmítnutý pokus
+    assert "okno 'panel' odemčeno – token uživatele 'workbench'" in texty
+    assert "okno 'panel' zamčeno uživatelem" in texty
+    assert kod not in texty and "tajný text" not in texty  # nic tajného
+    assert {z.component for z in zaznamy if z.source == "backend_program"} <= {
+        "windows", "server"}

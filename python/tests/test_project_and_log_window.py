@@ -1,6 +1,8 @@
 """Explicitní workflow (fopen→close analogie): Project drží službu/port,
 Screen je plocha, okna jsou typované instance – LogWindow je systémové
 okno umístěné na screen explicitně."""
+import json
+
 import pytest
 
 import viewbase as vb
@@ -97,12 +99,18 @@ def test_project_zaregistruje_uzivatele_pri_prvnim_startu(tmp_path, monkeypatch,
         with vb.Project(port=0, user="hana") as project:
             project.serve(screen, block=False)
         assert (tmp_path / "user-hana" / "totp-hana.svg").exists()
-        assert "otpauth://totp/viewbase:hana" in capsys.readouterr().out
+        out = capsys.readouterr().out
+        tajemstvi = json.loads((tmp_path / "users.json").read_text())["hana"]["totp_secret"]
+        assert "uživatel instance: hana" in out           # systémový text
+        assert "registrovaní: hana (TOTP)" in out
+        assert tajemstvi not in out and "otpauth://" not in out   # tajemství ne
 
         screen2 = vb.Screen(title="Provoz")
         vb.GraphWindow(screen=screen2)
         with vb.Project(port=0, user="hana") as project:
             project.serve(screen2, block=False)
-        assert capsys.readouterr().out == ""          # druhý start mlčí
+        druhy = capsys.readouterr().out               # druhý start: jen systém
+        assert "uživatel instance: hana" in druhy
+        assert "registrace" not in druhy and tajemstvi not in druhy
     finally:
         mfa.reset_state()

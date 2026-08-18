@@ -12,6 +12,7 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Callable, Iterator
 
 from .controls import ControlWindow, HtmlWindow, ShellWindow, TerminalWindow, validate_values
+from .log import bus as log_bus
 from .menu import ScreenMenu
 
 if TYPE_CHECKING:
@@ -553,10 +554,14 @@ class GraphWindow:
         if window is None or not getattr(window, "locked", False):
             return
         if not window.unlocks_with(getattr(event, "code", None)):
+            # AUDIT: co se stalo, ne čím se to zkoušelo – kód do logu nepatří
+            self._log_auth("warning", f"neplatný kód k oknu '{window.window_id}'")
             self._emit_html("window_state", window.window_id, state="locked",
                             error="Neplatný kód")
             return
         window.state = "open"
+        self._log_auth("info", f"okno '{window.window_id}' odemčeno – "
+                               f"{self._auth_kind(window)}")
         with self._lock:
             live = self._window_live.get(window.window_id)
             spec = {**window.public_spec(), "action": "open_window"}
@@ -581,7 +586,23 @@ class GraphWindow:
         with self._lock:
             self._actions.append({**window.public_spec(), "action": "open_window"})
         window.on_locked()
-        window.announce_lock()              # kód do konzole serveru (bez TOTP)
+        self._log_auth("info", f"okno '{window.window_id}' zamčeno uživatelem")
+        window.announce_lock()
+
+    @staticmethod
+    def _auth_kind(window: Any) -> str:
+        """Čím se okno odemklo – do auditní stopy (bez tajemství)."""
+        from . import mfa
+
+        if mfa.available() and mfa.load_users().get(mfa.active_user()):
+            return f"token uživatele '{mfa.active_user()}'"
+        return "jednorázový kód"
+
+    @staticmethod
+    def _log_auth(level: str, message: str) -> None:
+        """Auditní stopa zámku okna do log okna i logu serveru. Systémový
+        text, NIKDY tajemství (kód, QR, URI) – uživatelské rozhodnutí."""
+        log_bus.publish(level, "backend_program", message, component="windows")
 
     def _on_shell_input(self, event) -> None:
         """Klávesy z prohlížeče do procesu (jen běžícího a odemčeného okna)."""

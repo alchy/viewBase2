@@ -83,16 +83,23 @@ class SecuredMixin:
                 and secrets.compare_digest(code.strip(), self.fallback_code))
 
     def announce_lock(self) -> None:
-        """Zavolá se při otevření zamčeného okna: registruje TOTP (poprvé
-        vytiskne QR), a když TOTP není, vypíše jednorázový kód."""
+        """Zavolá se při otevření zamčeného okna: zajistí TOTP registraci, a
+        když TOTP není, připraví jednorázový kód.
+
+        Kód SE NEVYPISUJE – stejně jako QR je to tajemství a patří do souboru
+        v `~/.viewbase/` (0600), do logu jde jen ukazatel, kde ho vzít."""
         from . import mfa
 
         if mfa.available():
             if mfa.ensure_user():
                 return
         self.fallback_code = self.fallback_code or secrets.token_hex(4)
-        print(f"viewbase: okno '{self.window_id}' je zamčené – "
-              f"jednorázový kód: {self.fallback_code}", flush=True)
+        path = mfa.onetime_path(self.window_id)
+        mfa.write_secret_file(path, f"{self.fallback_code}\n")
+        message = (f"okno '{self.window_id}' je zamčené, TOTP není nastavené – "
+                   f"jednorázový kód: cat {path}")
+        mfa._log("info", message)
+        print(f"viewbase: {message}", flush=True)
 
     def on_unlocked(self) -> None:
         """Hook po odemčení (shell spustí PTY; ostatní okna nic)."""

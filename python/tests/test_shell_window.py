@@ -40,7 +40,7 @@ def test_spec_nese_kind_rozmery_a_zamek():
     assert "scrollback" not in pub and "code" not in repr(pub)
 
 
-def test_open_shell_nespousti_proces_a_vypise_kod(capsys):
+def test_open_shell_nespousti_proces_a_ulozi_kod(capsys):
     c = GraphWindow()
     w = ShellWindow("sh")
     c.open_shell(w)
@@ -49,7 +49,11 @@ def test_open_shell_nespousti_proces_a_vypise_kod(capsys):
     assert a["state"] == "locked"
     assert w.pty is None                                  # PTY až po odemčení
     out = capsys.readouterr().out
-    assert "sh" in out and w.fallback_code in out         # kód jen do konzole serveru
+    from viewbase import mfa
+    soubor = mfa.onetime_path("sh")
+    assert "sh" in out and w.fallback_code not in out     # tajemství ne do logu
+    assert str(soubor) in out                             # jen cesta k souboru
+    assert soubor.read_text().strip() == w.fallback_code
     assert len(w.fallback_code) >= 6
 
 

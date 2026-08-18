@@ -286,6 +286,17 @@ def create_app(*windows: GraphWindow) -> FastAPI:
     return app
 
 
+def _system_log(message: str, level: str = "info") -> None:
+    """Systémová hláška při startu: do KONZOLE serveru i na log bus.
+
+    Do konzole proto, že log bus nemá historii (čistý tail, viz log.py) – co
+    se stane před připojením prvního klienta, by jinak nikdo neviděl. Tyhle
+    texty jsou systémové: kdo je uživatel instance a kdo je registrovaný,
+    NIKDY tajemství (to zůstává v souborech v ~/.viewbase/, viz mfa.py)."""
+    print(f"viewbase: {message}", flush=True)
+    log_bus.publish(level, "backend_program", message, component="server")
+
+
 class Project:
     """SLUŽBA projektu – vstupní bod workflow, analogie práce se souborem
     (uživatelské zadání: „stejně jako když je zvyklý pracovat se souborem,
@@ -325,6 +336,9 @@ class Project:
         # startu, ne až u prvního zamčeného okna uprostřed výpisu aplikace.
         # Podruhé je to no-op – tajemství už v users.json je.
         mfa.ensure_user(self.user)
+        users = mfa.describe_users()
+        _system_log(f"uživatel instance: {self.user}"
+                    + (f"; registrovaní: {', '.join(users)}" if users else ""))
         windows = []
         for surface in surfaces:
             if hasattr(surface, "snapshot"):     # přímo GraphWindow

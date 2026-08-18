@@ -26,8 +26,9 @@ def test_ensure_user_vytvori_secret_s_pravy_0600_a_je_idempotentni(domov, capsys
     assert stat.S_IMODE(soubor.stat().st_mode) == 0o600
     assert stat.S_IMODE(domov.stat().st_mode) == 0o700
     out = capsys.readouterr().out
-    assert "otpauth://totp/viewbase:workbench" in out       # URI pro autentikátor
-    assert rec["totp_secret"] in out                        # i ruční zadání
+    # DO LOGU/KONZOLE NEJDE TAJEMSTVÍ – jen ukazatel, kde si registraci vzít
+    assert rec["totp_secret"] not in out and "otpauth://" not in out
+    assert "totp-workbench.txt" in out and "workbench" in out
     qr = domov / "user-workbench" / "totp-workbench.svg"    # artefakty per uživatel
     assert qr.exists()                                      # QR jako obrázek
     assert stat.S_IMODE(qr.stat().st_mode) == 0o600         # …jen pro majitele
@@ -38,7 +39,6 @@ def test_ensure_user_vytvori_secret_s_pravy_0600_a_je_idempotentni(domov, capsys
     obsah = txt.read_text()
     assert "█" in obsah                                     # ASCII QR k naskenování
     assert rec["totp_secret"] in obsah and "otpauth://" in obsah
-    assert obsah.split("\n")[0] in out                      # totéž, co viděla konzole
 
     znovu = mfa.ensure_user()                               # druhý start nic nemění
     assert znovu["totp_secret"] == rec["totp_secret"]
@@ -107,7 +107,8 @@ def test_uzivatel_instance_ma_vlastni_adresar_i_tajemstvi(domov, capsys):
     rec = mfa.ensure_user()
     assert (domov / "user-jindrich" / "totp-jindrich.svg").exists()
     assert not (domov / "user-workbench").exists()
-    assert "otpauth://totp/viewbase:jindrich" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "jindrich" in out and rec["totp_secret"] not in out
     assert list(json.loads((domov / "users.json").read_text())) == ["jindrich"]
     # ověřuje se proti uživateli instance, bez opakování jména na volajícím
     assert mfa.verify(pyotp.TOTP(rec["totp_secret"]).now()) is True
@@ -130,3 +131,40 @@ def test_qr_ze_stareho_plocheho_rozvrzeni_se_presune(domov):
     assert not novy.exists()
     mfa.ensure_user()                         # další start knihovny
     assert novy.exists() and not stary.exists()
+
+
+def test_registrace_neposle_tajemstvi_do_logu(domov):
+    """Log je systémový: jméno a cesta ano, QR/URI/tajemství nikdy (jinak by
+    skončilo v `docker logs` nebo v CI artefaktu)."""
+    from viewbase.log import bus
+
+    zaznamy = []
+    bus.subscribe(zaznamy.append)
+    try:
+        rec = mfa.ensure_user()
+    finally:
+        bus.unsubscribe(zaznamy.append)
+    texty = "\n".join(z.message for z in zaznamy)
+    assert "workbench" in texty and "totp-workbench.txt" in texty
+    assert rec["totp_secret"] not in texty
+    assert "otpauth://" not in texty and "█" not in texty
+
+
+def test_describe_users_je_bez_tajemstvi(domov):
+    mfa.ensure_user()
+    mfa.ensure_user("hana")
+    popis = mfa.describe_users()
+    assert popis == ["hana (TOTP)", "workbench (TOTP)"]
+
+
+def test_chybejici_qr_se_obnovi_ze_stavajiciho_tajemstvi(domov, capsys):
+    """Uživatel z dřívější verze (nebo po smazání souborů): tajemství zůstává,
+    QR se vyrobí znovu – jinak by se nedalo naskenovat na další zařízení."""
+    rec = mfa.ensure_user()
+    txt = domov / "user-workbench" / "totp-workbench.txt"
+    txt.unlink()
+    capsys.readouterr()
+
+    znovu = mfa.ensure_user()
+    assert znovu["totp_secret"] == rec["totp_secret"]     # tajemství se NEMĚNÍ
+    assert txt.exists() and rec["totp_secret"] in txt.read_text()

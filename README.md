@@ -468,10 +468,26 @@ vývojáři přes `define_type`/`update_node`.
   ~/.viewbase/user-jindrich/totp-jindrich.txt   (0600) tentýž QR v ASCII
   ```
 
-  (adresář uživatele 0700). Konzole registraci ukáže jen jednou, `.txt` je
-  tentýž QR k naskenování kdykoli později — `cat ~/.viewbase/user-jindrich/
-  totp-jindrich.txt` funguje i přes SSH, kde obrázek neotevřete. Uvnitř je i
-  ruční kód a `otpauth://` URI. Další start už mlčí (tajemství existuje). QR jde **jen do konzole a na disk**,
+  (adresář uživatele 0700). `.txt` je ASCII QR k naskenování rovnou z
+  terminálu — `cat ~/.viewbase/user-jindrich/totp-jindrich.txt` funguje i přes
+  SSH, kde obrázek neotevřete; uvnitř je i ruční kód a `otpauth://` URI.
+  Chybí-li soubory (starší instalace, smazané), vyrobí se při dalším startu
+  znovu **ze stávajícího tajemství** — registrovat se podruhé není potřeba.
+
+  **Do logu nejde žádné tajemství.** Konzole i log okno dostanou jen systémové
+  texty: kdo je uživatel instance a kdo je registrovaný, že vznikla registrace
+  (a kde si ji vyzvednout) a auditní stopa zámků:
+
+  ```
+  viewbase: uživatel instance: jindrich; registrovaní: hana (TOTP), jindrich (TOTP)
+  [warning] backend_program/windows: neplatný kód k oknu 'mzdy'
+  [info]    backend_program/windows: okno 'mzdy' odemčeno – token uživatele 'jindrich'
+  [info]    backend_program/windows: okno 'mzdy' zamčeno uživatelem
+  ```
+
+  QR, `otpauth://` URI, ruční kód ani jednorázový kód (fallback bez `pyotp`,
+  ten leží v `user-<jméno>/onetime-<okno>.txt`) se nikdy nevypíšou — jinak by
+  skončily v `docker logs`, v CI artefaktu nebo na sdílené obrazovce. QR jde **jen do konzole a na disk**,
   nikdy přes HTTP — kdo ho uvidí, zaregistruje si vlastní autentikátor, takže
   ho vidí jedině ten, kdo na stroj už vidí; `/api/mfa/setup` proto neexistuje.
   Cestu k domovu přesměruje `VIEWBASE_HOME` (kontejnery, testy).
