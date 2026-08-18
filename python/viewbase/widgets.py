@@ -22,8 +22,9 @@ Událost nese `kind` (click/change/submit), `element`, `name`, `value` a
 teprve pak volá handlery. Bohatý text uvnitř prvku: `stav.text =
 vb.Ui.ok("běží")` (fragmenty Ui se neescapují, obyčejný text ano).
 
-Katalog je záměrně malý (základ, další typy přibudou postupně): heading,
-label, button, input, slider, checkbox.
+Katalog roste postupně (přidání typu = pár řádků tady + test): výstup
+heading, label, kv, bar; interakce button, input, number, slider, checkbox,
+select, textarea.
 """
 from __future__ import annotations
 
@@ -233,6 +234,133 @@ class Slider(Field):
         return (f'<input type="range"{_attrs(id=self.id, name=self.name, value=self._value, min=self.min, max=self.max, step=self.step)}'
                 f' data-vb-id="{_esc(self.id)}"{" data-vb-live" if self.live else ""}>'
                 f' <output for="{_esc(self.name)}">{_esc(self._value)}</output>')
+
+
+class Number(Field):
+    """Číselné pole; `.value` je číslo (int, když jde)."""
+
+    kind = "number"
+
+    def __init__(self, window: Any, label: Any, *, value: Any = 0, min: Any = None,  # noqa: A002
+                 max: Any = None, step: Any = None, **kw: Any) -> None:  # noqa: A002
+        super().__init__(window, label, value=value, **kw)
+        self.min, self.max, self.step = min, max, step
+        self._value = self.coerce(value)
+
+    def coerce(self, value: Any) -> Any:
+        try:
+            num = float(value)
+        except (TypeError, ValueError):
+            return self._value if hasattr(self, "_value") else 0
+        return int(num) if num == int(num) else num
+
+    def widget(self) -> str:
+        return (f'<input type="number"{_attrs(id=self.id, name=self.name, value=self._value, min=self.min, max=self.max, step=self.step)}'
+                f' data-vb-id="{_esc(self.id)}">')
+
+
+class Select(Field):
+    """Výběr z možností: položky jsou hodnoty, nebo dvojice (hodnota, popisek);
+    `.value` je vybraná hodnota (str)."""
+
+    kind = "select"
+
+    def __init__(self, window: Any, label: Any, options: Any, *, value: Any = None,
+                 **kw: Any) -> None:
+        super().__init__(window, label, value=value, **kw)
+        self.options = [(o if isinstance(o, tuple) else (o, o)) for o in options]
+        if value is None and self.options:
+            self._value = str(self.options[0][0])
+        else:
+            self._value = self.coerce(value)
+
+    def coerce(self, value: Any) -> Any:
+        return "" if value is None else str(value)
+
+    def widget(self) -> str:
+        opts = "".join(
+            f'<option{_attrs(value=val, selected=(str(val) == str(self._value)))}>{_esc(text)}</option>'
+            for val, text in self.options)
+        return f'<select{_attrs(id=self.id, name=self.name)} data-vb-id="{_esc(self.id)}">{opts}</select>'
+
+
+class Textarea(Field):
+    """Víceřádkový text; změna → `on_change` (po opuštění pole)."""
+
+    kind = "textarea"
+
+    def __init__(self, window: Any, label: Any, *, value: Any = "", rows: int = 3,
+                 **kw: Any) -> None:
+        super().__init__(window, label, value=value, **kw)
+        self.rows = int(rows)
+
+    def coerce(self, value: Any) -> Any:
+        return "" if value is None else str(value)
+
+    def widget(self) -> str:
+        return (f'<textarea{_attrs(id=self.id, name=self.name, rows=self.rows)}'
+                f' data-vb-id="{_esc(self.id)}">{_esc(self._value)}</textarea>')
+
+
+class Kv(Element):
+    """Tabulka klíč/hodnota (jako detail okno); `.rows` (dict nebo dvojice)
+    jde přepsat za běhu – překreslí se jen tabulka. Hodnoty mohou být
+    fragmenty `vb.Ui.ok(...)` apod."""
+
+    kind = "kv"
+
+    def __init__(self, window: Any, rows: Any, **kw: Any) -> None:
+        super().__init__(window, **kw)
+        self._rows = rows
+
+    @property
+    def rows(self) -> Any:
+        return self._rows
+
+    @rows.setter
+    def rows(self, rows: Any) -> None:
+        self._rows = rows
+        self._touch()
+
+    def inner(self) -> str:
+        items = self._rows.items() if isinstance(self._rows, dict) else self._rows
+        body = "".join(f"<tr><td>{_esc(k)}</td><td>{_esc(v)}</td></tr>" for k, v in items)
+        return f'<table class="kv">{body}</table>'
+
+
+class Bar(Element):
+    """Progress 0–100 % v barvě akcentu; `.value` (číslo) jde měnit za běhu.
+    `label` připíše hodnotu za bar („63 %")."""
+
+    kind = "bar"
+
+    def __init__(self, window: Any, value: Any = 0, *, width: int = 160,
+                 label: bool = True, **kw: Any) -> None:
+        super().__init__(window, **kw)
+        self.width, self.show_label = int(width), bool(label)
+        self._value = self._clamp(value)
+
+    @staticmethod
+    def _clamp(value: Any) -> Any:
+        try:
+            pct = max(0.0, min(100.0, float(value)))
+        except (TypeError, ValueError):
+            pct = 0.0
+        return int(pct) if pct == int(pct) else round(pct, 1)
+
+    @property
+    def value(self) -> Any:
+        return self._value
+
+    @value.setter
+    def value(self, value: Any) -> None:
+        self._value = self._clamp(value)
+        self._touch()
+
+    def inner(self) -> str:
+        html = (f'<span class="vb-bar" style="width:{self.width}px">'
+                f'<i style="width:{self._value}%"></i></span>')
+        return html + (f" {self._value} %" if self.show_label else "")
 
 
 class Checkbox(Field):

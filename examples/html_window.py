@@ -3,9 +3,10 @@
 Vzor pro začátečníka (čtyři kroky):
  1. instance okna       okno = vb.HtmlWindow(...); graph.open_html(okno)
  2. mřížka (volitelně)  okno.grid(cols=2)  → prvky dostanou row=/col=
- 3. prvky z katalogu    okno.heading/label (výstup), okno.button/input/
-                        slider/checkbox (interakce); každý má .id, .name,
-                        .text nebo .value – čtení i zápis
+ 3. prvky z katalogu    okno.heading/label/kv/bar (výstup), okno.button/
+                        input/number/slider/checkbox/select/textarea
+                        (interakce); každý má .id, .name, .text nebo
+                        .value – čtení i zápis
  4. události            @prvek.on_click / on_change / on_submit – event
                         říká, KTERÝ prvek (event.element, event.name), co
                         se stalo (event.kind) a hodnoty všech polí
@@ -42,13 +43,15 @@ panel.grid(cols=2)
 
 # 3) prvky – každý dostane id (panel-1, panel-2, …); name je klíč do event.values
 titul  = panel.heading("Server 0", row=0, col=0, colspan=2)
-stav   = panel.label("stav: v pořádku", row=1, col=0, colspan=2)
+stav   = panel.label("stav: v pořádku", row=1, col=0)
+zatezb = panel.bar(37, row=1, col=1)                        # progress (výstup)
 jmeno  = panel.input("Název nového uzlu", value="srv-3", name="jmeno",
                      placeholder="např. srv-9", row=2, col=0)
+typ    = panel.select("Typ", ["server", ("db", "databáze")], name="typ", row=2, col=1)
 zatez  = panel.slider("Zátěž nového uzlu (%)", value=50, min=0, max=100,
-                      name="zatez", row=2, col=1)
+                      name="zatez", row=3, col=0)
 sleduj = panel.checkbox("Zvýraznit sousedy po přidání", value=True,
-                        name="sleduj", row=3, col=0, colspan=2)
+                        name="sleduj", row=3, col=1)
 pridat = panel.button("Přidat uzel", name="pridat", row=4, col=0)
 reset  = panel.button("Reset zátěže", name="reset", row=4, col=1)
 
@@ -61,12 +64,13 @@ def pridej_uzel(event) -> None:
     if not node:
         stav.text = vb.Ui.warn("zadej název uzlu")      # bohatý text = vb.Ui pomocník
         return
-    graph.ensure_node(node, type="server", label="{name}", name=node, load=zatez.value)
+    graph.ensure_node(node, type=typ.value, label="{name}", name=node, load=zatez.value)
     graph.ensure_edge(node, "db-0")
     if sleduj.value:
         graph.highlight(node, depth=1)
     stav.text = f"přidán {node} (zátěž {zatez.value} %)"
     titul.text = node
+    zatezb.value = zatez.value                         # progress se překreslí sám
     jmeno.value = f"srv-{len(graph.nodes)}"           # zápis do pole → jen to pole se překreslí
 
 
@@ -103,6 +107,7 @@ def klik_do_grafu(event) -> None:
     """Klik na uzel v grafu → panel ukáže jeho jméno a zátěž."""
     uzel = graph.node(event.node_id) or {}
     titul.text = uzel.get("meta", {}).get("name", event.node_id)
+    zatezb.value = uzel.get("meta", {}).get("load", 0)
     stav.text = f"zátěž {uzel.get('meta', {}).get('load', '?')} %"
 
 

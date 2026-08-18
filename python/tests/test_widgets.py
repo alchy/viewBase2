@@ -138,3 +138,67 @@ def test_raw_html_set_still_works_alongside_elements():
     w.label("prvek")
     assert w.html.startswith("<i>raw</i>")
     assert '<p>prvek</p>' in w.html
+
+
+# ---- druhá vlna prvků: select / number / textarea / kv / bar ----------------
+
+def test_select_renders_options_and_value():
+    w = HtmlWindow("panel")
+    typ = w.select("Typ", ["server", ("db", "Databáze")], value="db", name="typ")
+    html = w.html
+    assert ('<select id="panel-1" name="typ" data-vb-id="panel-1">'
+            '<option value="server">server</option>'
+            '<option value="db" selected>Databáze</option></select>') in html
+    assert typ.value == "db"
+    typ.value = "server"                       # zápis → patch s novým selected
+    assert '<option value="server" selected>' in w.html
+
+
+def test_number_and_textarea_render_and_coerce():
+    w = HtmlWindow("panel")
+    n = w.number("Počet", value=3, min=0, max=10, step=1, name="pocet")
+    t = w.textarea("Poznámka", value="a<b", rows=2, name="pozn")
+    html = w.html
+    assert ('<input type="number" id="panel-1" name="pocet" value="3" min="0" max="10" '
+            'step="1" data-vb-id="panel-1">') in html
+    assert '<textarea id="panel-2" name="pozn" rows="2" data-vb-id="panel-2">a&lt;b</textarea>' in html
+    n._set_from_client("7")
+    assert n.value == 7                         # číslo, ne text
+    n._set_from_client(2.5)
+    assert n.value == 2.5
+    t._set_from_client(None)
+    assert t.value == ""
+
+
+def test_kv_and_bar_output_elements_update_in_place():
+    g, w = _open()
+    tab = w.kv({"id": "srv-0", "stav": "běží"})
+    bar = w.bar(63)
+    html = w.html
+    assert ('<div class="vb-el" id="panel-1"><table class="kv">'
+            '<tr><td>id</td><td>srv-0</td></tr><tr><td>stav</td><td>běží</td></tr>'
+            '</table></div>') in html
+    assert '<span class="vb-bar" style="width:160px"><i style="width:63%"></i></span> 63 %' in html
+    g.drain_actions()
+    tab.rows = {"id": "srv-0", "stav": "spadl"}   # zápis → patch tabulky
+    bar.value = 90
+    a, b = g.drain_actions()
+    assert a["action"] == "html_patch" and a["id"] == "panel-1" and "spadl" in a["html"]
+    assert b["action"] == "html_patch" and b["id"] == "panel-2" and 'width:90%' in b["html"]
+    assert bar.value == 90
+
+
+def test_change_event_updates_select_number_textarea_values():
+    g, w = _open()
+    typ = w.select("Typ", ["a", "b"], name="typ")
+    n = w.number("Počet", name="pocet")
+    t = w.textarea("Poznámka", name="pozn")
+    done = threading.Event()
+    n.on_change(lambda e: done.set())
+    g.dispatch_event("html_event", {"window_id": "panel", "event": "pocet", "kind": "change",
+                                    "id": "panel-2", "value": 5,
+                                    "values": {"typ": "b", "pocet": 5, "pozn": "x"},
+                                    "client_id": "x"})
+    assert done.wait(2.0)
+    assert (typ.value, n.value, t.value) == ("b", 5, "x")
+    g.close()

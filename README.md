@@ -147,7 +147,7 @@ týž graf, jen přepnutý přepínač:
 |---|---|---|
 | `LogWindow` | **systémové** okno — obsah dodává knihovna (proces-wide log, `tail -f`) | `examples/log_window.py` |
 | `TerminalWindow` | **textové/dialogové** okno — píše se do něj a umí poslat string od uživatele | `examples/terminal.py` |
-| `HtmlWindow` | **panel z prvků** — heading/label/button/input/slider/checkbox skládané z Pythonu bez HTML; události s hodnotami se vrací do Pythonu | `examples/html_window.py` |
+| `HtmlWindow` | **panel z prvků** — heading/label/kv/bar, button/input/number/slider/checkbox/select/textarea skládané z Pythonu bez HTML; události s hodnotami se vrací do Pythonu | `examples/html_window.py` |
 | `ControlWindow` | **formulářové** okno — typovaná pole, hodnoty tečou zpět do Pythonu | `examples/prototype.py` |
 | `GraphWindow` | **grafové** okno — živý 2D/3D graf, fyzika, eventy, toky | `examples/quickstart.py` |
 | detailní okno | **systémové** okno s metadaty uzlu — otevírá klik do grafu | `examples/log_demo.py` |
@@ -223,8 +223,9 @@ def _(event):
     graph.focus(event.value)
 ```
 
-**Katalog prvků** (základ, další přibudou postupně): výstup `heading`,
-`label`; interakce `button`, `input`, `slider`, `checkbox`. Každý prvek má
+**Katalog prvků** (roste postupně): výstup `heading`, `label`, `kv` (tabulka
+klíč/hodnota, `.rows`), `bar` (progress, `.value`); interakce `button`,
+`input`, `number`, `slider`, `checkbox`, `select`, `textarea`. Každý prvek má
 stabilní `.id`, volitelné `name=` (klíč do `event.values`), `.text` nebo
 `.value` pro čtení i zápis. Bez `grid()` se prvky řadí pod sebe.
 

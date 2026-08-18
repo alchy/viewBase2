@@ -53,7 +53,7 @@ export const BOILERPLATE_CSS = [
   // prvky (widgets): obal .vb-el, popisek pole nad polem, checkbox inline
   '.vb-el{margin:0 0 8px}.vb-el>h1,.vb-el>h2,.vb-el>h3,.vb-el>p{margin:0}',
   '.vb-field>label{display:block;font-size:11.5px;color:var(--vb-window-key);margin-bottom:2px}',
-  '.vb-field>input[type=text],.vb-field>select,.vb-field>textarea{width:100%}',
+  '.vb-field>input[type=text],.vb-field>input[type=number],.vb-field>select,.vb-field>textarea{width:100%}',
   '.vb-field>input[type=range]{width:calc(100% - 3.5em);vertical-align:middle}.vb-field>output{color:var(--vb-window-key);font-variant-numeric:tabular-nums}',
   '.vb-check>label{display:inline;font-size:inherit;color:inherit}',
   '.vb-grid{display:grid;gap:4px 14px;align-items:start}',
