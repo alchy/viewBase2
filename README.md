@@ -356,11 +356,13 @@ graph = vb.GraphWindow(screen=screen, theme={
 Pruhovaná textura lišty (`headerStripe`) se počítá z `headerFg`, takže
 ladí s barvou textu. Každé okno má **rám jako na WB 1.3** — ve všech
 tématech, liší se jen paleta (`window.frameLine` linky/šipky, `frameKnob`
-knob, `frameGlow` neon u cyber; `frame: false` rám vypne): vpravo svislý
-scrollbar (šipky + knob synchronizovaný se scrollem obsahu, u HTML okna i s
-obsahem iframu), dole vodorovný, v rohu sizing gadget (u workbench neprůhledná
-krabička v barvě lišty) — aktivní plocha okna je o tyto pruhy menší, takže
-scroll prvky nezasahují do obsahu; bez přesahu je dráha prázdná. Každé okno má vedle
+knob, `frameGlow` neon u cyber; `frame: false` rám vypne): vpravo svislý pruh
+s knobem synchronizovaným se scrollem obsahu (u HTML okna i s obsahem
+iframu), dole vodorovný, v rohu sizing gadget (u workbench neprůhledná
+krabička v barvě lišty) — bez šipek a bez vnitřních linek („airy": ovládá se
+kolečkem, klikem do dráhy a tažením knobu); aktivní plocha okna je o tyto
+pruhy menší, takže scroll prvky nezasahují do obsahu; bez přesahu je dráha
+prázdná. Každé okno má vedle
 minimalizace **depth gadget** (stejná ikona i funkce jako na liště screenu):
 klik pošle okno za ostatní. Konzole je ve všech tématech jedna plocha jako
 AmigaShell (prompt inline, bez odděleného vstupního řádku). Barvy uzlů a hran grafu témata neřídí — ty patří

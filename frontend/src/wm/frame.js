@@ -1,8 +1,11 @@
-/** Rám okna ve stylu Workbench 1.3 (docs/images/workbench-ref/window-corner-
- *  scrollbars-wb13.jpg): vpravo svislý scrollbar (šipky ↑↓ + knob), dole
- *  vodorovný (šipky ←→ + knob) a v průsečíku sizing gadget. Aktivní plocha
- *  okna je o tyto pruhy MENŠÍ (padding okna), takže scroll prvky nikdy
- *  nezasahují do obsahu – to je celý smysl (uživatelské rozhodnutí).
+/** Rám okna inspirovaný Workbenchem 1.3 (docs/images/workbench-ref/window-
+ *  corner-scrollbars-wb13.jpg), po designových kolech s uživatelem
+ *  odlehčený: vpravo svislý pruh s knobem, dole vodorovný, v průsečíku sizing
+ *  gadget – BEZ šipek, BEZ rámečku dráhy a BEZ vnitřních oddělovacích linek
+ *  („airy": jen vnější rám okna, knob a rohový gadget). Aktivní plocha okna
+ *  je o pruhy MENŠÍ (padding okna), takže scroll prvky nikdy nezasahují do
+ *  obsahu – to je celý smysl. Ovládání: kolečko/touchpad, klik do dráhy
+ *  (stránka), tažení knobu.
  *
  *  Kreslí se ve VŠECH tématech (téma ho smí vypnout `frame: false`), liší
  *  se jen paleta (--vb-frame-line/knob/glow z themes/manager.js). Svislý knob je
@@ -17,9 +20,8 @@
  *  testům bez DOM. */
 
 export const FRAME_PX = 20;        // šířka pravého / výška spodního pruhu
-export const ARROW_PX = 16;        // šipka na konci pruhu
 export const MIN_KNOB_PX = 12;
-export const ARROW_STEP_PX = 24;   // klik na šipku posune o řádek
+export const ARROW_STEP_PX = 24;   // krok scrollBy (řádek)
 
 /** Poloha a velikost knobu na dráze `trackLen` pro obsah
  *  (scrollTop, scrollHeight, clientHeight). Bez přesahu = žádný knob
@@ -43,18 +45,6 @@ export function scrollFromKnob(offset, trackLen, knobSize, scrollHeight, clientH
   return ratio * (scrollHeight - clientHeight);
 }
 
-function arrowSvg(dir) {
-  // jednoduché šipky jako na WB 1.3 (kreslí se barvou rámu přes currentColor)
-  const paths = {
-    up: 'M8 3 L13 9 L10 9 L10 13 L6 13 L6 9 L3 9 Z',
-    down: 'M8 13 L3 7 L6 7 L6 3 L10 3 L10 7 L13 7 Z',
-    left: 'M3 8 L9 3 L9 6 L13 6 L13 10 L9 10 L9 13 Z',
-    right: 'M13 8 L7 3 L7 6 L3 6 L3 10 L7 10 L7 13 Z',
-  };
-  return `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">`
-    + `<path d="${paths[dir]}" fill="currentColor"/></svg>`;
-}
-
 /** DOM rámu jednoho okna. `getTarget()` vrací aktuální scroll kontejner
  *  (může se měnit – terminál ho staví později než BaseWindow rám). */
 export class WindowFrame {
@@ -69,14 +59,12 @@ export class WindowFrame {
   }
 
   _build() {
-    // Barvy z tématu (themes/manager.js): prázdná dráha = tělo okna, linky a
-    // šipky = --vb-frame-line, knob = --vb-frame-knob (+ --vb-frame-glow).
-    // WB: bílá na modré; modern: šedá na bílé; cyber: cyan s glow – stejný
-    // look, jiná paleta.
-    const color = 'var(--vb-frame-line, var(--vb-window-gadget, #8a93a3))';
+    // Barvy z tématu (themes/manager.js): prázdná dráha = tělo okna, knob =
+    // --vb-frame-knob (+ --vb-frame-glow). WB: bílá na modré; modern: šedá na
+    // bílé; cyber: cyan s glow – stejný look, jiná paleta.
     const knobColor = 'var(--vb-frame-knob, var(--vb-frame-line, #8a93a3))';
     const bg = 'transparent';
-    // svislý pruh: [↑][ dráha s knobem ][↓]
+    // svislý pruh: jen dráha s knobem (bez šipek, bez oddělovací linky)
     this.vbar = document.createElement('div');
     this.vbar.dataset.role = 'vb-frame-v';
     // svislý pruh začíná AŽ POD LIŠTOU okna (lišta jde přes celou šířku,
@@ -84,16 +72,14 @@ export class WindowFrame {
     // nad rohovým sizing gadgetem; `top` doplní setEnabled podle výšky lišty
     this.vbar.style.cssText = [
       'position:absolute', 'top:0', 'right:0', `width:${FRAME_PX}px`, `bottom:${FRAME_PX}px`,
-      `background:${bg}`, `color:${color}`, 'display:none', 'box-sizing:border-box',
-      `border-left:1px solid ${color}`, 'user-select:none',
+      `background:${bg}`, 'display:none', 'box-sizing:border-box', 'user-select:none',
     ].join(';');
     this.vtrack = document.createElement('div');
     this.vtrack.dataset.role = 'vb-frame-vtrack';
-    // dráha bez rámečku (designová poznámka uživatele: „airy" – knob a
-    // šipky stojí volně v pruhu, jen oddělovací linka od obsahu zůstává)
+    // dráha bez rámečku – knob stojí volně v pruhu
     this.vtrack.style.cssText = [
-      'position:absolute', 'left:4px', 'right:4px', `top:${ARROW_PX + 2}px`,
-      `bottom:${ARROW_PX + 2}px`, 'box-sizing:border-box', 'cursor:pointer',
+      'position:absolute', 'left:4px', 'right:4px', 'top:4px', 'bottom:4px',
+      'box-sizing:border-box', 'cursor:pointer',
     ].join(';');
     this.vknob = document.createElement('div');
     this.vknob.dataset.role = 'vb-frame-vknob';
@@ -103,23 +89,20 @@ export class WindowFrame {
       'cursor:grab', 'touch-action:none',
     ].join(';');
     this.vtrack.appendChild(this.vknob);
-    this.vup = this._arrow('up', 'top:1px;left:1px');
-    this.vdown = this._arrow('down', 'bottom:1px;left:1px');
-    this.vbar.append(this.vup, this.vtrack, this.vdown);
+    this.vbar.append(this.vtrack);
 
-    // vodorovný pruh: [←][ dráha (knob přes celou) ][→]
+    // vodorovný pruh: jen dráha s knobem
     this.hbar = document.createElement('div');
     this.hbar.dataset.role = 'vb-frame-h';
     this.hbar.style.cssText = [
       'position:absolute', 'left:0', 'bottom:0', `height:${FRAME_PX}px`, `right:${FRAME_PX}px`,
-      `background:${bg}`, `color:${color}`, 'display:none', 'box-sizing:border-box',
-      `border-top:1px solid ${color}`, 'user-select:none',
+      `background:${bg}`, 'display:none', 'box-sizing:border-box', 'user-select:none',
     ].join(';');
     this.htrack = document.createElement('div');
     this.htrack.dataset.role = 'vb-frame-htrack';
     this.htrack.style.cssText = [
-      'position:absolute', 'top:4px', 'bottom:4px', `left:${ARROW_PX + 2}px`,
-      `right:${ARROW_PX + 2}px`, 'box-sizing:border-box', 'cursor:pointer',
+      'position:absolute', 'top:4px', 'bottom:4px', 'left:4px', 'right:4px',
+      'box-sizing:border-box', 'cursor:pointer',
     ].join(';');
     this.hknob = document.createElement('div');
     this.hknob.dataset.role = 'vb-frame-hknob';
@@ -129,14 +112,8 @@ export class WindowFrame {
       'cursor:grab', 'touch-action:none',
     ].join(';');
     this.htrack.appendChild(this.hknob);
-    this.hleft = this._arrow('left', 'top:1px;left:1px');
-    this.hright = this._arrow('right', 'top:1px;right:1px');
-    this.hbar.append(this.hleft, this.htrack, this.hright);
+    this.hbar.append(this.htrack);
 
-    this.vup.addEventListener('click', () => this.scrollBy(0, -ARROW_STEP_PX));
-    this.vdown.addEventListener('click', () => this.scrollBy(0, ARROW_STEP_PX));
-    this.hleft.addEventListener('click', () => this.scrollBy(-ARROW_STEP_PX, 0));
-    this.hright.addEventListener('click', () => this.scrollBy(ARROW_STEP_PX, 0));
     this.vtrack.addEventListener('pointerdown', (e) => {
       if (e.target === this.vknob) return;
       const t = this.getTarget();
@@ -154,15 +131,6 @@ export class WindowFrame {
     this._wireKnobDrag(this.vknob, 'v');
     this._wireKnobDrag(this.hknob, 'h');
     this.win.el.append(this.vbar, this.hbar);
-  }
-
-  _arrow(dir, pos) {
-    const a = document.createElement('div');
-    a.dataset.role = `vb-frame-arrow-${dir}`;
-    a.style.cssText = `position:absolute;${pos};width:${ARROW_PX}px;height:${ARROW_PX}px;cursor:pointer;line-height:0`;
-    a.innerHTML = arrowSvg(dir);
-    a.addEventListener('pointerdown', (e) => e.stopPropagation());
-    return a;
   }
 
   /** Tažení knobu: svisle (`axis` 'v') nebo vodorovně ('h'). */
