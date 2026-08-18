@@ -348,7 +348,8 @@ class Project:
                 + (f" (uživatel '{self.user}' má přitom TOTP zaregistrované, "
                    "kód z autentikátoru fungovat NEBUDE); "
                    if mfa.registered(self.user) else "; ")
-                + "TOTP zapne: pip install viewbase[mfa]", "warning")
+                + "TOTP zapne: pip install pyotp qrcode "
+                  "(standardní závislosti viewbase)", "warning")
         windows = []
         for surface in surfaces:
             if hasattr(surface, "snapshot"):     # přímo GraphWindow

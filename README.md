@@ -447,8 +447,8 @@ vývojáři přes `define_type`/`update_node`.
   okno se do prohlížeče pošle jen jako **prázdný rám**, obsah (HTML, hodnoty
   polí, scrollback, shell) po drátě neputuje, dokud divák nezadá kód v zelené
   výzvě ve stylu Guru Meditation. Kód je **TOTP z autentikátoru**, s rate
-  limitem a ochranou proti opakovanému použití; bez extra
-  `pip install viewbase[mfa]` se použije jednorázový kód z konzole. Shell okno
+  limitem a ochranou proti opakovanému použití; bez registrace se použije
+  jednorázový kód ze souboru. Shell okno
   je zabezpečené vždy. Zamčené okno **nic nevyskakuje**: ukáže se jako rám s
   poznámkou „Private window. Unlock this window via the Options menu." a chová
   se jako každé jiné okno (klik ho jen aktivuje). O kód si divák řekne sám —
@@ -493,7 +493,7 @@ vývojáři přes `define_type`/`update_node`.
   instanci spustíte jinde (systémový Python místo venv), okna spadnou na
   jednorázové kódy a kód z autentikátoru se tváří jako neplatný. Start proto
   varuje: *„pyotp v tomhle prostředí chybí … kód z autentikátoru fungovat
-  NEBUDE; TOTP zapne: pip install viewbase[mfa]"*. Registrace se tím neztrácí
+  NEBUDE; TOTP zapne: pip install pyotp qrcode"*. Registrace se tím neztrácí
   — tajemství zůstává v `users.json` a po doinstalování `pyotp` funguje
   původní záznam v autentikátoru dál. QR jde **jen do konzole a na disk**,
   nikdy přes HTTP — kdo ho uvidí, zaregistruje si vlastní autentikátor, takže

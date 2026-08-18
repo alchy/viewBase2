@@ -33,6 +33,11 @@ from typing import Any, Callable
 
 from .ui import _attrs, _esc, _event_attrs
 
+_NUM_CLASS = ' class="num"'   # v f-stringu nesmí být zpětné lomítko:
+                                # PEP 701 to umí až od Pythonu 3.12, a
+                                # knihovna slibuje 3.10+ (pyproject)
+
+
 Handler = Callable[[Any], None]
 
 
@@ -451,11 +456,11 @@ class Table(Element):
         numeric = [bool(rows) and all(
             isinstance(r[i], (int, float)) and not isinstance(r[i], bool)
             for r in rows if i < len(r)) for i in range(len(cols))]
-        head = "".join(f'<th{" class=\"num\"" if numeric[i] else ""}>{_esc(c)}</th>'
+        head = "".join(f'<th{_NUM_CLASS if numeric[i] else ""}>{_esc(c)}</th>'
                        for i, c in enumerate(cols))
         body = "".join(
             "<tr>" + "".join(
-                f'<td{" class=\"num\"" if i < len(numeric) and numeric[i] else ""}>{_esc(v)}</td>'
+                f'<td{_NUM_CLASS if i < len(numeric) and numeric[i] else ""}>{_esc(v)}</td>'
                 for i, v in enumerate(r)) + "</tr>"
             for r in rows)
         return f"<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"

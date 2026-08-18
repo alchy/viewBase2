@@ -33,6 +33,11 @@ from __future__ import annotations
 from html import escape
 from typing import Any, Iterable, Sequence
 
+_NUM_CLASS = ' class="num"'   # v f-stringu nesmí být zpětné lomítko:
+                                # PEP 701 to umí až od Pythonu 3.12, a
+                                # knihovna slibuje 3.10+ (pyproject)
+
+
 
 class Safe(str):
     """Už hotový HTML fragment – `_esc` ho nechá být. Vrací ho inline
@@ -110,11 +115,11 @@ class Ui:
         numeric = [all(isinstance(r[i], (int, float)) and not isinstance(r[i], bool)
                        for r in rows if i < len(r)) and bool(rows)
                    for i in range(len(columns))]
-        head = "".join(f'<th{" class=\"num\"" if numeric[i] else ""}>{_esc(c)}</th>'
+        head = "".join(f'<th{_NUM_CLASS if numeric[i] else ""}>{_esc(c)}</th>'
                        for i, c in enumerate(columns))
         body = "".join(
             "<tr>" + "".join(
-                f'<td{" class=\"num\"" if i < len(numeric) and numeric[i] else ""}>{_esc(v)}</td>'
+                f'<td{_NUM_CLASS if i < len(numeric) and numeric[i] else ""}>{_esc(v)}</td>'
                 for i, v in enumerate(r)) + "</tr>"
             for r in rows)
         return self._add(f"<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>")

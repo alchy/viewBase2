@@ -266,6 +266,6 @@ def test_varuje_kdyz_ma_uzivatel_totp_ale_prostredi_nema_pyotp(monkeypatch, caps
     varovani = [z for z in zaznamy if z.level == "warning"]
     assert varovani, "chybí varování o nefunkčním TOTP"
     text = varovani[-1].message
-    assert "pyotp" in text and "viewbase[mfa]" in text
+    assert "pyotp" in text and "pip install pyotp qrcode" in text
     assert "NEBUDE fungovat" in text
     assert w.fallback_code not in text                   # ani tady žádný kód

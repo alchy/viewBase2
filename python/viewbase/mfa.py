@@ -32,9 +32,10 @@ ani ruční kód se netisknou – jsou jedině v souborech v `~/.viewbase/` s pr
 (a kde si ji vyzvednout) a že byl použit token. Jinak by tajemství skončilo v
 `docker logs`, v CI artefaktu nebo na sdílené obrazovce.
 
-Bez balíčků `pyotp`/`qrcode` (extra `pip install viewbase[mfa]`) knihovna
-funguje dál: použije se jednorázový kód vypsaný do konzole serveru při
-otevření okna – slabší (statický po dobu běhu), ale bez závislostí.
+`pyotp`/`qrcode` jsou STANDARDNÍ závislosti (pyproject). Když přesto chybí –
+instance běží v prostředí, kde se nenainstalovaly – knihovna funguje dál a
+použije jednorázový kód uložený do souboru; kód z autentikátoru ale nemá kdo
+ověřit, tak se to hlásí jako varování (`SecuredMixin.announce_lock`).
 
 Proti hrubé síle: 6 číslic = milion možností, proto RATE LIMIT (nejvýš
 `MAX_ATTEMPTS` pokusů v okně `WINDOW_S`) a ochrana proti opakovanému použití
@@ -83,7 +84,8 @@ def describe_users() -> list[str]:
 
 
 def available() -> bool:
-    """Je k dispozici TOTP (nainstalovaný extra `viewbase[mfa]`)?"""
+    """Je v TOMHLE prostředí `pyotp`? (Standardní závislost – False znamená
+    neúplnou instalaci, ne volbu, viz varování v announce_lock/Project.)"""
     try:
         import pyotp  # noqa: F401
     except ImportError:

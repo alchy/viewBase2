@@ -36,9 +36,9 @@ class SecuredMixin:
     neprokáže totožnost. Po ověření (`window_unlock`) server pošle skutečné
     `open_window` s obsahem.
 
-    Ověřuje se TOTP z autentikátoru (viewbase.mfa); bez extra `viewbase[mfa]`
-    nebo bez registrace se použije jednorázový kód vypsaný do konzole
-    serveru (`fallback_code`). Zámek zapíná kterékoli okno stejně:
+    Ověřuje se TOTP z autentikátoru (viewbase.mfa); bez registrace (nebo v
+    prostředí, kde chybí `pyotp` – standardní závislost) se použije
+    jednorázový kód ze souboru v `~/.viewbase/` (`fallback_code`). Zámek zapíná kterékoli okno stejně:
     `HtmlWindow("panel", secured=True)` – jako `closable=`."""
 
     def _init_lock(self, secured: bool) -> None:
@@ -103,9 +103,10 @@ class SecuredMixin:
             # takže kód z autentikátoru nemá kdo ověřit a okno ho odmítá.
             # Bez téhle hlášky to vypadá jako "špatný kód".
             level, why = "warning", ("uživatel má TOTP zaregistrované, ale v "
-                                     "tomhle prostředí chybí pyotp – kód z "
-                                     "autentikátoru NEBUDE fungovat "
-                                     "(pip install viewbase[mfa])")
+                                     "tomhle prostředí chybí pyotp "
+                                     "(standardní závislost) – kód z "
+                                     "autentikátoru NEBUDE fungovat; "
+                                     "doinstaluj: pip install pyotp qrcode")
         message = (f"okno '{self.window_id}' je zamčené, {why} – "
                    f"jednorázový kód: cat {path}")
         mfa._log(level, message)

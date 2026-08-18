@@ -136,8 +136,10 @@ Zámek se z shell okna zobecnil na **kterékoli okno** (`secured=True`, jako
   (fallback bez `pyotp`) taky do souboru (`onetime-<okno>.txt`), ne na
   obrazovku. **Žádný `/api/mfa/setup` endpoint** (kdo vidí QR, může se
   zaregistrovat). Jméno je součástí názvu adresáře, takže se validuje. Rate limit
-  5 pokusů/30 s a odmítnutí už použitého kódu. Bez extra `viewbase[mfa]`
-  fallback na jednorázový kód vypsaný do konzole.
+  5 pokusů/30 s a odmítnutí už použitého kódu. `pyotp`/`qrcode` jsou
+  STANDARDNÍ závislosti; když v prostředí chybí, je fallback na jednorázový
+  kód v souboru a hlasité varování (kód z autentikátoru by jinak vypadal
+  jako neplatný – past nalezená v provozu).
 - Frontend: `wm/locked_window.js` (prázdný rám) + `core/unlock_prompt.js`
   (zelená výzva) nad sdíleným `core/overlay.js`, který kreslí i Guru
   Meditation – jedna funkce, volby `color` / `flash` / řádky / `input`;
