@@ -97,10 +97,16 @@ potřeba jen při vývoji frontendu. **Požadavky:** Python ≥ 3.10.
 <summary>Vývoj frontendu (vyžaduje Node.js ≥ 20)</summary>
 
 ```bash
-cd frontend && npm install
+cd frontend && npm install   # jen vite + vitest (nástroje), knihovny jsou v repu
 npm run build      # sestaví do python/viewbase/static
 npx vitest run     # jednotkové testy frontendu
 ```
+
+Runtime knihovny (three.js, d3-force-3d, troika-three-text, xterm.js) **nejsou
+npm závislosti** — leží zdrojově v `frontend/src/vendor/` a importují se
+relativně, takže repo obsahuje všechny artefakty a build je nepotřebuje
+stahovat (viz `frontend/src/vendor/README.md`, aktualizace přes
+`node tools/vendor-build.mjs`).
 
 </details>
 

@@ -1,8 +1,8 @@
-import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import * as THREE from '../vendor/three/three.module.js';
+import { OrbitControls } from '../vendor/three/addons/OrbitControls.js';
+import { EffectComposer } from '../vendor/three/addons/EffectComposer.js';
+import { RenderPass } from '../vendor/three/addons/RenderPass.js';
+import { UnrealBloomPass } from '../vendor/three/addons/UnrealBloomPass.js';
 import { resolveTheme } from '../themes/manager.js';
 import { nodeStyle } from './style.js';
 import { LabelLayer } from './labels.js';

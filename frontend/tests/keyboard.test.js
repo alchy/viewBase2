@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 // (KeyboardControls sahá při stisku na document.activeElement – rozlišuje,
 //  jestli klávesy patří kameře, nebo psaní do inputu)
-import * as THREE from 'three';
+import * as THREE from '../src/vendor/three/three.module.js';
 import { describe, expect, it } from 'vitest';
 import { KeyboardControls } from '../src/interact/keyboard.js';
 
