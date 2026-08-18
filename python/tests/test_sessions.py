@@ -116,3 +116,47 @@ def test_neplatne_lhuty_se_odmitnou():
         SessionStore(ttl=0)
     with pytest.raises(ValueError):
         SessionStore(max_age=-1)
+
+
+# ---- konfigurace lhůt -----------------------------------------------------
+
+def test_vychozi_lhuty_jsou_rozumne():
+    """Výchozí hodnoty musí dávat smysl bez ladění: čtvrthodina nečinnosti a
+    pracovní den jako strop."""
+    from viewbase import sessions
+
+    assert sessions.DEFAULT_TTL == 900          # 15 min klouzavě
+    assert sessions.DEFAULT_MAX_AGE == 8 * 3600  # 8 h absolutně
+    cerstvy = sessions.SessionStore()
+    assert (cerstvy.ttl, cerstvy.max_age) == (900, 8 * 3600)
+
+
+def test_project_lhuty_prenastavi():
+    """`vb.Project(session_ttl=…, session_max_age=…)` – jde je změnit, ale
+    nemusí se."""
+    import viewbase as vb
+    from viewbase import sessions
+
+    puvodni = (sessions.store.ttl, sessions.store.max_age)
+    try:
+        vb.Project(port=0, session_ttl=60, session_max_age=600)
+        assert (sessions.store.ttl, sessions.store.max_age) == (60, 600)
+
+        vb.Project(port=0)                       # bez parametrů se nemění
+        assert (sessions.store.ttl, sessions.store.max_age) == (60, 600)
+
+        sessions.configure(ttl=300)              # jde měnit i za běhu
+        assert (sessions.store.ttl, sessions.store.max_age) == (300, 600)
+    finally:
+        sessions.configure(ttl=puvodni[0], max_age=puvodni[1])
+
+
+def test_zkracena_lhuta_opravdu_plati(hodiny):
+    """Ne jen atribut – kratší ttl musí grant skutečně dřív zahodit."""
+    from viewbase.sessions import SessionStore
+
+    prisny = SessionStore(ttl=10, max_age=100, clock=hodiny)
+    sid = prisny.touch(None)
+    prisny.grant(sid, "mzdy")
+    hodiny.posun(11)
+    assert prisny.has(sid, "mzdy") is False
