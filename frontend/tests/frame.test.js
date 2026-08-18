@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { knobGeometry, scrollFromKnob } from '../src/wm/frame.js';
 
 describe('rám okna – geometrie svislého knobu (WB scrollbar)', () => {
-  it('bez přesahu obsahu je knob přes celou dráhu', () => {
-    expect(knobGeometry(0, 100, 200, 150)).toEqual({ offset: 0, size: 150 });
+  it('bez přesahu obsahu není žádný knob (prázdná dráha)', () => {
+    expect(knobGeometry(0, 100, 200, 150)).toEqual({ offset: 0, size: 0 });
+    expect(knobGeometry(0, 200, 200, 150)).toEqual({ offset: 0, size: 0 });
   });
 
   it('knob je úměrný viditelné části a posouvá se se scrollem', () => {

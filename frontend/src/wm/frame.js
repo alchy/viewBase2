@@ -9,8 +9,8 @@
  *  synchronizovaný se skutečným scroll kontejnerem okna (BaseWindow.
  *  _scrollTarget – tělo, u terminálu výstupní plocha); nativní scrollbar
  *  toho kontejneru se schová. Vodorovný pruh sleduje scrollLeft téhož cíle
- *  (např. terminál s vypnutým Word Wrap); bez přesahu je knob přes celou
- *  dráhu = „nic k posunu". HTML okno (obsah v iframu) dodává PROXY cíl:
+ *  (např. terminál s vypnutým Word Wrap); bez přesahu se knob nekreslí –
+ *  dráha zůstane prázdná (barva těla) = „nic k posunu". HTML okno (obsah v iframu) dodává PROXY cíl:
  *  metriky chodí zprávami z mostu a zápis scrollTop/Left posílá posun zpět.
  *
  *  Čisté funkce geometrie (knobGeometry/scrollFromKnob) jsou oddělené kvůli
@@ -22,11 +22,12 @@ export const MIN_KNOB_PX = 12;
 export const ARROW_STEP_PX = 24;   // klik na šipku posune o řádek
 
 /** Poloha a velikost knobu na dráze `trackLen` pro obsah
- *  (scrollTop, scrollHeight, clientHeight). Bez přesahu = knob přes celou dráhu. */
+ *  (scrollTop, scrollHeight, clientHeight). Bez přesahu = žádný knob
+ *  (size 0): dráha zůstane „prázdná" v barvě těla, jako na WB 1.3. */
 export function knobGeometry(scrollTop, scrollHeight, clientHeight, trackLen,
                              minKnob = MIN_KNOB_PX) {
   if (!(scrollHeight > clientHeight) || trackLen <= 0) {
-    return { offset: 0, size: Math.max(0, trackLen) };
+    return { offset: 0, size: 0 };
   }
   const size = Math.max(minKnob, Math.min(trackLen, trackLen * clientHeight / scrollHeight));
   const maxScroll = scrollHeight - clientHeight;
@@ -68,8 +69,10 @@ export class WindowFrame {
   }
 
   _build() {
-    const color = 'var(--vb-window-grip-border, var(--vb-window-header-fg, #000))';
-    const bg = 'var(--vb-window-grip-bg, var(--vb-window-header-bg, #fff))';
+    // Barvy jako WB 1.3: prázdná dráha = tělo okna (modrá), knob, linky a
+    // šipky = barva rámu (bílá = --vb-window-grip-bg, tj. lišta okna).
+    const color = 'var(--vb-window-grip-bg, var(--vb-window-header-bg, #fff))';
+    const bg = 'transparent';
     // svislý pruh: [↑][ dráha s knobem ][↓]
     this.vbar = document.createElement('div');
     this.vbar.dataset.role = 'vb-frame-v';
@@ -259,12 +262,14 @@ export class WindowFrame {
     const t = this.getTarget();
     const vLen = Math.max(0, this.vtrack.clientHeight - 2);
     const v = t ? knobGeometry(t.scrollTop, t.scrollHeight, t.clientHeight, vLen)
-      : { offset: 0, size: vLen };
+      : { offset: 0, size: 0 };
+    this.vknob.style.display = v.size > 0 ? 'block' : 'none';   // nic k posunu = prázdná dráha
     this.vknob.style.top = `${v.offset}px`;
     this.vknob.style.height = `${v.size}px`;
     const hLen = Math.max(0, this.htrack.clientWidth - 2);
     const h = t ? knobGeometry(t.scrollLeft, t.scrollWidth, t.clientWidth, hLen)
-      : { offset: 0, size: hLen };
+      : { offset: 0, size: 0 };
+    this.hknob.style.display = h.size > 0 ? 'block' : 'none';
     this.hknob.style.left = `${h.offset}px`;
     this.hknob.style.width = `${h.size}px`;
   }
