@@ -147,7 +147,7 @@ týž graf, jen přepnutý přepínač:
 |---|---|---|
 | `LogWindow` | **systémové** okno — obsah dodává knihovna (proces-wide log, `tail -f`) | `examples/log_window.py` |
 | `TerminalWindow` | **textové/dialogové** okno — píše se do něj a umí poslat string od uživatele | `examples/terminal.py` |
-| `HtmlWindow` | **panel z prvků** — heading/label/kv/bar, button/input/number/slider/checkbox/select/textarea skládané z Pythonu bez HTML; události s hodnotami se vrací do Pythonu | `examples/html_window.py` |
+| `HtmlWindow` | **panel z prvků** — heading/label/kv/table/list/bar/image/hr, button/input/number/slider/checkbox/radio/select/textarea skládané z Pythonu bez HTML; události s hodnotami se vrací do Pythonu | `examples/html_window.py` |
 | `ControlWindow` | **formulářové** okno — typovaná pole, hodnoty tečou zpět do Pythonu | `examples/prototype.py` |
 | `GraphWindow` | **grafové** okno — živý 2D/3D graf, fyzika, eventy, toky | `examples/quickstart.py` |
 | detailní okno | **systémové** okno s metadaty uzlu — otevírá klik do grafu | `examples/log_demo.py` |
@@ -224,10 +224,13 @@ def _(event):
 ```
 
 **Katalog prvků** (roste postupně): výstup `heading`, `label`, `kv` (tabulka
-klíč/hodnota, `.rows`), `bar` (progress, `.value`); interakce `button`,
-`input`, `number`, `slider`, `checkbox`, `select`, `textarea`. Každý prvek má
-stabilní `.id`, volitelné `name=` (klíč do `event.values`), `.text` nebo
-`.value` pro čtení i zápis. Bez `grid()` se prvky řadí pod sebe.
+klíč/hodnota, `.rows`), `table` (hlavička + řádky, `.rows`), `list`
+(`.items`), `bar` (progress, `.value`), `image` (`.src`), `hr`; interakce
+`button`, `input`, `number`, `slider`, `checkbox`, `radio`, `select`,
+`textarea`. Každý prvek má stabilní `.id`, volitelné `name=` (klíč do
+`event.values`), `.text` nebo `.value` pro čtení i zápis a společné
+`.enabled` (False = zakázaný) a `.visible` (False = schovaný). Bez `grid()`
+se prvky řadí pod sebe.
 
 **Události:** `prvek.on_click / on_change / on_submit(fn)` (dekorátor i
 volání), nebo `panel.on_event(fn)` pro vše. `event` nese `.element`,

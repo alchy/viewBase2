@@ -82,6 +82,17 @@ describe('BRIDGE_JS – události prvků', () => {
     expect(document.querySelector('input[type=text]').value).toBe('rozepsáno');
   });
 
+  it('radio change → value = zvolená hodnota, values.rezim totéž', () => {
+    mount('<div class="vb-el vb-field vb-radios" id="p-1"><label>Režim</label>'
+      + '<label class="vb-radio"><input type="radio" name="rezim" value="auto" checked data-vb-id="p-1"> auto</label>'
+      + '<label class="vb-radio"><input type="radio" name="rezim" value="man" data-vb-id="p-1"> ruční</label></div>');
+    const man = document.querySelectorAll('input[type=radio]')[1];
+    man.checked = true;
+    man.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(posted[0]).toMatchObject({ kind: 'change', event: 'rezim', id: 'p-1', value: 'man' });
+    expect(posted[0].values).toEqual({ rezim: 'man' });
+  });
+
   it('klik na odkaz bez data-vb-event nenaviguje a nic neposílá', () => {
     mount('<a href="https://example.com" id="a">x</a>');
     const ev = new MouseEvent('click', { bubbles: true, cancelable: true });

@@ -202,3 +202,64 @@ def test_change_event_updates_select_number_textarea_values():
     assert done.wait(2.0)
     assert (typ.value, n.value, t.value) == ("b", 5, "x")
     g.close()
+
+
+# ---- třetí vlna: radio / table / image / list / hr + enabled / visible ------
+
+def test_radio_renders_group_and_coerces_value():
+    w = HtmlWindow("panel")
+    r = w.radio("Režim", ["auto", ("man", "ruční")], value="man", name="rezim")
+    html = w.html
+    assert '<label>Režim</label>' in html
+    assert ('<label class="vb-radio"><input type="radio" name="rezim" value="auto" '
+            'data-vb-id="panel-1"> auto</label>') in html
+    assert ('<label class="vb-radio"><input type="radio" name="rezim" value="man" checked '
+            'data-vb-id="panel-1"> ruční</label>') in html
+    assert r.value == "man"
+    r._set_from_client("auto")
+    assert r.value == "auto"
+
+
+def test_table_with_header_and_numbers_and_rows_update():
+    g, w = _open()
+    t = w.table(["uzel", "stupeň"], [["srv-0", 1284], ["db-0", 640]])
+    html = w.html
+    assert '<thead><tr><th>uzel</th><th class="num">stupeň</th></tr></thead>' in html
+    assert '<tr><td>srv-0</td><td class="num">1284</td></tr>' in html
+    g.drain_actions()
+    t.rows = [["srv-1", 5]]
+    (a,) = g.drain_actions()
+    assert a["action"] == "html_patch" and a["id"] == "panel-1" and "srv-1" in a["html"]
+
+
+def test_image_list_hr_render():
+    w = HtmlWindow("panel")
+    w.image("data:image/png;base64,AAAA", width=120, alt="mapa")
+    lst = w.list(["a", "b<"])
+    w.hr()
+    html = w.html
+    assert '<img src="data:image/png;base64,AAAA" alt="mapa" width="120">' in html
+    assert '<ul><li>a</li><li>b&lt;</li></ul>' in html
+    assert '<div class="vb-el" id="panel-3"><hr></div>' in html
+    lst.items = ["c"]
+    assert '<ul><li>c</li></ul>' in w.html
+    lst.ordered = True
+    assert '<ol><li>c</li></ol>' in w.html
+
+
+def test_enabled_and_visible_render_and_patch():
+    g, w = _open()
+    btn = w.button("Přidat")
+    inp = w.input("Název")
+    lab = w.label("řádek")
+    g.drain_actions()
+    btn.enabled = False
+    inp.enabled = False
+    lab.visible = False
+    a, b, c = g.drain_actions()
+    assert all(x["action"] == "html_patch" for x in (a, b, c))
+    assert 'disabled' in a["html"] and 'disabled' in b["html"]
+    assert c["html"].startswith('<div class="vb-el" id="panel-3" hidden>')
+    assert (btn.enabled, inp.enabled, lab.visible) == (False, False, False)
+    lab.visible = True
+    assert 'hidden' not in g.drain_actions()[0]["html"]

@@ -9,8 +9,9 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from .widgets import (Bar, Button, Checkbox, Field, Input, Kv, Number, Select,
-                      Slider, TextElement, Textarea, render_elements)
+from .widgets import (Bar, Button, Checkbox, Field, Image, Input, Kv, ListElement,
+                      Number, Radio, Rule, Select, Slider, Table, TextElement,
+                      Textarea, render_elements)
 
 
 def _normalize_options(options: list) -> list[dict]:
@@ -158,9 +159,9 @@ class TerminalWindow:
 
 
 class HtmlWindow:
-    """HTML okno: obsah skládaný z PRVKŮ (heading/label/kv/bar, button/input/
-    number/slider/checkbox/select/textarea – viz `viewbase.widgets`) na
-    instanci okna, bez psaní HTML.
+    """HTML okno: obsah skládaný z PRVKŮ (heading/label/kv/table/list/bar/
+    image/hr, button/input/number/slider/checkbox/radio/select/textarea –
+    viz `viewbase.widgets`) na instanci okna, bez psaní HTML.
     Vykreslí se v sandboxovaném iframu stylem ostatních oken (téma).
 
         okno = vb.HtmlWindow("panel", title="Ovládání")
@@ -297,6 +298,26 @@ class HtmlWindow:
     def bar(self, value: Any = 0, *, width: int = 160, label: bool = True, **kw: Any) -> Bar:
         """Progress 0–100 %; `.value` jde měnit za běhu."""
         return self._add(Bar(self, value, width=width, label=label, **kw))
+
+    def radio(self, label: Any, options: Any, *, value: Any = None, **kw: Any) -> Radio:
+        """Přepínač – jedna z možností → `on_change`; `.value` vybraná hodnota."""
+        return self._add(Radio(self, label, options, value=value, **kw))
+
+    def table(self, columns: Any, rows: Any, **kw: Any) -> Table:
+        """Tabulka s hlavičkou; `.rows` jde přepsat za běhu."""
+        return self._add(Table(self, columns, rows, **kw))
+
+    def image(self, src: str, *, width: int | None = None, alt: str = "", **kw: Any) -> Image:
+        """Obrázek (data: URI nebo URL); `.src` jde měnit za běhu."""
+        return self._add(Image(self, src, width=width, alt=alt, **kw))
+
+    def list(self, items: Any, *, ordered: bool = False, **kw: Any) -> ListElement:  # noqa: A003
+        """Seznam položek; `.items` / `.ordered` jde měnit za běhu."""
+        return self._add(ListElement(self, items, ordered=ordered, **kw))
+
+    def hr(self, **kw: Any) -> Rule:
+        """Vodorovná čára."""
+        return self._add(Rule(self, **kw))
 
     def on_event(self, fn: Any = None) -> Any:
         """Jeden handler na všechny události okna (`event.kind`, `.element`,

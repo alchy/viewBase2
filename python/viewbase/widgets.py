@@ -23,8 +23,9 @@ teprve pak volá handlery. Bohatý text uvnitř prvku: `stav.text =
 vb.Ui.ok("běží")` (fragmenty Ui se neescapují, obyčejný text ano).
 
 Katalog roste postupně (přidání typu = pár řádků tady + test): výstup
-heading, label, kv, bar; interakce button, input, number, slider, checkbox,
-select, textarea.
+heading, label, kv, table, list, bar, image, hr; interakce button, input,
+number, slider, checkbox, radio, select, textarea. Každý prvek má navíc
+`.enabled` (False = disabled) a `.visible` (False = schovaný).
 """
 from __future__ import annotations
 
@@ -50,6 +51,30 @@ class Element:
         self.col = col
         self.colspan = max(1, int(colspan))
         self._handlers: dict[str, list[Handler]] = {"click": [], "change": [], "submit": []}
+        self._enabled = True
+        self._visible = True
+
+    # ---- stav společný všem prvkům --------------------------------------
+
+    @property
+    def enabled(self) -> bool:
+        """False = prvek je vidět, ale nereaguje (tlačítko/pole `disabled`)."""
+        return self._enabled
+
+    @enabled.setter
+    def enabled(self, value: bool) -> None:
+        self._enabled = bool(value)
+        self._touch()
+
+    @property
+    def visible(self) -> bool:
+        """False = prvek je schovaný (i s místem v mřížce)."""
+        return self._visible
+
+    @visible.setter
+    def visible(self, value: bool) -> None:
+        self._visible = bool(value)
+        self._touch()
 
     # ---- identita -------------------------------------------------------
 
@@ -97,7 +122,8 @@ class Element:
                 span = f"/span {self.colspan}" if self.colspan > 1 else ""
                 parts.append(f"grid-column:{int(self.col) + 1}{span}")
             style = ";".join(parts)
-        return _attrs(class_=self.css_class(), id=self.id, style=style)
+        return _attrs(class_=self.css_class(), id=self.id, style=style,
+                      hidden=not self._visible)
 
     def css_class(self) -> str:
         return "vb-el"
@@ -151,8 +177,8 @@ class Button(Element):
         self._touch()
 
     def inner(self) -> str:
-        return (f"<button{_event_attrs(self.name)} data-vb-id=\"{_esc(self.id)}\">"
-                f"{_esc(self._text)}</button>")
+        return (f"<button{_event_attrs(self.name)} data-vb-id=\"{_esc(self.id)}\""
+                f"{' disabled' if not self._enabled else ''}>{_esc(self._text)}</button>")
 
 
 class Field(Element):
@@ -186,6 +212,10 @@ class Field(Element):
     def css_class(self) -> str:
         return "vb-el vb-field"
 
+    def _tail(self) -> str:
+        """Konec atributů každého pole: identifikace pro most + disabled."""
+        return f' data-vb-id="{_esc(self.id)}"{" disabled" if not self._enabled else ""}'
+
     def widget(self) -> str:
         raise NotImplementedError
 
@@ -208,7 +238,7 @@ class Input(Field):
 
     def widget(self) -> str:
         return (f'<input type="text"{_attrs(id=self.id, name=self.name, value=self._value, placeholder=self.placeholder)}'
-                f' data-vb-id="{_esc(self.id)}">')
+                f'{self._tail()}>')
 
 
 class Slider(Field):
@@ -232,7 +262,7 @@ class Slider(Field):
 
     def widget(self) -> str:
         return (f'<input type="range"{_attrs(id=self.id, name=self.name, value=self._value, min=self.min, max=self.max, step=self.step)}'
-                f' data-vb-id="{_esc(self.id)}"{" data-vb-live" if self.live else ""}>'
+                f'{self._tail()}{" data-vb-live" if self.live else ""}>'
                 f' <output for="{_esc(self.name)}">{_esc(self._value)}</output>')
 
 
@@ -256,7 +286,7 @@ class Number(Field):
 
     def widget(self) -> str:
         return (f'<input type="number"{_attrs(id=self.id, name=self.name, value=self._value, min=self.min, max=self.max, step=self.step)}'
-                f' data-vb-id="{_esc(self.id)}">')
+                f'{self._tail()}>')
 
 
 class Select(Field):
@@ -281,7 +311,7 @@ class Select(Field):
         opts = "".join(
             f'<option{_attrs(value=val, selected=(str(val) == str(self._value)))}>{_esc(text)}</option>'
             for val, text in self.options)
-        return f'<select{_attrs(id=self.id, name=self.name)} data-vb-id="{_esc(self.id)}">{opts}</select>'
+        return f'<select{_attrs(id=self.id, name=self.name)}{self._tail()}>{opts}</select>'
 
 
 class Textarea(Field):
@@ -299,7 +329,7 @@ class Textarea(Field):
 
     def widget(self) -> str:
         return (f'<textarea{_attrs(id=self.id, name=self.name, rows=self.rows)}'
-                f' data-vb-id="{_esc(self.id)}">{_esc(self._value)}</textarea>')
+                f'{self._tail()}>{_esc(self._value)}</textarea>')
 
 
 class Kv(Element):
@@ -363,6 +393,140 @@ class Bar(Element):
         return html + (f" {self._value} %" if self.show_label else "")
 
 
+class Radio(Field):
+    """Přepínač – jedna z možností (hodnoty nebo dvojice (hodnota, popisek));
+    `.value` je vybraná hodnota. Všechny volby sdílí `name`, změna → `on_change`."""
+
+    kind = "radio"
+
+    def __init__(self, window: Any, label: Any, options: Any, *, value: Any = None,
+                 **kw: Any) -> None:
+        super().__init__(window, label, value=value, **kw)
+        self.options = [(o if isinstance(o, tuple) else (o, o)) for o in options]
+        if value is None and self.options:
+            self._value = str(self.options[0][0])
+        else:
+            self._value = self.coerce(value)
+
+    def coerce(self, value: Any) -> Any:
+        return "" if value is None else str(value)
+
+    def css_class(self) -> str:
+        return "vb-el vb-field vb-radios"
+
+    def widget(self) -> str:
+        return "".join(
+            f'<label class="vb-radio"><input type="radio"'
+            f'{_attrs(name=self.name, value=val, checked=(str(val) == str(self._value)))}'
+            f'{self._tail()}> {_esc(text)}</label>'
+            for val, text in self.options)
+
+    def inner(self) -> str:                      # skupinový popisek bez `for`
+        return f"<label>{_esc(self.label)}</label>{self.widget()}"
+
+
+class Table(Element):
+    """Tabulka s hlavičkou: `columns` + `rows` (seznam řádků); čísla se
+    zarovnají vpravo. `.rows` jde přepsat za běhu (překreslí se tabulka)."""
+
+    kind = "table"
+
+    def __init__(self, window: Any, columns: Any, rows: Any, **kw: Any) -> None:
+        super().__init__(window, **kw)
+        self.columns = list(columns)
+        self._rows = [list(r) for r in rows]
+
+    @property
+    def rows(self) -> Any:
+        return self._rows
+
+    @rows.setter
+    def rows(self, rows: Any) -> None:
+        self._rows = [list(r) for r in rows]
+        self._touch()
+
+    def inner(self) -> str:
+        cols = self.columns
+        rows = self._rows
+        numeric = [bool(rows) and all(
+            isinstance(r[i], (int, float)) and not isinstance(r[i], bool)
+            for r in rows if i < len(r)) for i in range(len(cols))]
+        head = "".join(f'<th{" class=\"num\"" if numeric[i] else ""}>{_esc(c)}</th>'
+                       for i, c in enumerate(cols))
+        body = "".join(
+            "<tr>" + "".join(
+                f'<td{" class=\"num\"" if i < len(numeric) and numeric[i] else ""}>{_esc(v)}</td>'
+                for i, v in enumerate(r)) + "</tr>"
+            for r in rows)
+        return f"<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
+
+
+class Image(Element):
+    """Obrázek: `src` je data: URI nebo URL (např. z `/static` serveru);
+    `.src` jde měnit za běhu."""
+
+    kind = "image"
+
+    def __init__(self, window: Any, src: str, *, width: int | None = None,
+                 alt: str = "", **kw: Any) -> None:
+        super().__init__(window, **kw)
+        self._src, self.width, self.alt = str(src), width, alt
+
+    @property
+    def src(self) -> str:
+        return self._src
+
+    @src.setter
+    def src(self, value: str) -> None:
+        self._src = str(value)
+        self._touch()
+
+    def inner(self) -> str:
+        return f"<img{_attrs(src=self._src, alt=self.alt, width=self.width)}>"
+
+
+class ListElement(Element):
+    """Seznam položek (`.items`), odrážky nebo číslovaný (`.ordered`)."""
+
+    kind = "list"
+
+    def __init__(self, window: Any, items: Any, *, ordered: bool = False, **kw: Any) -> None:
+        super().__init__(window, **kw)
+        self._items = list(items)
+        self._ordered = bool(ordered)
+
+    @property
+    def items(self) -> Any:
+        return self._items
+
+    @items.setter
+    def items(self, items: Any) -> None:
+        self._items = list(items)
+        self._touch()
+
+    @property
+    def ordered(self) -> bool:
+        return self._ordered
+
+    @ordered.setter
+    def ordered(self, value: bool) -> None:
+        self._ordered = bool(value)
+        self._touch()
+
+    def inner(self) -> str:
+        tag = "ol" if self._ordered else "ul"
+        return f"<{tag}>{''.join(f'<li>{_esc(i)}</li>' for i in self._items)}</{tag}>"
+
+
+class Rule(Element):
+    """Vodorovná čára (oddělovač)."""
+
+    kind = "hr"
+
+    def inner(self) -> str:
+        return "<hr>"
+
+
 class Checkbox(Field):
     """Zaškrtávátko; `.value` je True/False."""
 
@@ -381,7 +545,7 @@ class Checkbox(Field):
 
     def widget(self) -> str:
         return (f'<input type="checkbox"{_attrs(id=self.id, name=self.name, checked=bool(self._value))}'
-                f' data-vb-id="{_esc(self.id)}">')
+                f'{self._tail()}>')
 
     def inner(self) -> str:                      # u checkboxu je popisek za políčkem
         return f'{self.widget()} <label for="{_esc(self.id)}">{_esc(self.label)}</label>'

@@ -3,10 +3,11 @@
 Vzor pro začátečníka (čtyři kroky):
  1. instance okna       okno = vb.HtmlWindow(...); graph.open_html(okno)
  2. mřížka (volitelně)  okno.grid(cols=2)  → prvky dostanou row=/col=
- 3. prvky z katalogu    okno.heading/label/kv/bar (výstup), okno.button/
-                        input/number/slider/checkbox/select/textarea
-                        (interakce); každý má .id, .name, .text nebo
-                        .value – čtení i zápis
+ 3. prvky z katalogu    okno.heading/label/kv/table/list/bar/image/hr
+                        (výstup), okno.button/input/number/slider/checkbox/
+                        radio/select/textarea (interakce); každý má .id,
+                        .name, .text nebo .value (čtení i zápis) a společné
+                        .enabled / .visible
  4. události            @prvek.on_click / on_change / on_submit – event
                         říká, KTERÝ prvek (event.element, event.name), co
                         se stalo (event.kind) a hodnoty všech polí
@@ -35,7 +36,7 @@ with graph.batch():
         graph.add_edge(f"srv-{i}", "db-0")
 
 # 1) instance okna – od téhle chvíle na ni věšíme prvky i kód
-panel = vb.HtmlWindow("panel", title="Ovládání", width=440, height=300)
+panel = vb.HtmlWindow("panel", title="Ovládání", width=440, height=340)
 graph.open_html(panel)
 
 # 2) mřížka 2 sloupce; row/col jsou od nuly, colspan roztáhne přes sloupce
@@ -52,8 +53,10 @@ zatez  = panel.slider("Zátěž nového uzlu (%)", value=50, min=0, max=100,
                       name="zatez", row=3, col=0)
 sleduj = panel.checkbox("Zvýraznit sousedy po přidání", value=True,
                         name="sleduj", row=3, col=1)
-pridat = panel.button("Přidat uzel", name="pridat", row=4, col=0)
-reset  = panel.button("Reset zátěže", name="reset", row=4, col=1)
+rezim  = panel.radio("Po přidání", ["nic", ("focus", "zaostřit")], value="focus",
+                     name="rezim", row=4, col=0, colspan=2)
+pridat = panel.button("Přidat uzel", name="pridat", row=5, col=0)
+reset  = panel.button("Reset zátěže", name="reset", row=5, col=1)
 
 
 # 4) události – handler dostane event s .element / .name / .kind / .value / .values
@@ -68,6 +71,8 @@ def pridej_uzel(event) -> None:
     graph.ensure_edge(node, "db-0")
     if sleduj.value:
         graph.highlight(node, depth=1)
+    if rezim.value == "focus":
+        graph.focus(node)
     stav.text = f"přidán {node} (zátěž {zatez.value} %)"
     titul.text = node
     zatezb.value = zatez.value                         # progress se překreslí sám
@@ -78,6 +83,12 @@ def pridej_uzel(event) -> None:
 def reset_zateze(event) -> None:
     zatez.value = 0                                    # posuvník se přesune
     stav.text = "zátěž vynulována"
+    reset.enabled = False                              # tlačítko zšedne, dokud se zátěž nezmění
+
+
+@zatez.on_change
+def povol_reset(event) -> None:
+    reset.enabled = event.value > 0                    # .enabled = True/False za běhu"
 
 
 @zatez.on_change
