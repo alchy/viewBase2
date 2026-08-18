@@ -144,6 +144,45 @@ stroji přehodit úroveň a zamést za sebou. Pozná se podle komponenty
 2026-08-18 15:51:12 INFO    viewbase [security] client 8b5bd7d6 from 89.24.x.x disconnected
 ```
 
+### Příkazy v shell okně
+
+Shell okno zaznamenává, co se do něj napsalo — s **dvěma identitami**, které
+se nesmí plést:
+
+```
+2026-08-18 16:03:24 INFO viewbase [security] shell 'sh' command by 'workbench'
+                         from 89.24.1.2, session DJtjcP1W…, os user 'j': whoami
+```
+
+- `by 'workbench'` — uživatel **viewbase**, tedy kdo okno odemkl kódem z
+  autentikátoru;
+- `os user 'j'` — uživatel **operačního systému**, pod kterým proces
+  skutečně běží (ten, pod kterým jede server). Odemčení ve workbenchi na tom
+  nic nemění; kdo chce jiného, řekne si o něj příkazem (`su`, `sudo`) — a to
+  je v téhle stopě vidět.
+
+**Co to zaznamenává doslova:** řádek, který divák napsal, ne to, co shell
+nakonec spustil. Historie, doplňování a editace řádku můžou dát jiný
+výsledek, a **heslo napsané na výzvu `sudo` v logu bude** — terminál ho od
+příkazu odlišit neumí (bash s readline drží ECHO vypnuté pořád a echuje si
+sám). Kdo to nechce, vypne to:
+
+```python
+vb.ShellWindow("sh", audit_commands=False)
+```
+
+### Sanace toho, co jde do logu
+
+Do logu tečou cizí vstupy — příkazy, payloady událostí, syrové zprávy od
+klienta. Nejde o log4j (Python logging nic nevyhodnocuje), ale o tři reálné
+věci, které řeší `log.sanitize` v jednom místě pro všechny cesty:
+
+| útok | co by se stalo | co se s tím dělá |
+|---|---|---|
+| ESC sekvence | `docker logs` se čte v terminálu; `\x1b[2J` smaže obrazovku, obarví cizí řádky nebo schová vlastní | řídicí znaky se nahradí čitelným `\x1b` |
+| podvržení řádku | `\n` v cizím textu vyrobí záznam, který vypadá jako od serveru | zalomení se escapuje, jeden záznam = jeden řádek |
+| zaplavení | jedna zpráva utopí zbytek logu | ořízne se na 2000 znaků a připíše se, kolik chybí |
+
 Razítko je vždy celé, `YYYY-MM-DD HH:MM:SS` — v konzoli serveru, v `docker
 logs` i v log okně v prohlížeči. U instance, která běží dny a jejíž log se
 vyhodnocuje zpětně, je bez data řádek k ničemu.

@@ -53,7 +53,8 @@ class PtyShell:
                  cwd: str | None = None, env: dict[str, str] | None = None,
                  cols: int = 80, rows: int = 24,
                  on_data: Callable[[str], None] | None = None,
-                 on_exit: Callable[[int | None], None] | None = None) -> None:
+                 on_exit: Callable[[int | None], None] | None = None,
+                 on_command: Callable[[str], None] | None = None) -> None:
         if sys.platform == "win32":                     # pragma: no cover
             raise NotImplementedError(
                 "Shell okno zatím běží jen na POSIX (macOS/Linux); Windows "
@@ -65,6 +66,10 @@ class PtyShell:
         self.rows = max(1, int(rows))
         self.on_data = on_data or (lambda _text: None)
         self.on_exit = on_exit or (lambda _code: None)
+        # Auditní odposlech příkazů (viz write/_audit_line): hlásí jen řádky
+        # zadané, když terminál ECHUJE – heslo se tak do logu nedostane.
+        self.on_command = on_command
+        self._radek: list[str] = []
         self._master: int | None = None
         self._proc: subprocess.Popen[Any] | None = None
         self._reader: threading.Thread | None = None
@@ -110,10 +115,41 @@ class PtyShell:
         """Klávesy do procesu (ne řádky – posílá se i Ctrl-C, šipky, Esc…)."""
         if self._master is None:
             raise RuntimeError("PtyShell neběží (chybí start)")
+        if self.on_command is not None:
+            self._audit(data)
         try:
             os.write(self._master, data.encode("utf-8"))
         except OSError:
             pass                                     # proces mezitím skončil
+
+    # ---- auditní stopa příkazů -------------------------------------------
+
+    def _audit(self, data: str) -> None:
+        """Poskládej klávesy do řádku a po Enteru ho ohlas.
+
+        POZOR, CO TO ZAZNAMENÁVÁ: je to prostě to, co divák do okna napsal.
+        Když na výzvu `sudo` napíše heslo, bude heslo v logu – terminál to
+        odlišit neumí (bash s readline drží ECHO vypnuté pořád a echuje si
+        sám, takže se podle něj poznat nedá; spolehlivě to řeší až integrace
+        se shellem, což je na jindy). Kdo tohle nechce, vypne audit:
+        `vb.ShellWindow("sh", audit_commands=False)`.
+
+        Skládá se hrubě: Backspace maže poslední znak, Ctrl-C zahodí rozepsané,
+        ostatní řídicí sekvence (šipky, historie, doplňování) se ignorují –
+        výsledek proto nemusí přesně odpovídat tomu, co shell nakonec spustil."""
+        for znak in data:
+            if znak in "\r\n":
+                radek = "".join(self._radek).strip()
+                self._radek.clear()
+                if radek:
+                    self.on_command(radek[:500])
+            elif znak in "\x7f\b":                    # Backspace / DEL
+                if self._radek:
+                    self._radek.pop()
+            elif znak == "\x03":                       # Ctrl-C zahodí rozepsané
+                self._radek.clear()
+            elif znak >= " ":                          # tisknutelné, bez ESC sekvencí
+                self._radek.append(znak)
 
     def resize(self, cols: int, rows: int) -> None:
         """Nové rozměry okna → SIGWINCH procesu (celoobrazovkové programy

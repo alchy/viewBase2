@@ -515,7 +515,8 @@ class ShellWindow(SecuredMixin):
                  env: dict[str, str] | None = None,
                  cols: int = 80, rows: int = 24,
                  width: int = 720, height: int = 420,
-                 closable: bool = True, secured: bool = True) -> None:
+                 closable: bool = True, secured: bool = True,
+                 audit_commands: bool = True) -> None:
         if width <= 0 or height <= 0:
             raise ValueError("width i height musí být kladné")
         if cols <= 0 or rows <= 0:
@@ -530,6 +531,10 @@ class ShellWindow(SecuredMixin):
         self.width = int(width)
         self.height = int(height)
         self.closable = bool(closable)
+        # Zaznamenávat příkazy do logu? Je to prostě to, co divák napsal –
+        # včetně hesla, které někdo napíše na výzvu `sudo` (viz PtyShell._audit).
+        # Na sledovaném stroji se to hodí; kdo to nechce, dá False.
+        self.audit_commands = bool(audit_commands)
         self._init_lock(secured)        # shell je zamčený ve výchozím stavu
         self.scrollback = ""
         self.pty: Any = None          # PtyShell po odemčení

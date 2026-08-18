@@ -15,9 +15,16 @@ zrovna mluví. `backend_user`/`frontend` component nemají (uživatelský kód
 ani prohlížeč nejsou jeden z těch čtyř modulů)."""
 from __future__ import annotations
 
+import re
 import threading
 from dataclasses import dataclass
 from typing import Any, Callable
+
+#: Nejdelší záznam; zbytek se ořízne (útočník nesmí zaplavit log jednou zprávou).
+MAX_MESSAGE = 2000
+#: Řídicí znaky, které se do logu nesmí dostat syrové: ESC (přebarví a přepíše
+#: terminál toho, kdo čte `docker logs`), CR (přepíše řádek), NUL a spol.
+_RIDICI = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 LOG_LEVELS = ("debug", "info", "warning", "error")
 LOG_SOURCES = ("frontend", "backend_api", "backend_program", "backend_user")
@@ -28,6 +35,29 @@ LOG_SOURCES = ("frontend", "backend_api", "backend_program", "backend_user")
 #: úspěšné odemčení není `warning` a odmítnutý kód není `error`.
 COMPONENTS = ("graph", "gui", "windows", "rest", "server", "security")
 _INTERNAL_SOURCES = ("backend_api", "backend_program")
+
+
+def sanitize(message: object, limit: int = MAX_MESSAGE) -> str:
+    """Očisti text, který jde do logu. JEDNO místo pro všechny cesty.
+
+    Do logu tečou cizí vstupy – příkazy z shellu, payloady událostí, syrové
+    zprávy od klienta. Nejde o log4j (Python logging nic nevyhodnocuje), ale
+    o tři reálné věci:
+
+    - **ESC sekvence**: `docker logs` se čte v terminálu; text s `\x1b[2J`
+      smaže obrazovku, obarví cizí řádky nebo schová ty vlastní. Řídicí
+      znaky se proto nahradí čitelným `\x1b`.
+    - **Podvržení řádku**: `\n` v cizím textu vyrobí v logu nový záznam,
+      který vypadá jako od serveru. Zalomení se proto escapuje.
+    - **Zaplavení**: jedna zpráva nesmí utopit zbytek – ořízne se a připíše
+      se, kolik znaků chybí.
+    """
+    text = str(message)
+    text = _RIDICI.sub(lambda m: f"\\x{ord(m.group()):02x}", text)
+    text = text.replace("\r\n", "\\n").replace("\n", "\\n")
+    if len(text) > limit:
+        text = f"{text[:limit]}…(+{len(text) - limit} znaků)"
+    return text
 
 
 @dataclass(frozen=True)
@@ -60,6 +90,7 @@ class LogBus:
 
     def publish(self, level: str, source: str, message: str,
                 component: str | None = None) -> LogRecord:
+        """Zveřejni záznam. Text se VŽDY sanuje – viz `sanitize`."""
         if level not in LOG_LEVELS:
             raise ValueError(f"level musí být jedno z {LOG_LEVELS}")
         if source not in LOG_SOURCES:
@@ -68,8 +99,8 @@ class LogBus:
             raise ValueError(
                 f"source '{source}' vyžaduje component z {COMPONENTS}"
                 " – z logu musí jít poznat, který modul mluví")
-        record = LogRecord(level=level, source=source, message=str(message),
-                            component=component)
+        record = LogRecord(level=level, source=source,
+                            message=sanitize(message), component=component)
         with self._lock:
             subscribers = list(self._subscribers)
         for callback in subscribers:

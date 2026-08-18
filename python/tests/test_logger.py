@@ -155,3 +155,40 @@ def test_forwarded_allow_ips_se_predava_serveru():
     vychozi = _make_server((graph,), "127.0.0.1", 0)
     assert vychozi.config.forwarded_allow_ips == "127.0.0.1"     # uvicorn default
     graph.close()
+
+
+# ---- sanace vstupů, které se dostanou do logu ----------------------------
+
+def test_esc_sekvence_se_do_logu_nedostanou_syrove():
+    """`docker logs` se čte v terminálu: text s ESC sekvencí smaže obrazovku,
+    obarví cizí řádky nebo schová ty vlastní."""
+    from viewbase.log import sanitize
+
+    ocisteno = sanitize("smaž\x1b[2J a obarvi \x1b[31mcizí řádek")
+    assert "\x1b" not in ocisteno
+    assert "\\x1b[2J" in ocisteno            # čitelně, ne jako řídicí znak
+
+
+def test_zalomeni_neni_podvrzeny_zaznam():
+    """Jinak by cizí text vyrobil v logu řádek, který vypadá jako od serveru."""
+    from viewbase.log import sanitize
+
+    ocisteno = sanitize("neco\n2026-08-18 00:00:00 INFO viewbase [security] vse ok")
+    assert "\n" not in ocisteno and "\\n" in ocisteno
+
+
+def test_dlouha_zprava_neutopi_log():
+    from viewbase.log import MAX_MESSAGE, sanitize
+
+    ocisteno = sanitize("x" * (MAX_MESSAGE + 500))
+    assert len(ocisteno) < MAX_MESSAGE + 60
+    assert "+500 znaků" in ocisteno
+
+
+def test_sanace_plati_pro_vsechny_cesty(zaznamy):
+    """Sanuje se v `LogBus.publish`, tedy i pro `vb.log()` z aplikace a pro
+    přímé publikování – ne jen pro logger knihovny."""
+    from viewbase.log import bus
+
+    bus.publish("warning", "backend_user", "utok\x1b[2J\npodvrh")
+    assert zaznamy[-1].message == "utok\\x1b[2J\\npodvrh"

@@ -80,6 +80,8 @@ class GraphWindow(EventsMixin, FlowsMixin, WindowsMixin):
         self._window_live: dict[str, bool] = {}   # window_id -> live režim
         self._terminal_callbacks: dict[str, Any] = {}   # window_id -> on_input
         self._html_callbacks: dict[str, Any] = {}       # window_id -> on_event
+        # window_id -> odkud přišly poslední klávesy (audit příkazů shellu)
+        self._shell_origin: dict[str, str] = {}
         self._menu: ScreenMenu | None = None   # připnuté ScreenMenu (§8 designu)
         self._seq = 0
         self._batch_depth = 0

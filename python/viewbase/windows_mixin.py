@@ -11,7 +11,7 @@ Co mixin očekává od hostitelské třídy (kontrakt, ne magie):
 - `self._actions` – fronta akcí ke klientům (`drain_actions`),
 - `self._reg` – registr oken (`window_registry.WindowRegistry`) a mapy
   `self._window_live`, `self._window_callbacks`, `self._terminal_callbacks`,
-  `self._html_callbacks`, `self._detail_spec`,
+  `self._html_callbacks`, `self._detail_spec`, `self._shell_origin`,
 - `self._register(event, handler)` – zapojení handleru události.
 """
 from __future__ import annotations
@@ -245,13 +245,18 @@ class WindowsMixin:
             window.append_scrollback(text)
             self._emit_html("shell_data", wid, data=text)   # sdílená cesta akcí
 
+        def on_command(prikaz: str) -> None:
+            self._log_shell_command(wid, prikaz)
+
         def on_exit(code: int | None) -> None:
             self._emit_html("shell_state", wid, state="exited", code=code)
 
         try:
             window.pty = PtyShell(window.command, cwd=window.cwd, env=window.env,
                                   cols=window.cols, rows=window.rows,
-                                  on_data=on_data, on_exit=on_exit)
+                                  on_data=on_data, on_exit=on_exit,
+                                  on_command=(on_command
+                                              if window.audit_commands else None))
             window.pty.start()
         except Exception as chyba:                       # noqa: BLE001
             window.pty = None
@@ -393,7 +398,35 @@ class WindowsMixin:
         data = getattr(event, "data", None)
         if window is None or window.pty is None or not isinstance(data, str):
             return
+        # Odkud klávesy přišly – k příkazu, který z nich vznikne (audit).
+        # Skládá se až v PtyShell (po Enteru), proto se původ pamatuje tady.
+        self._shell_origin[window.window_id] = self._origin(event)
         window.pty.write(data)
+
+    def _log_shell_command(self, window_id: str, prikaz: str) -> None:
+        """Auditní stopa příkazu v shell okně.
+
+        DVĚ IDENTITY, které se nesmí plést (uživatelský požadavek):
+
+        - `by '<uživatel viewbase>'` – kdo okno odemkl kódem z autentikátoru,
+        - `os user '<jméno>'` – pod kým proces SKUTEČNĚ běží, tedy uživatel,
+          pod kterým jede server. Odemčení ve workbenchi na tom nic nemění;
+          kdo chce jiného, řekne si o něj příkazem (`su`, `sudo`) – a to je
+          pak v téhle stopě vidět jako příkaz.
+
+        Hesla se sem nedostanou: skládá se jen to, co terminál echuje
+        (PtyShell.echoing)."""
+        import getpass
+
+        from . import mfa
+
+        try:
+            os_user = getpass.getuser()
+        except Exception:                                    # noqa: BLE001
+            os_user = "?"
+        puvod = self._shell_origin.get(window_id, "from ?")
+        logger.audit(f"shell '{window_id}' command by '{mfa.active_user()}' "
+                     f"{puvod}, os user '{os_user}': {prikaz}")
 
     def _on_shell_resize(self, event) -> None:
         """Nová velikost terminálu z prohlížeče → SIGWINCH procesu."""
