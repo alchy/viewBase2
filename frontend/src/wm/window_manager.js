@@ -117,11 +117,11 @@ export class WindowManager {
    *  plátně a nekoliduje s ostatními proužky; jinak první volné místo v
    *  řadách odspodu (wm/dock.js). */
   dockPlace(win, w, h) {
-    const bounds = { width: this.container.clientWidth || 800,
-      height: this.container.clientHeight || 600 };
+    const bounds = win._dockBounds();          // plátno pod lištou screenu
     const others = this.dockRects(win);
     const p = win.dockPos;
-    if (p && p.x >= 0 && p.y >= 0 && p.x + w <= bounds.width && p.y + h <= bounds.height
+    if (p && p.x >= 0 && p.y >= (bounds.top ?? 0)
+        && p.x + w <= bounds.width && p.y + h <= bounds.height
         && !others.some((o) => overlaps({ x: p.x, y: p.y, w, h }, o))) {
       return { x: p.x, y: p.y };
     }

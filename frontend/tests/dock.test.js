@@ -43,6 +43,31 @@ describe('dok minimalizovaných oken – geometrie', () => {
     expect(clampRect(r(790, 590, 100, 28), B)).toEqual({ x: 700, y: 572 });
   });
 
+  it('bounds.top (lišta screenu) je horní mez – proužek pod ni nezajede', () => {
+    const T = { ...B, top: 26 };
+    expect(clampRect(r(100, 0, 100, 28), T)).toEqual({ x: 100, y: 26 });
+    expect(clampRect(r(100, -50, 100, 28), T)).toEqual({ x: 100, y: 26 });
+    expect(clampRect(r(100, 40, 100, 28), T)).toEqual({ x: 100, y: 40 });
+  });
+
+  it('tažení nahoru se zastaví o lištu screenu, ne o okraj plátna', () => {
+    const T = { ...B, top: 26 };
+    expect(resolveDockDrag(r(4, 568, 100), { x: 4, y: -100 }, [], T)).toEqual({ x: 4, y: 26 });
+  });
+
+  it('řady se stosují jen nad lištu screenu (níž se nové místo nehledá)', () => {
+    const T = { width: 300, height: 200, top: 26 };
+    const taken = [];
+    let slot = findFreeSlot(taken, 300 - 2 * DOCK_GAP, 28, T);
+    const seen = [];
+    for (let i = 0; i < 10; i += 1) {
+      seen.push(slot.y);
+      taken.push({ ...slot, w: 300 - 2 * DOCK_GAP, h: 28 });
+      slot = findFreeSlot(taken, 300 - 2 * DOCK_GAP, 28, T);
+    }
+    expect(Math.min(...seen)).toBeGreaterThanOrEqual(26);      // nikdy pod lištu
+  });
+
   it('tažení: volný cíl projde; kolize → náraz (zkusí jen x, jen y, jinak stojí)', () => {
     const others = [r(300, 568, 100)];
     const prev = r(4, 568, 100);

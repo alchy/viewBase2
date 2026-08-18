@@ -5,7 +5,11 @@
  *  Proužky jdou tahat (uvnitř plátna), pamatují si pozici a nikdy se
  *  nepřekryjí: mezi sebou drží DOCK_GAP px ze všech stran – při tažení do
  *  souseda „narazí" (uživatelské rozhodnutí). Z-order řeší WindowManager
- *  (proužky jsou vždy za všemi okny). */
+ *  (proužky jsou vždy za všemi okny).
+ *
+ *  `bounds` je plocha screenu `{width, height, top}`; `top` je spodní hrana
+ *  lišty screenu (SCREEN_BAR_HEIGHT) – proužek pod ni nesmí zajet, stejně
+ *  jako se tam nedostane lišta obyčejného okna (base_window#clampDragPosition). */
 
 export const DOCK_GAP = 4;   // px mezera mezi proužky ze všech stran
 
@@ -15,11 +19,13 @@ export function overlaps(a, b, gap = DOCK_GAP) {
     && a.y < b.y + b.h + gap && a.y + a.h + gap > b.y;
 }
 
-/** Přichyť obdélník celý na plátno (proužek nesmí ven). */
+/** Přichyť obdélník celý na plátno pod lištu screenu (proužek nesmí ven
+ *  ani pod lištu – `bounds.top`, výchozí 0). */
 export function clampRect(rect, bounds) {
+  const top = bounds.top ?? 0;
   return {
     x: Math.max(0, Math.min(rect.x, bounds.width - rect.w)),
-    y: Math.max(0, Math.min(rect.y, bounds.height - rect.h)),
+    y: Math.max(top, Math.min(rect.y, bounds.height - rect.h)),
   };
 }
 
@@ -28,7 +34,8 @@ export function clampRect(rect, bounds) {
  *  kraj), aby se různě široké proužky skládaly těsně s mezerou. */
 export function findFreeSlot(others, w, h, bounds, gap = DOCK_GAP) {
   const rowH = h + gap;
-  for (let y = bounds.height - h - gap; y >= 0; y -= rowH) {
+  const top = bounds.top ?? 0;
+  for (let y = bounds.height - h - gap; y >= top; y -= rowH) {
     const inRow = others.filter((o) => o.y < y + h + gap && o.y + o.h + gap > y);
     const starts = [gap, ...inRow.map((o) => o.x + o.w + gap)].sort((a, b) => a - b);
     for (const x of starts) {
@@ -37,7 +44,7 @@ export function findFreeSlot(others, w, h, bounds, gap = DOCK_GAP) {
       if (!inRow.some((o) => overlaps(cand, o, gap))) return { x, y };
     }
   }
-  return { x: gap, y: 0 };   // plátno plné – aspoň levý horní roh
+  return { x: gap, y: top };   // plátno plné – aspoň hned pod lištu vlevo
 }
 
 /** Tažení proužku: cíl přichycený na plátno; koliduje-li se sousedem, zkus

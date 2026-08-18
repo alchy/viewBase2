@@ -204,6 +204,12 @@ export class BaseWindow {
     };
   }
 
+  /** Plocha pro proužek v doku: plátno POD lištou screenu (proužek se pod ni
+   *  nesmí zasunout – stejná mez jako u lišty obyčejného okna). */
+  _dockBounds() {
+    return { ...this._bounds(), top: SCREEN_BAR_HEIGHT };
+  }
+
   _buildHeader() {
     const bar = document.createElement('div');
     bar.dataset.role = 'vb-titlebar';
@@ -314,7 +320,8 @@ export class BaseWindow {
           // proužek v doku: celý na plátně, do jiných proužků „narazí"
           // (4px mezera), viz wm/dock.js
           const prev = { x: this.x, y: this.y, w: this.el.offsetWidth, h: this.el.offsetHeight };
-          const pos = resolveDockDrag(prev, { x, y }, this.manager.dockRects(this), this._bounds());
+          const pos = resolveDockDrag(prev, { x, y }, this.manager.dockRects(this),
+            this._dockBounds());
           this._place(pos.x, pos.y);
           return;
         }
