@@ -16,6 +16,8 @@ export class Connection {
     onStatus = () => {},
     onAction = () => {},
     onLog = () => {},
+    onSession = () => {},
+    onLoginFailed = () => {},
     resolveStore = null,
   } = {}) {
     this.url = url;
@@ -28,6 +30,8 @@ export class Connection {
     this.onStatus = onStatus;
     this.onAction = onAction;
     this.onLog = onLog;
+    this.onSession = onSession;
+    this.onLoginFailed = onLoginFailed;
     // multi-screen (ScreenManager.resolveStore): jedna zpráva může patřit
     // kterémukoli screenu podle screen_id – bez resolveStore (dnešní
     // jednoscreenové použití) se pořád použije jediný this.store.
@@ -82,6 +86,12 @@ export class Connection {
       this.onAction(msg);
     } else if (msg.type === 'log') {
       this.onLog(msg);
+    } else if (msg.type === 'session') {
+      // kdo je přihlášený a kolik ploch zůstalo skryté; `hidden > 0` u
+      // anonymní relace je jediný signál, že se má o co přihlásit
+      this.onSession(msg);
+    } else if (msg.type === 'login_failed') {
+      this.onLoginFailed();
     } else if (msg.type === 'error') {
       console.error('viewbase server:', msg.error);
       if (msg.error === 'protocol_mismatch') {

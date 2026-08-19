@@ -14,12 +14,12 @@ from viewbase.log import bus
 #: Co která vestavěná událost potřebuje. Když někdo přidá desátou, test
 #: spadne a donutí ho rozhodnout se – to je jeho smysl.
 OCEKAVANE = {
-    "window_submit": Needs.GRANT,
-    "terminal_input": Needs.GRANT,
-    "html_event": Needs.GRANT,
-    "shell_input": Needs.GRANT,
-    "shell_resize": Needs.GRANT,
-    "window_lock": Needs.GRANT,
+    "window_submit": Needs.USE,
+    "terminal_input": Needs.USE,
+    "html_event": Needs.USE,
+    "shell_input": Needs.USE,
+    "shell_resize": Needs.USE,
+    "window_lock": Needs.USE,
     "window_unlock": Needs.NONE,     # cesta, jak grant získat (kód + rate limit)
     "shell_new": Needs.NONE,         # okno vzniká zamčené, platí strop
     "menu_select": Needs.NONE,       # autorský callback, žádné tajemství
@@ -75,7 +75,7 @@ def test_grant_se_vynucuje_v_dispatchi_ne_v_handleru(zaznamy):
         w.label("tajné")
         c.open_html(w)
         c._register("html_event", lambda e: videno.append(e),   # noqa: SLF001
-                    needs=Needs.GRANT)
+                    needs=Needs.USE)
 
         c.dispatch_event("html_event", {"window_id": "panel", "event": "klik",
                                         "sid": "cizi", "remote_ip": "89.24.1.2"})
@@ -99,7 +99,7 @@ def test_nezabezpecene_okno_grant_nepotrebuje():
     try:
         c.open_html(HtmlWindow("verejne"))
         c._register("html_event", lambda e: videno.append(e),   # noqa: SLF001
-                    needs=Needs.GRANT)
+                    needs=Needs.USE)
         c.dispatch_event("html_event", {"window_id": "verejne", "event": "klik"})
         time.sleep(0.3)
         assert len(videno) == 1

@@ -212,6 +212,16 @@ class Access:
         #: něj se hledají práva v souboru politiky
         self.object_id = object_id
 
+    def rename(self, object_id: str) -> None:
+        """Dej objektu jeho konečnou adresu (`screen:provoz/window:mzdy`).
+
+        Okno vzniká dřív, než ví, na které ploše skončí – a teprve celá
+        adresa je klíč, pod kterým ho zná soubor politiky. Přejmenování je
+        tichá operace: práva se nemění, jen se ví, čí jsou."""
+        self.object_id = object_id
+        self.see._kde = f"{object_id} see"
+        self.write._kde = f"{object_id} write"
+
     def effective_see(self, fallback: Iterable[str]) -> set[str]:
         """Kdo vidí: soubor politiky, jinak vlastní ACL, jinak zděděné."""
         ze_souboru = override_for(self.object_id)

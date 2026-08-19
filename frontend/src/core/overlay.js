@@ -60,17 +60,21 @@ export function createOverlay({ color, flash = false, role = 'vb-overlay',
     return div;
   };
 
-  let inputEl = null;
-  if (input) {
-    inputEl = document.createElement('input');
-    inputEl.type = 'text';
-    inputEl.dataset.role = `${role}-input`;
-    inputEl.style.cssText = [
+  /** Pole ve stejném stylu jako zbytek boxu. Výzva k odemčení má jedno
+   *  (kód), přihlášení dvě (jméno a kód) – proto továrnička, ne jeden pevný
+   *  input: jinak by se stylování rozešlo hned u druhého pole. */
+  const field = ({ name = 'input', width = '10ch', spacing = '3px' } = {}) => {
+    const el2 = document.createElement('input');
+    el2.type = 'text';
+    el2.dataset.role = `${role}-${name}`;
+    el2.style.cssText = [
       'font:inherit', `color:${color}`, 'background:transparent',
-      `border:2px solid ${color}`, 'padding:2px 10px', 'width:10ch',
-      'text-align:center', 'letter-spacing:3px', 'outline:none', 'margin:8px 0',
+      `border:2px solid ${color}`, 'padding:2px 10px', `width:${width}`,
+      'text-align:center', `letter-spacing:${spacing}`, 'outline:none',
+      'margin:8px 0',
     ].join(';');
-  }
+    return el2;
+  };
 
-  return { el, box, line, input: inputEl };
+  return { el, box, line, field, input: input ? field() : null };
 }

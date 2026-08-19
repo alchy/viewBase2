@@ -53,6 +53,16 @@ export class ScreenManager {
     return container;
   }
 
+  /** Kdo je přihlášený (`null` = anonymní relace). Drží se tady, protože
+   *  plochy vznikají a zanikají – nová instance musí dostat stejnou nabídku
+   *  jako ty, co už běží. */
+  setUser(user) {
+    this.user = user ?? null;
+    for (const instance of this.instances.values()) {
+      instance.bar?.setUserGroup(this.user);
+    }
+  }
+
   /** Zaregistruje novou instanci do zOrder/order/instances, zadrátuje její
    *  vlastní lištu (titulek, depth gadgety, drag) a přeloží stav. Nový
    *  screen jde vždy VZADU (`zOrder.push`), nikdy nekrade focus – první
@@ -61,6 +71,7 @@ export class ScreenManager {
    *  §3a handoveru) se tady doručí dodatečně. */
   _register(screenId, instance) {
     this.instances.set(screenId, instance);
+    instance.bar?.setUserGroup(this.user ?? null);
     this.order.push(screenId);
     this.offsets.set(screenId, 0);
     this.zOrder.push(screenId);

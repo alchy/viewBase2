@@ -38,6 +38,11 @@ DEFAULT_TTL = 900.0
 DEFAULT_MAX_AGE = 8 * 3600.0
 #: Délka session id v bajtech entropie (token_urlsafe je zakóduje).
 SID_BYTES = 24
+#: Jak dlouho platí skupiny zjištěné při přihlášení (s).
+#: Bez obnovy by se odebrání ze skupiny projevilo až po odhlášení – a to je
+#: přesně ta operace, kterou po incidentu potřebujete hned. S obnovou stojí
+#: nejhorší případ pět minut a nestojí to dotaz do adresáře u každé zprávy.
+DEFAULT_GROUPS_TTL = 300.0
 
 
 def new_sid() -> str:
@@ -59,6 +64,7 @@ class SessionStore:
             raise ValueError("ttl i max_age musí být kladné")
         self.ttl = float(ttl)
         self.max_age = float(max_age)
+        self.groups_ttl = DEFAULT_GROUPS_TTL
         self._clock = clock
         self._lock = threading.RLock()
         # sid -> {"born": t, "seen": t, "grants": {window_id: t_grant}}
@@ -91,6 +97,90 @@ class SessionStore:
             fresh = new_sid()
             self._sessions[fresh] = {"born": now, "seen": now, "grants": {}}
             return fresh
+
+    # -- identita relace ---------------------------------------------------
+
+    def login(self, sid: str, username: str, groups: "set[str]") -> None:
+        """Relace je od téhle chvíle ověřená (viz identity.login).
+
+        Jméno bez důkazu se sem nikdy nedostane: volající už kód ověřil."""
+        from .access import user_principals
+
+        with self._lock:
+            rel = self._sessions.get(sid)
+            if rel is None:
+                return
+            rel["user"] = username
+            rel["groups"] = set(groups)
+            rel["groups_at"] = self._clock()
+            rel["principals"] = user_principals(username, groups)
+
+    def logout(self, sid: str | None) -> str | None:
+        """Zpátky na anonymní relaci; granty padají s ní. Vrátí, kdo odešel.
+
+        Relace se NERUŠÍ – prohlížeč si dál drží totéž `vb_sid` a jen ztratí
+        identitu i granty. Kdyby se zrušila, další zpráva by dostala nové id
+        a vypadalo by to jako reconnect cizího klienta."""
+        with self._lock:
+            rel = self._sessions.get(sid or "")
+            if rel is None:
+                return None
+            kdo = rel.pop("user", None)
+            rel.pop("groups", None)
+            rel.pop("groups_at", None)
+            rel.pop("principals", None)
+            rel["grants"] = {}
+            return kdo
+
+    def user(self, sid: str | None) -> str | None:
+        """Kdo je v relaci přihlášený (`None` = anonymní)."""
+        with self._lock:
+            rel = self._sessions.get(sid or "")
+            return rel.get("user") if rel else None
+
+    def principals(self, sid: str | None) -> set[str]:
+        """Principálové relace pro autorizaci (viz access.allowed).
+
+        Anonymní relace má jen `group:public` – proto vidí jen to, co je
+        výslovně veřejné. Skupiny se po `groups_ttl` obnoví ze zdroje identit,
+        aby odebrání ze skupiny zabralo i za běhu."""
+        from .access import PUBLIC, user_principals
+
+        with self._lock:
+            rel = self._sessions.get(sid or "")
+            if rel is None or not rel.get("user"):
+                return {PUBLIC}
+            stare = self._clock() - rel.get("groups_at", 0.0) > self.groups_ttl
+            if not stare:
+                return set(rel["principals"])
+            jmeno = rel["user"]
+        # Dotaz do zdroje identit MIMO zámek: LDAP může být pomalý a držet
+        # kvůli němu tabulku relací by zastavilo i broadcast.
+        from . import identity
+
+        try:
+            skupiny = identity.provider.groups_of(jmeno)
+        except Exception:
+            from .logger import logger
+
+            logger.exception(f"identity source failed for '{jmeno}' – "
+                             "keeping the previously resolved groups",
+                             component="server")
+            with self._lock:
+                rel = self._sessions.get(sid or "")
+                return set(rel["principals"]) if rel and rel.get("principals") \
+                    else {PUBLIC}
+        with self._lock:
+            rel = self._sessions.get(sid or "")
+            if rel is None or not rel.get("user"):
+                return {PUBLIC}
+            if skupiny != rel.get("groups"):
+                self._ohlas(f"groups of '{jmeno}' changed: "
+                            f"{sorted(skupiny)}", sid)
+            rel["groups"] = set(skupiny)
+            rel["groups_at"] = self._clock()
+            rel["principals"] = user_principals(jmeno, skupiny)
+            return set(rel["principals"])
 
     def known(self, sid: str | None) -> bool:
         with self._lock:
@@ -128,6 +218,19 @@ class SessionStore:
             rel = self._sessions.get(sid or "")
             if rel is not None:
                 rel["grants"].pop(str(window_id), None)
+
+    def revoke_all(self, sid: str | None) -> int:
+        """Zamkni relaci všechna okna naráz („Lock All Windows").
+
+        Odchod od stroje bez odhlášení: identita zůstává, ale obsah
+        privátních oken se zase schová a chce kód."""
+        with self._lock:
+            rel = self._sessions.get(sid or "")
+            if rel is None:
+                return 0
+            kolik = len(rel["grants"])
+            rel["grants"] = {}
+            return kolik
 
     def revoke_window(self, window_id: str) -> None:
         """Okno se zamklo pro všechny (zavření okna, `Lock all windows`)."""
@@ -185,12 +288,15 @@ class SessionStore:
 store = SessionStore()
 
 
-def configure(*, ttl: float | None = None, max_age: float | None = None) -> None:
+def configure(*, ttl: float | None = None, max_age: float | None = None,
+              groups_ttl: float | None = None) -> None:
     """Přenastav globální tabulku (volá `vb.Project(session_ttl=…)`)."""
     if ttl is not None:
         store.ttl = float(ttl)
     if max_age is not None:
         store.max_age = float(max_age)
+    if groups_ttl is not None:
+        store.groups_ttl = float(groups_ttl)
 
 
 def reset() -> None:

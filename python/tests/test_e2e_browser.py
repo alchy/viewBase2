@@ -122,3 +122,81 @@ def test_relace_prezije_reload(stranka, instance):
     stranka.reload()
     stranka.wait_for_selector('[data-window-id="tajne"] iframe', timeout=15000)
     assert not stranka.locator('[data-role="vb-unlock"]').is_visible()
+
+
+# ---- přihlášení k zavřené instanci ---------------------------------------
+
+@pytest.fixture
+def zavrena_instance(tmp_path, monkeypatch):
+    """Instance s výchozím `group:users`: anonymní divák nevidí NIC.
+
+    Tohle je celý smysl etapy vynucení – a zároveň jediné místo, kde se dá
+    ověřit, že se obsah opravdu neodešle, ne jen schová v DOMu."""
+    from viewbase import access, identity, screen as screen_mod
+
+    monkeypatch.setenv("VIEWBASE_HOME", str(tmp_path))
+    mfa.reset_state()
+    identity.reset()
+    sessions.reset()
+    screen_mod.reset_allocator()
+    access.reset_default()
+
+    zaznam = mfa.ensure_user("hana")
+    users = mfa.load_users()
+    users["hana"]["groups"] = ["group:ucetni"]
+    mfa.save_users(users)
+
+    screen = vb.Screen(title="Účtárna", access=["group:ucetni"])
+    graph = vb.GraphWindow(screen=screen, title="Síť")
+    okno = vb.HtmlWindow("mzdy", title="Mzdy", width=320, height=140)
+    graph.open_html(okno)
+    okno.label("MZDY-TAJNE-7")
+
+    project = vb.Project(port=0)
+    handle = project.serve(screen, block=False)
+    yield (f"http://127.0.0.1:{handle.port}/",
+           pyotp.TOTP(zaznam["totp_secret"]))
+    project.stop()
+    sessions.reset()
+    mfa.reset_state()
+    identity.reset()
+    access.reset_default()
+
+
+def test_zavrena_instance_chce_prihlaseni_a_pak_pusti_dovnitr(zavrena_instance):
+    adresa, totp = zavrena_instance
+    with playwright_api.sync_playwright() as pw:
+        prohlizec = pw.chromium.launch()
+        page = prohlizec.new_page()
+        page.goto(adresa)
+
+        # 1. anonymní divák: výzva ano, obsah ne
+        page.wait_for_selector('[data-role="vb-login"]', timeout=15000)
+        assert "MZDY-TAJNE-7" not in page.content()
+        assert page.locator('[data-window-id="mzdy"]').count() == 0
+
+        # 2. špatný kód instanci neotevře
+        page.fill('[data-role="vb-login-user"]', "hana")
+        page.fill('[data-role="vb-login-code"]', "000000")
+        page.press('[data-role="vb-login-code"]', "Enter")
+        page.wait_for_selector('[data-role="vb-login-error"]:not(:empty)',
+                               timeout=15000)
+        assert page.locator('[data-window-id="mzdy"]').count() == 0
+
+        # 3. kód z autentikátoru: plocha i okno dorazí
+        page.fill('[data-role="vb-login-code"]', totp.now())
+        page.press('[data-role="vb-login-code"]', "Enter")
+        page.wait_for_selector('[data-window-id="mzdy"]', timeout=15000)
+        assert "MZDY-TAJNE-7" in page.content()
+        assert page.locator('[data-role="vb-login"]').is_hidden()
+
+        # 4. lišta ví, kdo je přihlášený, a nabízí odhlášení
+        page.click('[data-role="vb-menu-group"]:has-text("User: hana")')
+        assert page.locator(
+            '[data-role="vb-menu-item"]:has-text("Log Out")').count() == 1
+        page.click('[data-role="vb-menu-item"]:has-text("Log Out")')
+
+        # 5. po odhlášení plocha zase zmizí a výzva se vrátí
+        page.wait_for_selector('[data-role="vb-login"]', timeout=15000)
+        assert page.locator('[data-window-id="mzdy"]').count() == 0
+        prohlizec.close()

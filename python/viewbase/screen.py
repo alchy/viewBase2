@@ -19,6 +19,7 @@ from __future__ import annotations
 import threading
 from typing import TYPE_CHECKING, Any
 
+from .access import Access
 from .graph_util import BUILTIN_THEMES, QUALITIES, _validated_theme
 
 if TYPE_CHECKING:
@@ -54,10 +55,15 @@ class Screen:
     fungovat i BEZ přiřazeného GraphWindow (viz modul docstring)."""
 
     def __init__(self, *, title: str = "viewbase", theme: Any = "modern",
-                 quality: str = "auto") -> None:
+                 quality: str = "auto",
+                 access: "list[str] | None" = None) -> None:
         if quality not in QUALITIES:
             raise ValueError(f"quality musí být jedno z {QUALITIES}")
         self.id = _allocate_id()
+        #: Kdo plochu vidí. BRÁNA PRO VŠECHNO NA NÍ: kdo se nedostane sem,
+        #: nedostane žádné její okno ani zprávu. Nenastavené dědí výchozí
+        #: hodnotu instance (`vb.Project(default_access=…)`).
+        self.access = Access(see=access, object_id=f"screen:{self.id}")
         self.title = title
         self.theme = _validated_theme(theme)
         self.quality = quality

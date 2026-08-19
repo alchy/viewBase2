@@ -57,3 +57,16 @@ def decode(raw: str) -> dict[str, Any]:
     if not isinstance(message, dict) or "type" not in message:
         raise ValueError("Zpráva musí být JSON objekt s polem 'type'")
     return message
+
+
+def session_message(*, user: str | None, visible: int,
+                    hidden: int) -> dict[str, Any]:
+    """Kdo je v relaci přihlášený a kolik ploch mu zůstalo skryté.
+
+    `hidden > 0` u anonymní relace je jediný poctivý signál, že se má o co
+    přihlásit: veřejná instance pošle plochy rovnou a přihlašovací výzvu
+    nikdo nevidí, zavřená pošle nulu a klient ví, že má požádat o jméno
+    a kód. Nikdy se neposílá, CO je skryté – to by prozradilo existenci
+    ploch, které relace vidět nemá."""
+    return {"type": "session", "user": user,
+            "visible": int(visible), "hidden": int(hidden)}

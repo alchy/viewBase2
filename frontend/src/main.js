@@ -1,5 +1,6 @@
 import { Connection } from './core/connection.js';
 import { GuruMeditation } from './core/guru_meditation.js';
+import { LoginPrompt } from './core/login_prompt.js';
 import { StatusOverlay } from './core/status.js';
 import { formatLogLine } from './plugins/log.js';
 import { ScreenManager } from './wm/screen_manager.js';
@@ -35,6 +36,7 @@ function bootstrap() {
   // (resolveStore/onAction) čte proměnnou až při první zprávě ze serveru,
   // tou dobou je `screenManager` už přiřazený.
   let screenManager;
+  let login;
   const wsScheme = location.protocol === 'https:' ? 'wss' : 'ws';
   const connection = new Connection(`${wsScheme}://${location.host}/ws`, null, {
     resolveStore: (screenId) => screenManager.resolveStore(screenId),
@@ -61,6 +63,14 @@ function bootstrap() {
       if (msg.action === 'screen_remove') screenManager.remove(msg.screen_id);
       else screenManager.routeAction(msg);
     },
+    onSession: (msg) => {
+      // Přihlašovací výzva se ukáže JEN tehdy, když je opravdu o co přijít:
+      // veřejná instance pošle plochy rovnou a divák žádnou výzvu nevidí.
+      screenManager.setUser(msg.user);
+      if (!msg.user && msg.hidden > 0) login.ask();
+      else login.hide();
+    },
+    onLoginFailed: () => login.reject(),
     onLog: (record) => {
       // „Log má vždy timestamp" (uživatelský požadavek): razítkuje se čas
       // PŘÍJMU na frontendu – jednotné hodiny pro všechny zdroje, backend
@@ -79,6 +89,7 @@ function bootstrap() {
     },
   });
   screenManager = new ScreenManager(root, connection);
+  login = new LoginPrompt(document.body, (msg) => connection.send(msg));
   connection.connect();
   window.__viewbase = { screenManager, connection };
 }

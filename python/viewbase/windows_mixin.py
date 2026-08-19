@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from . import access as access_module
 from . import sessions
 from .controls import (ControlWindow, HtmlWindow, ShellWindow, TerminalWindow,
                        validate_values)
@@ -70,7 +71,7 @@ class WindowsMixin:
         Pozor: při nahrazení okna stejného window_id bez on_submit se předchozí
         callback zruší – chceš-li ho zachovat, předej on_submit znovu."""
         with self._lock:
-            self._reg.add(window)
+            self._adopt(window)
             self._window_live[window.window_id] = bool(live)
             if on_submit is not None:
                 self._window_callbacks[window.window_id] = on_submit
@@ -110,7 +111,7 @@ class WindowsMixin:
         open_window (kind:"terminal"). `on_input` dostane event s .line (řádek,
         co uživatel napsal). Do okna se píše přes `terminal_write`."""
         with self._lock:
-            self._reg.add(window)
+            self._adopt(window)
             if on_input is not None:
                 self._terminal_callbacks[window.window_id] = on_input
             else:
@@ -149,7 +150,7 @@ class WindowsMixin:
         `html_set` / `html_append`. Nahrazení okna stejného window_id bez
         `on_event` předchozí callback zruší (stejně jako open_terminal)."""
         with self._lock:
-            self._reg.add(window)
+            self._adopt(window)
             window._owner = self             # prvky odteď posílají html_set/html_patch
             if on_event is not None:
                 self._html_callbacks[window.window_id] = on_event
@@ -230,7 +231,7 @@ class WindowsMixin:
         open_window. PTY se NESPOUŠTÍ – okno je zamčené a odemykací kód se
         vypíše do konzole serveru (`unlock=None` spustí shell rovnou)."""
         with self._lock:
-            self._reg.add(window)
+            self._adopt(window)
             window._owner = self
             self._emit_open(window)
         if window.locked:
@@ -395,11 +396,100 @@ class WindowsMixin:
             return f"token of user '{mfa.active_user()}'"
         return "one-time code"
 
+    # ---- přístup: plocha je brána, okno zúžení -----------------------------
+
+    def _adopt(self, window: Any) -> str:
+        """Zaeviduj okno a dej mu jeho ADRESU na téhle ploše.
+
+        Okno vzniká samostatně (`HtmlWindow("mzdy")`) a teprve tady se
+        dozví, kam patří. Pod celou adresou (`screen:1/window:mzdy`) ho zná
+        soubor politiky – kdyby stačilo `window:mzdy`, dvě plochy se stejně
+        pojmenovaným oknem by sdílely práva."""
+        acl = getattr(window, "access", None)
+        if acl is not None:
+            acl.rename(f"screen:{self.screen_id}/window:{window.window_id}"
+                       if self.screen_id is not None
+                       else f"window:{window.window_id}")
+        return self._reg.add(window)
+
+    def _screen_acl(self) -> set[str]:
+        """Kdo vidí tuhle plochu. Bez přiřazeného Screenu platí výchozí
+        hodnota instance – graf bez plochy je pořád objekt s právy."""
+        screen = getattr(self, "screen", None)
+        if screen is None:
+            return set(access_module.DEFAULT_ACCESS)
+        return screen.access.effective_see(access_module.DEFAULT_ACCESS)
+
+    def acl_for_action(self, action: dict[str, Any]) -> list[str]:
+        """Komu se smí tahle akce doručit (principálové, ne relace).
+
+        „Nevidíš" musí znamenat „NEODEŠLE SE", ne skrytí v prohlížeči – jinak
+        stačí otevřít vývojářskou konzoli. Akce mířící do okna se proto
+        adresuje ACL toho okna; akce bez okna (`screen_remove`, nabídka)
+        patří ploše."""
+        window = self._reg.get(action.get("window_id"))
+        if window is None or getattr(window, "access", None) is None:
+            return sorted(self._screen_acl())
+        return sorted(window.access.effective_see(self._screen_acl()))
+
+    def acl_for_log(self) -> list[str]:
+        """Komu se smí doručit záznam logu.
+
+        Logem teče auditní stopa – IP adresy, prefixy relací, příkazy ze
+        shellu. Log okno je vlastnost plochy (`vb.LogWindow(screen=…)`),
+        takže platí ACL té plochy, případně vlastní, když si ho log vyžádal."""
+        vlastni = getattr(getattr(self, "screen", None), "_log_access", None)
+        if vlastni is not None and vlastni.is_set:
+            return sorted(vlastni)
+        return sorted(self._screen_acl())
+
+    def _principals(self, sid: str | None) -> set[str]:
+        return sessions.store.principals(sid)
+
+    def _can_see_screen(self, sid: str | None) -> bool:
+        """Plocha je BRÁNA: kdo se nedostane sem, nedostane nic na ní."""
+        return access_module.allowed(self._principals(sid), self._screen_acl())
+
+    def _can_see(self, sid: str | None, window: Any) -> bool:
+        """Vidí tahle relace tohle okno? (Plocha i okno musí projít.)"""
+        if not self._can_see_screen(sid):
+            return False
+        acl = getattr(window, "access", None)
+        if acl is None:
+            return True
+        return acl.can_see(self._principals(sid), self._screen_acl())
+
+    def _can_use(self, sid: str | None, window: Any) -> bool:
+        """Smí tahle relace do okna zasahovat? Nenastavené `write` znamená
+        totéž co „vidět" (viz access.Access.effective_write)."""
+        if not self._can_see_screen(sid):
+            return False
+        acl = getattr(window, "access", None)
+        if acl is None:
+            return True
+        return acl.can_use(self._principals(sid), self._screen_acl())
+
+    def _access_ok(self, event: Any, window: Any, verb: str) -> bool:
+        """Kontrola ACL pro událost; odmítnutí jde do auditu.
+
+        Odmítnutí NENÍ tichý no-op: na vystavené instanci je pokus sáhnout na
+        cizí okno přesně to, co chcete vidět v logu."""
+        sid = getattr(event, "sid", None)
+        dovoleno = (self._can_use(sid, window) if verb == "use"
+                    else self._can_see(sid, window))
+        if not dovoleno:
+            kdo = sessions.store.user(sid) or "anonymous"
+            self._log_auth("warning",
+                           f"access to window '{window.window_id}' refused "
+                           f"({verb}) – '{kdo}' is not in its ACL",
+                           **self._origin(event))
+        return dovoleno
+
     def _grant_ok(self, event: Any, window: Any) -> bool:
         """Smí tahle relace do okna psát?
 
         VOLÁ SE Z `dispatch_event` podle toho, co událost deklarovala při
-        registraci (`needs=Needs.GRANT`) – handlery si na to nesmí
+        registraci (`needs=Needs.USE`/`SEE`) – handlery si na to nesmí
         vzpomínat samy, protože přesně to se dřív nestalo u pěti z devíti.
 
         NALEZENO PŘI KONTROLE: `shell_input` grant vůbec neověřoval – stačilo
@@ -525,7 +615,11 @@ class WindowsMixin:
         procházely čtyřmi skoro totožnými comprehension – jediný rozdíl je
         `live` u control oken. Volá se pod `self._lock` (viz snapshot)."""
         out = []
+        if not self._can_see_screen(sid):
+            return out                  # plocha je brána: nejde ani seznam
         for wid, w in self._reg:
+            if not self._can_see(sid, w):
+                continue                # „nevidíš" znamená „neodešle se"
             spec = w.public_spec(self._unlocked(sid, wid))
             if isinstance(w, ControlWindow):     # `live` má smysl jen u formuláře
                 spec["live"] = self._window_live.get(wid, False)

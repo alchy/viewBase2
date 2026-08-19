@@ -101,15 +101,16 @@ class GraphWindow(EventsMixin, FlowsMixin, WindowsMixin):
         self._tasks: list[dict[str, Any]] = []      # every() úlohy
         self._tasks_stop: threading.Event | None = None   # None = neběží
         # AUTORIZAČNÍ MAPA CELÉ KNIHOVNY – čitelná na jednom místě.
-        # `Needs.GRANT` = zabezpečené okno vyžaduje grant relace; `Needs.NONE`
-        # = událost okno neotevírá. `window_unlock` je NONE schválně: je to
-        # cesta, jak grant získat (chrání ji kód a rate limit v mfa.py).
-        self._register("window_submit", self._on_window_submit, needs=Needs.GRANT)
-        self._register("terminal_input", self._on_terminal_input, needs=Needs.GRANT)
-        self._register("html_event", self._on_html_event, needs=Needs.GRANT)
-        self._register("shell_input", self._on_shell_input, needs=Needs.GRANT)
-        self._register("shell_resize", self._on_shell_resize, needs=Needs.GRANT)
-        self._register("window_lock", self._on_window_lock, needs=Needs.GRANT)
+        # `Needs.USE` = událost do okna zasahuje (ACL pro zápis + grant u
+        # privátního okna), `Needs.SEE` = jen čte, `Needs.NONE` = žádného
+        # okna se netýká. `window_unlock` je NONE schválně: je to cesta, jak
+        # grant získat (chrání ji kód a rate limit v mfa.py).
+        self._register("window_submit", self._on_window_submit, needs=Needs.USE)
+        self._register("terminal_input", self._on_terminal_input, needs=Needs.USE)
+        self._register("html_event", self._on_html_event, needs=Needs.USE)
+        self._register("shell_input", self._on_shell_input, needs=Needs.USE)
+        self._register("shell_resize", self._on_shell_resize, needs=Needs.USE)
+        self._register("window_lock", self._on_window_lock, needs=Needs.USE)
         self._register("window_unlock", self._on_window_unlock, needs=Needs.NONE)
         self._register("shell_new", self._on_shell_new, needs=Needs.NONE)
         self._register("menu_select", self._on_menu_select, needs=Needs.NONE)

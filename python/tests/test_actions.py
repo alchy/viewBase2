@@ -4,6 +4,18 @@ from fastapi.testclient import TestClient
 from viewbase import GraphWindow, create_app, protocol
 
 
+
+def _dalsi(ws):
+    """Další zpráva, která není `session`.
+
+    Po init teď server hlásí, kdo je v relaci přihlášený a kolik ploch
+    zůstalo skryté (protocol.session_message) – testy obsahu to nezajímá."""
+    while True:
+        msg = protocol.decode(ws.receive_text())
+        if msg["type"] != "session":
+            return msg
+
+
 def test_actions_queue_and_drain():
     c = GraphWindow()
     c.add_node("a")
@@ -62,7 +74,7 @@ def test_action_is_delivered_over_ws():
             # Před akcí může přijít patch (pending delta add_node "a") – přeskočit
             msg = None
             for _ in range(5):
-                msg = protocol.decode(ws.receive_text())
+                msg = _dalsi(ws)
                 if msg["type"] == "action":
                     break
             assert msg == {"type": "action", "screen_id": None,
@@ -78,8 +90,8 @@ def test_patch_arrives_before_action_from_same_window():
             assert protocol.decode(ws.receive_text())["type"] == "init"
             canvas.add_node("b")
             canvas.show_detail("b")
-            first = protocol.decode(ws.receive_text())
-            second = protocol.decode(ws.receive_text())
+            first = _dalsi(ws)
+            second = _dalsi(ws)
             assert first["type"] == "patch"
             assert [n["id"] for n in first["add_nodes"]] == ["b"]
             assert second == {"type": "action", "screen_id": None,

@@ -19,16 +19,19 @@ class Needs:
     """Co událost potřebuje, aby se vůbec dostala k handleru.
 
     Není to enum kvůli jedné věci: hodnoty jdou do `_register(needs=…)` a
-    v kódu se čtou jako `Needs.GRANT`, ale v testech a introspekci registru
+    v kódu se čtou jako `Needs.USE`, ale v testech a introspekci registru
     jako obyčejné řetězce."""
 
     #: nic – událost neotevírá okno (menu, klik do grafu, `window_unlock`)
     NONE = "none"
-    #: relace musí mít grant k oknu z `payload["window_id"]`
-    GRANT = "grant"
+    #: relace musí okno VIDĚT (ACL `access`) – čtení obsahu
+    SEE = "see"
+    #: relace musí do okna smět ZASAHOVAT (ACL `access_write`) – vstup,
+    #: odeslání formuláře, klávesy do shellu
+    USE = "use"
 
 
-NEEDS = {Needs.NONE, Needs.GRANT}
+NEEDS = {Needs.NONE, Needs.SEE, Needs.USE}
 
 
 class EventsMixin:
@@ -120,8 +123,11 @@ class EventsMixin:
         autor tu otázku zodpověděl, a celá autorizace se dá přečíst na jednom
         místě místo čtení devíti funkcí.
 
-        - `Needs.GRANT` – událost sahá na okno; u zabezpečeného okna musí mít
-          relace grant (jinak se zahodí a jde to do auditu),
+        - `Needs.USE` – událost do okna ZASAHUJE (vstup, odeslání formuláře,
+          klávesy do shellu): musí projít ACL pro zápis a u privátního okna
+          i grant relace,
+        - `Needs.SEE` – událost jen čte obsah okna: stačí ACL pro čtení
+          (a grant u privátního okna),
         - `Needs.NONE` – událost žádné okno neotevírá (`window_unlock` je
           naopak CESTA ke grantu, `menu_select` nic tajného nenese).
         """
@@ -138,8 +144,9 @@ class EventsMixin:
         """Spustí handlery eventu ve sdíleném thread-poolu (smí blokovat).
         Neznámý event je no-op; výjimka handleru se zaloguje, server běží dál.
 
-        AUTORIZACE SE ŘEŠÍ TADY, ne v handlerech: událost s `Needs.GRANT` se
-        k handleru vůbec nedostane, pokud relace nemá grant k jejímu oknu."""
+        AUTORIZACE SE ŘEŠÍ TADY, ne v handlerech: událost se k handleru vůbec
+        nedostane, pokud relace neprojde ACL plochy, ACL okna a u privátního
+        okna i grantem."""
         with self._lock:
             if self._closed:
                 return
@@ -148,20 +155,30 @@ class EventsMixin:
         if not handlers:
             return
         event = types.SimpleNamespace(**payload)
-        if needs == Needs.GRANT and not self._event_allowed(name, event):
+        if needs != Needs.NONE and not self._event_allowed(needs, event):
             return
         for handler in handlers:
             self._executor.submit(self._run_handler, handler, name, event)
 
-    def _event_allowed(self, name: str, event: Any) -> bool:
-        """Smí tahle událost k handleru? (Jen pro `Needs.GRANT`.)
+    def _event_allowed(self, needs: str, event: Any) -> bool:
+        """Smí tahle událost k handleru? Tři brány v tomhle pořadí:
+
+        1. **ACL plochy** – kdo nevidí plochu, jako by neexistovala,
+        2. **ACL okna** pro dané sloveso (`SEE` → čtení, `USE` → zápis),
+        3. **step-up** – privátní okno chce navíc grant téhle relace.
+
+        Pořadí je záměrné: členství ve skupině říká „tenhle objekt tě smí
+        zajímat", kód říká „a teď jsi to opravdu ty". Kdo neprojde ACL,
+        nemá se co dozvědět ani to, že okno existuje.
 
         Okno se hledá podle `window_id` z payloadu; neexistující okno pustíme
         dál – ať si handler sám řekne, že takové okno nezná (chybová hláška
-        patří jemu). Zabezpečené okno bez grantu se zahodí a jde do auditu."""
+        patří jemu)."""
         window = self._reg.get(getattr(event, "window_id", None))
         if window is None:
-            return True
+            return self._can_see_screen(getattr(event, "sid", None))
+        if not self._access_ok(event, window, needs):
+            return False
         return self._grant_ok(event, window)
 
     @staticmethod

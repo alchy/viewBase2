@@ -5,6 +5,18 @@ from fastapi.testclient import TestClient
 from viewbase import GraphWindow, create_app, protocol
 
 
+
+def _dalsi(ws):
+    """Další zpráva, která není `session`.
+
+    Po init teď server hlásí, kdo je v relaci přihlášený a kolik ploch
+    zůstalo skryté (protocol.session_message) – testy obsahu to nezajímá."""
+    while True:
+        msg = protocol.decode(ws.receive_text())
+        if msg["type"] != "session":
+            return msg
+
+
 def make_client(canvas: GraphWindow) -> TestClient:
     return TestClient(create_app(canvas))
 
@@ -41,7 +53,7 @@ def test_mutation_streams_patch():
             init = protocol.decode(ws.receive_text())
             assert init["type"] == "init"
             canvas.add_node("novy")
-            msg = protocol.decode(ws.receive_text())   # broadcast smyčka ~30 Hz
+            msg = _dalsi(ws)                            # broadcast smyčka ~30 Hz
             assert msg["type"] == "patch"
             assert msg["seq"] == init["seq"] + 1
             assert [n["id"] for n in msg["add_nodes"]] == ["novy"]

@@ -23,7 +23,7 @@ from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import access as access_module
+from . import access
 from . import identity as identity_module
 from . import mfa, protocol, sessions
 from .logger import DEFAULT_LEVEL, logger
@@ -48,18 +48,25 @@ def _resolve_window(windows_by_screen: dict, screen_id) -> GraphWindow | None:
     return None
 
 
-def _deliver_to(action: dict, sid: str | None) -> bool:
-    """Smí tahle akce k téhle relaci?
+def _deliver_to(adresa: dict, sid: str | None) -> bool:
+    """Smí tahle zpráva k téhle relaci? Tři nezávislé značky:
 
-    `only_sid` = přesně jedna relace (odemčení/zamčení), `grant` = kdokoli,
-    kdo má grant k danému oknu (obsah zabezpečeného okna). Bez značky jde
-    akce všem, jako dřív – veřejná okna a prázdné rámy `[private window]`."""
-    only = action.get("only_sid")
-    if only is not None:
-        return sid == only
-    grant = action.get("grant")
-    if grant is not None:
-        return sessions.store.has(sid, grant)
+    - `acl` – principálové, kteří objekt VIDÍ (plocha, okno, log). Tohle je
+      to, co dělá z „nevidíš" skutečné „neodešle se": obsah po drátě vůbec
+      neputuje, místo aby se schovával v prohlížeči,
+    - `only_sid` – přesně jedna relace (odemčení/zamčení),
+    - `grant` – kdokoli, kdo má grant k danému privátnímu oknu.
+
+    Musí projít VŠECHNY, které jsou uvedené."""
+    acl = adresa.get("acl")
+    if acl is not None and not access.allowed(sessions.store.principals(sid), acl):
+        return False
+    only = adresa.get("only_sid")
+    if only is not None and sid != only:
+        return False
+    grant = adresa.get("grant")
+    if grant is not None and not sessions.store.has(sid, grant):
+        return False
     return True
 
 
@@ -86,21 +93,26 @@ async def _broadcast_step(windows: list[GraphWindow], windows_by_screen: dict,
     ODSTRANÍME z `windows`/`windows_by_screen`, ať nový klient vůbec
     nedostane `init` pro screen, který už neexistuje (create/destroy jsou
     explicitní páry, viz screen.py/GraphWindow.close)."""
-    # (zpráva, komu) – zabezpečená okna nejdou všem, viz _deliver_to
+    # (zpráva, komu) – nic nejde všem automaticky, viz _deliver_to
     messages: list[tuple[str, dict | None]] = []
+    log_acl: set[str] = set()
     closed = []
     for window in windows:
         actions = window.drain_actions()
         drained = window.drain()
+        log_acl.update(window.acl_for_log())
         if drained is not None:
             seq, deltas = drained
+            # Delty grafu patří PLOŠE: kdo ji nevidí, nedostane ani je.
             messages.append((protocol.encode(
                 protocol.patch_message(seq, deltas, screen_id=window.screen_id)),
-                None))
+                {"acl": sorted(window._screen_acl())}))
         for action in actions:
             raw = protocol.encode({"type": "action", "screen_id": window.screen_id,
                                    **_wire_action(action)})
-            adresa = action if ("only_sid" in action or "grant" in action) else None
+            adresa = {k: v for k, v in action.items()
+                      if k in ("only_sid", "grant")}
+            adresa["acl"] = window.acl_for_action(action)
             messages.append((raw, adresa))
         if window._closed:
             closed.append(window)
@@ -108,8 +120,11 @@ async def _broadcast_step(windows: list[GraphWindow], windows_by_screen: dict,
         windows.remove(window)
         windows_by_screen.pop(window.screen_id, None)
     if pending_logs:
-        messages.extend((protocol.encode(protocol.log_message(record)), None)
-                        for record in pending_logs)
+        # Logem teče auditní stopa (IP, prefixy relací, příkazy ze shellu) –
+        # nesmí odejít nikomu, kdo by log okno vůbec neviděl.
+        adresa_logu = {"acl": sorted(log_acl)}
+        messages.extend((protocol.encode(protocol.log_message(record)),
+                         adresa_logu) for record in pending_logs)
         pending_logs.clear()
     if not messages or not clients:
         return
@@ -134,6 +149,46 @@ async def _broadcast_loop(windows: list[GraphWindow], windows_by_screen: dict,
                                       pending_logs)
         except Exception as exc:
             logger.exception(f"broadcast loop failed: {exc}", component="server")
+
+
+async def _send_screens(ws: WebSocket, sid: str, windows: list,
+                        videne: set) -> None:
+    """Pošli init ploch, které tahle relace VIDÍ a ještě nedostala.
+
+    Volá se při připojení i po přihlášení – přihlášením se rozsah viditelného
+    rozšíří a klient má dostat jen to nové, ne všechno znovu."""
+    viditelnych = 0
+    for window in windows:
+        if not window._can_see_screen(sid):
+            continue
+        viditelnych += 1
+        if window.screen_id in videne:
+            continue
+        # snapshot PER RELACI: privátní okna bez grantu jdou jen jako
+        # prázdný rám, okna mimo ACL vůbec
+        snap = window.snapshot(sid)
+        await ws.send_text(protocol.encode(
+            protocol.init_message(**snap, sid=sid,
+                                  screen_id=window.screen_id)))
+        videne.add(window.screen_id)
+    await ws.send_text(protocol.encode(protocol.session_message(
+        user=sessions.store.user(sid), visible=viditelnych,
+        hidden=len(windows) - viditelnych)))
+
+
+async def _zavri_neviditelne(ws: WebSocket, sid: str, windows: list,
+                             videne: set) -> None:
+    """Po odhlášení: plochy mimo dosah relace zmizí z klienta."""
+    for window in windows:
+        if window.screen_id in videne and not window._can_see_screen(sid):
+            await ws.send_text(protocol.encode(
+                {"type": "action", "screen_id": window.screen_id,
+                 "action": "screen_remove"}))
+            videne.discard(window.screen_id)
+    await ws.send_text(protocol.encode(protocol.session_message(
+        user=sessions.store.user(sid),
+        visible=sum(1 for w in windows if w._can_see_screen(sid)),
+        hidden=sum(1 for w in windows if not w._can_see_screen(sid)))))
 
 
 def _make_log_relay(loop: asyncio.AbstractEventLoop):
@@ -229,14 +284,9 @@ def create_app(*windows: GraphWindow,
             # AUDIT: kdo se odkud připojil. Jde do logu vždycky, i když je
             # `log_level` nastavená nahoru – jinak by šlo zamést za sebou.
             logger.audit(f"client {client_id} connected", sid=sid, ip=peer)
+            videne: set[int | None] = set()
             async with state_lock:
-                for window in windows_list:
-                    # snapshot PER RELACI: zabezpečená okna bez grantu jdou
-                    # jen jako prázdný rám
-                    snap = window.snapshot(sid)
-                    await ws.send_text(protocol.encode(
-                        protocol.init_message(**snap, sid=sid,
-                                              screen_id=window.screen_id)))
+                await _send_screens(ws, sid, windows_list, videne)
                 clients[ws] = sid
         except WebSocketDisconnect:
             return
@@ -251,6 +301,40 @@ def create_app(*windows: GraphWindow,
                     logger.audit(f"malformed message from client {client_id}: "
                                  f"{raw[:200]!r}", level="warning",
                                  sid=sid, ip=peer)
+                    continue
+                if msg.get("type") == "login":
+                    jmeno = str(msg.get("user") or "").strip()
+                    skupiny = identity_module.login(jmeno, msg.get("code") or "")
+                    if skupiny is None:
+                        # Neúspěch jde do auditu VŽDYCKY: zkoušení jmen a kódů
+                        # je přesně to, co je na vystavené instanci vidět.
+                        logger.audit(f"login failed for user '{jmeno}'",
+                                     level="warning", sid=sid, ip=peer)
+                        await ws.send_text(protocol.encode(
+                            {"type": "login_failed"}))
+                        continue
+                    sessions.store.login(sid, jmeno, skupiny)
+                    logger.audit(f"login: '{jmeno}' in "
+                                 f"{sorted(skupiny)}", sid=sid, ip=peer)
+                    async with state_lock:
+                        await _send_screens(ws, sid, windows_list, videne)
+                    continue
+                if msg.get("type") == "lock_all":
+                    kolik = sessions.store.revoke_all(sid)
+                    logger.audit(f"all windows locked on request "
+                                 f"({kolik} grants revoked)", sid=sid, ip=peer)
+                    async with state_lock:
+                        videne.clear()      # ať init dorazí znovu, už zamčený
+                        await _send_screens(ws, sid, windows_list, videne)
+                    continue
+                if msg.get("type") == "logout":
+                    kdo = sessions.store.logout(sid)
+                    logger.audit(f"logout: '{kdo or 'anonymous'}'",
+                                 sid=sid, ip=peer)
+                    # Plochy, které relace po odhlášení nevidí, klient zavře
+                    # sám na `screen_remove`; init už mu je znovu neposíláme.
+                    async with state_lock:
+                        await _zavri_neviditelne(ws, sid, windows_list, videne)
                     continue
                 if msg.get("type") == "event" and isinstance(msg.get("event"), str):
                     payload = msg.get("payload")
@@ -515,7 +599,7 @@ class Project:
         mfa.configure_store(users_file)
         identity_module.configure(identity)
         identity_module.configure_policy(policy)
-        access_module.configure_default(default_access)
+        access.configure_default(default_access)
         self.user = mfa.set_active_user(user)
         self._handle: ServerHandle | None = None
 

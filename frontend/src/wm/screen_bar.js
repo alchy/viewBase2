@@ -24,6 +24,7 @@ export class ScreenBar {
     this.remoteGroups = [];   // ze ScreenMenu (§8), akce přes sendEvent
     this.optionsGroup = null; // { name: 'Options', items: [{key,label,checked,onToggle}] }
     this.systemGroup = null;  // vestavěné „System" (Shell CLI) – viz setSystemGroup
+    this.userGroup = null;    // vestavěné „User" (kdo jsem, Log Out)
     this.openGroup = null;
 
     this.el = document.createElement('div');
@@ -164,12 +165,38 @@ export class ScreenBar {
     this._render();
   }
 
+  /** Vestavěná skupina „User": kdo je přihlášený a jak se odhlásit.
+   *  U anonymní relace na VEŘEJNÉ instanci nemá co nabídnout (přihlašovat
+   *  se není k čemu), takže se neukáže vůbec – nabídka, která nic nedělá,
+   *  je horší než žádná. */
+  setUserGroup(user) {
+    this.userGroup = user ? {
+      // jméno je v NÁZVU skupiny, ne jako nekliknutelná položka uvnitř:
+      // je vidět bez otevírání nabídky a nevzniká kvůli tomu „zakázaná
+      // položka", kterou by menu jinak neznalo
+      name: `User: ${user}`,
+      local: true,
+      items: [
+        { key: 'user-lock-all',
+          label: 'Lock All Windows',
+          command: true,
+          onToggle: () => this.sendEvent({ type: 'lock_all' }) },
+        { key: 'user-logout',
+          label: 'Log Out',
+          command: true,
+          onToggle: () => this.sendEvent({ type: 'logout' }) },
+      ],
+    } : null;
+    this._render();
+  }
+
   /** Options je VŽDY první skupina zleva (uživatelská oprava), za ní
-   *  vestavěný System a pak ScreenMenu skupiny (pokud nějaké jsou). */
+   *  vestavěný System, User a pak ScreenMenu skupiny (pokud nějaké jsou). */
   _allGroups() {
     return [
       ...(this.optionsGroup ? [this.optionsGroup] : []),
       ...(this.systemGroup ? [this.systemGroup] : []),
+      ...(this.userGroup ? [this.userGroup] : []),
       ...this.remoteGroups,
     ];
   }

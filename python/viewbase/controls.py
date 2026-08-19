@@ -41,8 +41,16 @@ class PrivateMixin:
     jednorázový kód ze souboru v `~/.viewbase/` (`fallback_code`). Zámek zapíná kterékoli okno stejně:
     `HtmlWindow("panel", private=True)` – jako `closable=`."""
 
-    def _init_lock(self, private: bool) -> None:
+    def _init_lock(self, private: bool,
+                   access: "list[str] | None" = None) -> None:
+        from .access import Access
+
         self.private = bool(private)
+        #: Kdo tohle okno vidí a kdo do něj smí (viz access.py). Nenastavené
+        #: dědí z plochy. `object_id` doplní plocha, až okno přijme
+        #: (`Access.rename`) – teprve tam okno získá adresu, pod kterou ho
+        #: zná soubor politiky.
+        self.access = Access(see=access, object_id=f"window:{self.window_id}")
         # `state` je jen SOUHRN pro logy a introspekci ("odemkl to aspoň
         # někdo?"). O tom, kdo obsah uvidí, rozhoduje grant relace
         # (viewbase/sessions.py) – dřív tenhle atribut rozhodoval sám a byl
@@ -135,12 +143,13 @@ class ControlWindow(PrivateMixin):
     """Parametrické okno: uspořádaný seznam typovaných polí."""
 
     def __init__(self, window_id: str, *, title: str = "",
-                 closable: bool = True, private: bool = False) -> None:
+                 closable: bool = True, private: bool = False,
+                 access: "list[str] | None" = None) -> None:
         self.window_id = window_id
         self.title = title
         self.closable = bool(closable)  # False = bez gadgetu [x] (neobnovitelné)
         self._fields: list[dict[str, Any]] = []
-        self._init_lock(private)
+        self._init_lock(private, access)
 
     def integer(self, key: str, label: str, *, min: int, max: int,
                 value: int, step: int = 1) -> "ControlWindow":
@@ -242,7 +251,8 @@ class TerminalWindow(PrivateMixin):
     def __init__(self, window_id: str, *, title: str = "",
                  prompt: str = "> ", width: int = 560,
                  closable: bool = True, input: bool = True,  # pylint: disable=redefined-builtin
-                 private: bool = False) -> None:
+                 private: bool = False,
+                 access: "list[str] | None" = None) -> None:
         if width <= 0:
             raise ValueError("width musí být kladné")
         self.window_id = window_id
@@ -251,7 +261,7 @@ class TerminalWindow(PrivateMixin):
         self.width = int(width)
         self.closable = bool(closable)  # False = bez gadgetu [x] (neobnovitelné)
         self.input = bool(input)        # False = jen výstup (živý panel bez promptu)
-        self._init_lock(private)
+        self._init_lock(private, access)
 
     def spec(self) -> dict[str, Any]:
         """Popis okna pro frontend; `kind:"terminal"` ho odliší od
@@ -298,7 +308,8 @@ class HtmlWindow(PrivateMixin):
 
     def __init__(self, window_id: str, *, title: str = "",
                  width: int = 560, height: int = 320,
-                 closable: bool = True, private: bool = False) -> None:
+                 closable: bool = True, private: bool = False,
+                 access: "list[str] | None" = None) -> None:
         if width <= 0 or height <= 0:
             raise ValueError("width i height musí být kladné")
         self.window_id = window_id
@@ -306,7 +317,7 @@ class HtmlWindow(PrivateMixin):
         self.width = int(width)
         self.height = int(height)
         self.closable = bool(closable)
-        self._init_lock(private)
+        self._init_lock(private, access)
         self._raw = ""                       # html_set/html_append (pokročilí)
         self._elements: list[Any] = []       # prvky v pořadí přidání
         self._by_id: dict[str, Any] = {}
@@ -516,7 +527,8 @@ class ShellWindow(PrivateMixin):
                  cols: int = 80, rows: int = 24,
                  width: int = 720, height: int = 420,
                  closable: bool = True, private: bool = True,
-                 audit_commands: bool = True) -> None:
+                 audit_commands: bool = True,
+                 access: "list[str] | None" = None) -> None:
         if width <= 0 or height <= 0:
             raise ValueError("width i height musí být kladné")
         if cols <= 0 or rows <= 0:
@@ -535,7 +547,7 @@ class ShellWindow(PrivateMixin):
         # včetně hesla, které někdo napíše na výzvu `sudo` (viz PtyShell._audit).
         # Na sledovaném stroji se to hodí; kdo to nechce, dá False.
         self.audit_commands = bool(audit_commands)
-        self._init_lock(private)        # shell je zamčený ve výchozím stavu
+        self._init_lock(private, access)        # shell je zamčený ve výchozím stavu
         self.scrollback = ""
         self.pty: Any = None          # PtyShell po odemčení
         self._owner: Any = None       # GraphWindow po open_shell
