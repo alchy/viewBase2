@@ -1,4 +1,4 @@
-"""Zabezpečená okna: `secured=True` na kterémkoli typu okna.
+"""Zabezpečená okna: `private=True` na kterémkoli typu okna.
 
 Zamčené okno se do prohlížeče pošle jen jako PRÁZDNÝ RÁM – obsah (HTML,
 hodnoty polí, scrollback, shell) po drátě neputuje, dokud divák nezadá kód
@@ -24,7 +24,7 @@ with graph.batch():
         graph.add_edge(f"srv-{i}", "srv-0")
 
 # zabezpečený panel z prvků (obsah po drátě neodejde, dokud se neodemkne)
-panel = vb.HtmlWindow("panel", title="Tajný panel", width=420, height=220, secured=True)
+panel = vb.HtmlWindow("panel", title="Tajný panel", width=420, height=220, private=True)
 graph.open_html(panel)
 panel.heading("Přístupové údaje")
 panel.kv({"účet": "workbench", "role": "admin", "token": "s3cr3t-42"})

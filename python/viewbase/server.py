@@ -152,11 +152,17 @@ async def _broadcast_loop(windows: list[GraphWindow], windows_by_screen: dict,
 
 
 async def _send_screens(ws: WebSocket, sid: str, windows: list,
-                        videne: set) -> None:
+                        videne: set, allow_anonymous: bool = True) -> None:
     """Pošli init ploch, které tahle relace VIDÍ a ještě nedostala.
 
     Volá se při připojení i po přihlášení – přihlášením se rozsah viditelného
     rozšíří a klient má dostat jen to nové, ne všechno znovu."""
+    if not allow_anonymous and sessions.store.user(sid) is None:
+        # Instance se nikomu neukazuje bez jména, ani kdyby bylo všechno
+        # veřejné: `hidden` nenulové, aby klient poznal, že se má přihlásit.
+        await ws.send_text(protocol.encode(protocol.session_message(
+            user=None, visible=0, hidden=max(len(windows), 1))))
+        return
     viditelnych = 0
     for window in windows:
         if not window._can_see_screen(sid):
@@ -204,7 +210,8 @@ def _make_log_relay(loop: asyncio.AbstractEventLoop):
 
 
 def create_app(*windows: GraphWindow,
-               allowed_origins: "list[str] | None" = None) -> FastAPI:
+               allowed_origins: "list[str] | None" = None,
+               allow_anonymous: bool = True) -> FastAPI:
     """Sestav FastAPI aplikaci nad jedním nebo víc GraphWindow: statické assety,
     `/ws` (init + delty + akce + log, multiplexed po screen_id), `/api/event`
     (REST vstřik události). Víc grafových oken vyžaduje, aby mělo každé svůj
@@ -286,7 +293,8 @@ def create_app(*windows: GraphWindow,
             logger.audit(f"client {client_id} connected", sid=sid, ip=peer)
             videne: set[int | None] = set()
             async with state_lock:
-                await _send_screens(ws, sid, windows_list, videne)
+                await _send_screens(ws, sid, windows_list, videne,
+                                        allow_anonymous)
                 clients[ws] = sid
         except WebSocketDisconnect:
             return
@@ -317,7 +325,8 @@ def create_app(*windows: GraphWindow,
                     logger.audit(f"login: '{jmeno}' in "
                                  f"{sorted(skupiny)}", sid=sid, ip=peer)
                     async with state_lock:
-                        await _send_screens(ws, sid, windows_list, videne)
+                        await _send_screens(ws, sid, windows_list, videne,
+                                        allow_anonymous)
                     continue
                 if msg.get("type") == "lock_all":
                     kolik = sessions.store.revoke_all(sid)
@@ -325,7 +334,8 @@ def create_app(*windows: GraphWindow,
                                  f"({kolik} grants revoked)", sid=sid, ip=peer)
                     async with state_lock:
                         videne.clear()      # ať init dorazí znovu, už zamčený
-                        await _send_screens(ws, sid, windows_list, videne)
+                        await _send_screens(ws, sid, windows_list, videne,
+                                        allow_anonymous)
                     continue
                 if msg.get("type") == "logout":
                     kdo = sessions.store.logout(sid)
@@ -554,6 +564,7 @@ class Project:
                  identity: "Any | None" = None,
                  policy: "Any | None" = None,
                  default_access: "list[str] | None" = None,
+                 allow_anonymous: bool = True,
                  tls: "Tls | bool | None" = None,
                  tls_hosts: "list[str] | tuple[str, ...] | None" = None,
                  http_redirect: "bool | int" = False,
@@ -596,6 +607,10 @@ class Project:
         # `policy` říká, co smí naše objekty (výchozí sekce `access` v témže
         # souboru). Cesta k souboru je z konfigurace, ne z proměnných
         # prostředí roztroušených po systému.
+        # Anonymní relace: smí se vůbec někdo dívat bez přihlášení? Výchozí
+        # ano – veřejné objekty (`group:public`) tak zůstanou veřejné.
+        # `False` znamená „nejdřív se představ", i kdyby bylo všechno veřejné.
+        self.allow_anonymous = bool(allow_anonymous)
         mfa.configure_store(users_file)
         identity_module.configure(identity)
         identity_module.configure_policy(policy)
@@ -630,7 +645,8 @@ class Project:
                        open_browser=open_browser, tls=self.tls,
                        http_redirect=self.http_redirect,
                        forwarded_allow_ips=self.forwarded_allow_ips,
-                       allowed_origins=self.allowed_origins, block=block)
+                       allowed_origins=self.allowed_origins,
+                       allow_anonymous=self.allow_anonymous, block=block)
         self._handle = handle
         return handle
 
@@ -737,7 +753,8 @@ def _start_redirect(host: str, port: int,
 def _make_server(windows: tuple[GraphWindow, ...], host: str,
                  port: int, tls: Tls | None = None,
                  forwarded_allow_ips: str | None = None,
-                 allowed_origins: "list[str] | None" = None) -> uvicorn.Server:
+                 allowed_origins: "list[str] | None" = None,
+                 allow_anonymous: bool = True) -> uvicorn.Server:
     # ws_ping_interval=None vypíná serverový keepalive ping knihovny
     # websockets: jeho samostatná úloha jinak souběžně "draina" stejné
     # spojení jako náš broadcast a při velkém provozu spadne na interním
@@ -747,7 +764,8 @@ def _make_server(windows: tuple[GraphWindow, ...], host: str,
     # reverzní proxy je protistranou proxy, takže bez tohohle vidí audit její
     # IP místo skutečného zdroje; a naopak — věřit komukoli by znamenalo, že
     # si zdroj v logu přepíše hlavičkou kdokoli. Výchozí (uvicorn) 127.0.0.1.
-    config = uvicorn.Config(create_app(*windows, allowed_origins=allowed_origins),
+    config = uvicorn.Config(create_app(*windows, allowed_origins=allowed_origins,
+                                       allow_anonymous=allow_anonymous),
                             host=host, port=port,
                             log_level="warning",
                             ws_ping_interval=None, ws_ping_timeout=None,
@@ -762,6 +780,7 @@ def serve(*windows: GraphWindow, host: str = "127.0.0.1", port: int = 8080,
           http_redirect: "bool | int" = False,
           forwarded_allow_ips: str | None = None,
           allowed_origins: "list[str] | None" = None,
+          allow_anonymous: bool = True,
           block: bool = True) -> ServerHandle | None:
     """Spustí server nad jedním nebo víc GraphWindow (multi-screen – víc
     grafových oken vyžaduje, aby mělo každé svůj `screen=`, viz `create_app`).
@@ -785,7 +804,7 @@ def serve(*windows: GraphWindow, host: str = "127.0.0.1", port: int = 8080,
     else:
         _system_log(f"listening on {adresa}")
     server = _make_server(windows, host, port, tls, forwarded_allow_ips,
-                          allowed_origins)
+                          allowed_origins, allow_anonymous)
     if forwarded_allow_ips:
         _system_log(f"trusting X-Forwarded-For from {forwarded_allow_ips}")
     if tls is not None and http_redirect:

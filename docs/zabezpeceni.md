@@ -10,6 +10,7 @@ Zabezpečení stojí na vrstvách, které spolu souvisí, ale dají se číst zv
 
 | vrstva | otázka, na kterou odpovídá |
 |---|---|
+| [**přístup (ACL)**](#přístup-uživatelé-skupiny-a-acl) | kdo tenhle objekt vůbec smí vidět |
 | **zámek okna** | co se vůbec pošle po drátě (níž na téhle stránce) |
 | **relace a granty** | komu a jak dlouho |
 | [**autorizace**](#autorizace-co-smí-která-událost) | která zpráva co smí |
@@ -119,6 +120,147 @@ Zabezpečení stojí na vrstvách, které spolu souvisí, ale dají se číst zv
   Cestu k domovu přesměruje `VIEWBASE_HOME` (kontejnery, testy).
 
 ---
+
+## Přístup: uživatelé, skupiny a ACL
+
+Zámek okna odpovídá na otázku „jsi to fakt ty, teď?". Vrstva pod ním
+odpovídá na jinou: **koho se tenhle objekt vůbec týká.** Obojí platí zároveň
+— členství ve skupině říká „tohle tě smí zajímat", kód říká „a teď jsi to
+opravdu ty", takže privátní okno chce kód i po členovi správné skupiny.
+
+### Principálové a ACL
+
+**Principál** je řetězec s prefixem: `user:hana`, `group:ucetni`,
+`group:public`. Relace jich má množinu — vlastní `user:`, implicitní
+`group:` pojmenovanou po uživateli, skupiny ze zdroje identit a vždycky
+`group:public`. Vyhodnocení je průnik s ACL objektu, nic víc.
+
+**Žádné „deny".** ACL je množina povolených; `remove()` je odebrání
+z povolených, ne zákaz. Záporná pravidla by si vynutila precedenci a model
+by přestal být čitelný.
+
+**Dvě slovesa**, protože „vidět" a „zasahovat" jsou různé věci:
+
+```python
+okno = vb.HtmlWindow("mzdy", title="Mzdy", access=["group:ucetni"])
+okno.access.add("user:hana")            # …a ještě konkrétní člověk
+okno.access.remove("group:public")
+okno.access.list()                      # ['group:ucetni', 'user:hana']
+okno.access.write.set(["group:ucetni"]) # vidí víc lidí, píše jen účtárna
+```
+
+Nenastavené `write` znamená totéž co „vidět" — aby nešlo omezit čtení a
+nechat zápis omylem široký.
+
+**Dědičnost:** okno bez ACL bere ACL plochy, plocha bere výchozí hodnotu
+instance (`vb.Project(default_access=…)`, výchozí `group:users`). Výchozí
+`public` by znamenal, že log okno s auditní stopou — IP adresy, prefixy
+relací, příkazy ze shellu — je veřejné dřív, než si toho kdo všimne. Kdo chce
+jednouživatelské pohodlí na localhostu, řekne si o něj jedním parametrem:
+`vb.Project(default_access=["group:public"])`.
+
+**Plocha je brána, okno zúžení.** Kdo nevidí plochu, nedostane ji v `init`
+snapshotu, nevidí žádné její okno a událost na ně neprojde. A „nevidíš"
+znamená **„neodešle se"**, ne skrytí v prohlížeči: obsah po drátě neputuje,
+ACL se ke klientovi neposílá nikdy.
+
+### Skupiny se nestují rekurzivně
+
+Členství deklaruje **nadřazená** skupina — strukturovaně, ne unixovým
+`passwd` stylem:
+
+```json
+{"groups": {
+   "group:ucetni": {"members": ["group:fakturace", "group:mzdy"]},
+   "group:mzdy":   {"members": ["user:hana"]}}}
+```
+
+Kdo je ve `fakturaci`, je tím i `ucetni`: členství se propaguje **nahoru**,
+přístup tedy platí **dolů** — co povolíte účetním, mají i fakturantky.
+Rozbalení dělá zdroj identit a vrací hotovou plochou množinu, takže
+autorizace zůstává jediný průnik. Cykly (`a` obsahuje `b`, `b` obsahuje `a`)
+jsou ohlídané, skončí to.
+
+### Dvě nezávislé zásuvné osy
+
+| osa | rozhraní | výchozí | vyměnitelné za |
+|---|---|---|---|
+| **identity** | `exists` / `authenticate` / `groups_of` | JSON soubor | LDAP, OIDC |
+| **práva objektů** | `load` / `save` | sekce `access` téhož souboru | databáze, konfigurační služba |
+
+Odděleně schválně: LDAP nikdy nebude vědět nic o oknech téhle instance.
+Výměnou adresáře se mění jen to, kdo je kdo — „co smí `group:ucetni` vidět"
+zůstává vaše doména.
+
+```python
+vb.Project(users_file="/etc/viewbase/politika.json",   # kde politika leží
+           default_access=["group:users"],             # výchozí ACL objektů
+           identity=MujLdap(),                         # volitelně jiný zdroj
+           allow_anonymous=False)                      # nejdřív se představ
+```
+
+**Aplikace uživatele nezakládá ani nečte.** Jediné, co dělá, je že na svých
+prvcích jmenuje principály; identity žijí v souboru politiky (nebo
+v adresáři) a spravuje je správce — samostatným nástrojem:
+
+```bash
+python -m viewbase.admin adduser hana --groups ucetni,mzdy
+python -m viewbase.admin group ucetni --add mzdy --add fakturace
+python -m viewbase.admin access screen:provoz --see ucetni
+python -m viewbase.admin access screen:provoz/window:mzdy --write user:hana
+python -m viewbase.admin users     # kdo existuje a v jakých skupinách je
+python -m viewbase.admin show      # celý soubor politiky, bez tajemství
+```
+
+Nástroj zapisuje do **téhož** souboru a **týmiž** funkcemi jako běžící
+server, takže si sekce nemůžou přepsat. Tajemství nevypíše nikdy — jen
+řekne, kde leží QR pro autentikátor. Jmenovat principála, kterého zdroj nezná,
+není chyba (může vzniknout později), ale **vždycky** se objeví v logu jako
+varování — a **každá** změna práv v kódu je auditní záznam:
+
+```
+access change: screen:provoz/window:mzdy see +group:ucetni
+access: principál 'group:ucetnii' na screen:provoz/window:mzdy není znám
+        zdroji identit – překlep?
+```
+
+### Práva se dají opravit bez zásahu do programu
+
+Sekce `access` v souboru politiky **přebíjí kód** — správce musí umět
+napravit špatné ACL bez nasazení nové verze:
+
+```json
+{"access": {"screen:provoz": {"see": ["group:ucetni"]},
+            "screen:provoz/window:mzdy": {"see": ["group:mzdy"],
+                                          "write": ["user:hana"]}}}
+```
+
+Klíč je celá adresa objektu, takže dvě plochy se stejně pojmenovaným oknem
+nesdílejí práva. **Předpokládá to pojmenovanou plochu** (`vb.Screen(id="provoz")`):
+bez jména dostane plocha náhodnou adresu, která je po restartu jiná.
+
+### Přihlášení
+
+Anonymní relace má jen `group:public`. Přihlášení je **jméno + kód
+z autentikátoru**; jméno bez důkazu je jen řetězec. Prohlížeč si pamatuje
+jméno (`vb_user`), nikdy kód.
+
+Výzva se ukáže jen tehdy, když je opravdu o co přijít — server hlásí, kolik
+ploch zůstalo skryté. **Veřejná instance přihlašovací obrazovku nikdy
+neukáže.** Přihlášený má v liště nabídku `User: <jméno>` s `Lock All Windows`
+(zamkne všechna odemčená okna, identita zůstává) a `Log Out` (padá identita
+i granty; plochy mimo dosah se zase zavřou).
+
+Skupiny se po přihlášení drží 300 s a pak obnoví ze zdroje — odebrání ze
+skupiny tak zabere i za běhu, ne až po odhlášení.
+
+Do auditu jde přihlášení, jeho neúspěch i odhlášení:
+
+```
+2026-08-19 09:35:12 INFO    a1b2c3d4 10.0.0.7        [security]  login: 'hana' in ['group:mzdy', 'group:ucetni']
+2026-08-19 09:35:44 WARNING a1b2c3d4 10.0.0.7        [security]  login failed for user 'hana'
+2026-08-19 09:41:02 WARNING e5f6a7b8 10.0.0.9        [security]  access to window 'mzdy' refused (use) – 'karel' is not in its ACL
+```
 
 ## Log: co se zaznamená a co uvidíte
 
@@ -244,9 +386,14 @@ Každá vnitřní událost při registraci **deklaruje, co k ní je potřeba**, 
 `dispatch_event` to vynutí dřív, než se k ní dostane handler:
 
 ```python
-self._register("shell_input",   self._on_shell_input,   needs=Needs.GRANT)
+self._register("shell_input",   self._on_shell_input,   needs=Needs.USE)
 self._register("window_unlock", self._on_window_unlock, needs=Needs.NONE)
 ```
+
+`needs` je **sloveso**, ne příznak: `USE` = událost do okna zasahuje,
+`SEE` = jen čte, `NONE` = žádného okna se netýká. Vynucení pak projde tři
+brány v tomhle pořadí — **ACL plochy**, **ACL okna** pro dané sloveso,
+**grant relace** u privátního okna.
 
 Bez `needs` registrace **skončí chybou**, takže se nová událost nedá přidat,
 aniž by autor tu otázku zodpověděl — a celá autorizace se dá přečíst na
@@ -258,10 +405,10 @@ Celá mapa (`graph_window.py`, konstruktor) vypadá takhle:
 
 | událost | potřebuje | proč |
 |---|---|---|
-| `shell_input`, `shell_resize` | `GRANT` | klávesy a velikost do procesu okna |
-| `html_event`, `window_submit` | `GRANT` | klik, submit a hodnoty polí okna |
-| `terminal_input` | `GRANT` | řádek do konzole okna |
-| `window_lock` | `GRANT` | zamknout jde jen to, co mám odemčené |
+| `shell_input`, `shell_resize` | `USE` | klávesy a velikost do procesu okna |
+| `html_event`, `window_submit` | `USE` | klik, submit a hodnoty polí okna |
+| `terminal_input` | `USE` | řádek do konzole okna |
+| `window_lock` | `USE` | zamknout jde jen to, co mám odemčené |
 | `window_unlock` | `NONE` | **cesta, jak grant získat** — chrání ji kód z autentikátoru a rate limit |
 | `shell_new` | `NONE` | nové okno vzniká zamčené a platí strop `MAX_SHELL_WINDOWS` |
 | `menu_select` | `NONE` | volá autorský callback, nic tajného za tím nestojí |

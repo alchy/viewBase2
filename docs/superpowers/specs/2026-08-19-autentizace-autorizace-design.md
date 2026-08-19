@@ -230,17 +230,23 @@ založí.
 
 ## 9. Etapy
 
-1. **`access.py`** — principálové, ACL, dvě slovesa, dědičnost, výchozí
+1. ✅ **`access.py`** — principálové, ACL, dvě slovesa, dědičnost, výchozí
    hodnoty; čisté funkce a testy bez serveru.
-2. **Identita** — soubor politiky v2 (jediná autorita nad dokumentem),
+2. ✅ **Identita** — soubor politiky v2 (jediná autorita nad dokumentem),
    `IdentityProvider` + `LocalProvider` s rekurzivními skupinami, `PolicyStore`
-   + `LocalPolicy` jako druhá osa, principálové v relaci, TTL na skupiny,
-   audit píše skutečného uživatele.
-3. **Vynucení** — `Needs.SEE/USE`, kontrola v `dispatch_event`, filtrování
-   `init` snapshotu a akcí podle ACL plochy i okna.
-4. **Identita plochy** — stabilní id, adresování `(screen_id, window_id)`.
-5. **Frontend** — splash (jméno + kód), výzva u privátního okna jen na kód,
-   menu `User` s `Logout` a `Lock all windows`.
+   + `LocalPolicy` jako druhá osa, principálové v relaci, TTL na skupiny.
+3. ✅ **Vynucení** — `Needs.SEE/USE`, kontrola v `dispatch_event`, filtrování
+   `init` snapshotu, akcí, delt i logu podle ACL plochy a okna.
+4. ✅ **Identita plochy** — stabilní neprůhledné id (`vb.Screen(id="provoz")`),
+   `index` zvlášť jako pořadí na liště, adresování `screen:<id>/window:<id>`.
+5. ✅ **Frontend a nástroj správce** — přihlašovací výzva (jméno + kód, jen
+   když server hlásí skryté plochy), menu `User: <jméno>` s `Lock All Windows`
+   a `Log Out`, `python -m viewbase.admin` pro uživatele, skupiny a práva.
+
+**Vytáhlo se během implementace:** přihlášení (etapa 5) muselo přijít
+s vynucením (etapa 3) — bez něj by ACL byla buď zeď (nikdo nic nevidí), nebo
+dekorace. A nástroj správce vznikl proto, že aplikace identity vědomě
+nezakládá: někdo je založit musí.
 
 **Zpětná kompatibilita se nedrží.** Knihovna zatím nemá nasazení, které by
 se muselo šetřit, takže starý formát souboru ani stará jména parametrů

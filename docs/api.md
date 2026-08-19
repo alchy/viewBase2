@@ -22,6 +22,7 @@
 | `examples/workbench.py` | **Workbench téma**: všechny typy oken (graf, formulář, konzole, panel z prvků, log) v `workbench-amiga` / `workbench-gray` – lišty, rohový sizing gadget, konzole jako jedna plocha (AmigaShell) |
 | `examples/shell.py` | **shell okno**: skutečný terminál na PTY (xterm.js), zámek odemykacím kódem, druhé okno s `command=["top"]` |
 | `examples/private_windows.py` | **zabezpečená okna**: `private=True` na HTML/formulářovém/konzolovém okně, `Options → Unlock/Lock Window`, TOTP z autentikátoru |
+| `examples/access_groups.py` | **uživatelé, skupiny a přístup**: dvě plochy pro dvě skupiny, rekurzivní členství, okno „vidí víc lidí, než do něj smí psát", přihlášení jménem a kódem |
 | `examples/html_window.py` | **HTML okno z prvků**: `HtmlWindow` + `grid`, `label`/`input`/`slider`/`checkbox`/`button`, `on_click`/`on_change`/`on_submit`, `.text`/`.value` za běhu, `panel.on_event` |
 | `examples/words.py` | mapa slov z Wikipedie (crawl odkazů) |
 | `examples/stress.py` | zátěžový test (tisíce uzlů) |
@@ -30,12 +31,60 @@
 | `examples/multiscreen.py` | **multi-screen Workbench**: dva `Screen`/`GraphWindow` s tab přepínačem a drag-reveal, explicitní `Screen.destroy()` přes REST |
 | [`examples/wireshark/`](../examples/wireshark/README.md) | **síťové toky**: přehrání pcap, živý odposlech a cesta paketu (traceroute) |
 
+## Parametry instance (`vb.Project`)
+
+Všechno, co se u služby nastavuje, se nastavuje **tady** — jedno místo,
+žádné proměnné prostředí roztroušené po systému.
+
+```python
+project = vb.Project(port=8080, tls=True, log_level="info")
+```
+
+| parametr | výchozí | k čemu |
+|---|---|---|
+| `host`, `port` | `127.0.0.1`, `8080` | kde služba poslouchá |
+| `user` | `workbench` | uživatel instance (TOTP, QR do `~/.viewbase/`) |
+| `users_file` | `~/.viewbase/users.json` | **soubor politiky**: uživatelé, skupiny i práva objektů |
+| `identity` | JSON soubor | zdroj identit (`exists`/`authenticate`/`groups_of`) — sem přijde LDAP |
+| `policy` | sekce `access` téhož souboru | zdroj práv objektů (`load`/`save`) |
+| `default_access` | `["group:users"]` | ACL, které dědí plochy bez vlastního; `["group:public"]` = veřejná instance |
+| `allow_anonymous` | `True` | `False` = nejdřív se představ, i kdyby bylo všechno veřejné |
+| `tls` | `None` | `True` = vlastnoručně podepsaný z `~/.viewbase/tls/`, nebo `vb.Tls(cert, key)` |
+| `tls_hosts` | — | další jména/IP do SAN certifikátu |
+| `http_redirect` | `False` | `True` = na portu+1 běží přesměrování plaintextu na TLS |
+| `forwarded_allow_ips` | `127.0.0.1` | komu se věří `X-Forwarded-For` (adresa **vaší proxy**, ne klientů) |
+| `allowed_origins` | Origin musí sedět na Host | odkud smí přijít stránka, která se připojí |
+| `log_level` | `warning` | od jaké závažnosti se vůbec něco zaznamená (audit projde vždy) |
+| `session_ttl` | `900` s | klouzavá platnost relace |
+| `session_max_age` | `8 h` | absolutní strop; po něm zase kód z autentikátoru |
+
+Přístup se pak jmenuje na jednotlivých prvcích a dědí se plocha → okno:
+
+```python
+screen = vb.Screen(title="Provoz", id="provoz", access=["group:ucetni"])
+okno = vb.HtmlWindow("mzdy", title="Mzdy", private=True)
+okno.access.add("group:mzdy")           # vidí navíc mzdová účtárna
+okno.access.write.set(["user:hana"])    # …zasahovat smí jen hana
+```
+
+Uživatele a skupiny **zakládá správce**, ne aplikace:
+
+```bash
+python -m viewbase.admin adduser hana --groups ucetni,mzdy
+python -m viewbase.admin group ucetni --add mzdy
+python -m viewbase.admin access screen:provoz --see ucetni
+```
+
+Podrobnosti (skupiny, dědičnost, soubor politiky, přihlášení) jsou
+v [Zabezpečení](zabezpeceni.md#přístup-uživatelé-skupiny-a-acl); běžící
+ukázka je `examples/access_groups.py`.
+
 **Veřejné API vs. vnitřek.** Pro vývojáře je to, co vyleze z `import viewbase as vb`:
 
 | jméno | k čemu |
 |---|---|
 | `vb.Project` | služba: port, uživatel, TLS, relace; `serve()` / `stop()` |
-| `vb.Screen` | plocha (screen) s titulkem, tématem a menu |
+| `vb.Screen` | plocha (screen) s titulkem, tématem, menu a přístupem (`id=`, `access=`) |
 | `vb.GraphWindow` | grafové okno + API grafu (`add_node/add_edge/…`), otevírání ostatních oken |
 | `vb.ControlWindow` | formulářové okno (typovaná pole) |
 | `vb.TerminalWindow` | konzole (řádky textu, `on_input`) |

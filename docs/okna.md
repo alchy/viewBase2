@@ -12,18 +12,23 @@
   vytvoří se **před vším ostatním** (`fopen`), `project.serve(screen, …)`
   otevře listener, `project.stop()` / konec `with` bloku / Ctrl-C ho zavře
   (`close`). `serve(block=False)` vrací handle pro REPL/Jupyter.
-- **`Screen`** — plocha (Amiga screen). Vytvořením dostane auto `id`;
-  nese titulek, téma a quality. Mezi screeny se přepíná depth gadgetem,
-  tahem za lištu se přední screen stáhne a odkryje ten pod ním.
+- **`Screen`** — plocha (Amiga screen). Nese titulek, téma, quality a
+  **přístup**. `id` je stabilní neprůhledná adresa (náhodná, nebo vlastní:
+  `vb.Screen(id="provoz")` — pod tím jménem ji zná i soubor politiky, takže
+  práva přežijí restart); pořadí na liště drží `index`. Mezi screeny se
+  přepíná depth gadgetem, tahem za lištu se přední screen stáhne a odkryje
+  ten pod ním.
 - **Okna** — typované instance na screenu. Grafové okno je jen speciální
-  instance okna; každý typ má vlastní ukázku níže:
+  instance okna; každý typ má vlastní ukázku níže. Každé okno má **`access`**
+  (kdo ho vidí) a **`access.write`** (kdo do něj smí) — nenastavené dědí
+  z plochy, viz [Zabezpečení](zabezpeceni.md#přístup-uživatelé-skupiny-a-acl):
 
 | Typ okna | Co to je | Ukázka |
 |---|---|---|
 | `LogWindow` | **systémové** okno — obsah dodává knihovna (proces-wide log, `tail -f`) | `examples/log_window.py` |
 | `TerminalWindow` | **textové/dialogové** okno — píše se do něj a umí poslat string od uživatele | `examples/terminal.py` |
-| `ShellWindow` | **skutečný terminál** — na PTY běží shell systému (vim/htop/barvy), okno zamčené na kód | `examples/private_windows.py` | **zabezpečená okna**: `private=True`, TOTP z autentikátoru, zelená výzva ve stylu Guru Meditation |
-| `examples/shell.py` |
+| `ShellWindow` | **skutečný terminál** — na PTY běží shell systému (vim/htop/barvy), okno zamčené na kód | `examples/shell.py` |
+| privátní okno | kterýkoli typ s `private=True` — obsah po drátě neputuje, dokud divák nezadá kód z autentikátoru | `examples/private_windows.py` |
 | `HtmlWindow` | **panel z prvků** — heading/label/kv/table/list/bar/image/hr, button/input/number/slider/checkbox/radio/select/textarea skládané z Pythonu bez HTML; události s hodnotami se vrací do Pythonu | `examples/html_window.py` |
 | `ControlWindow` | **formulářové** okno — typovaná pole, hodnoty tečou zpět do Pythonu | `examples/prototype.py` |
 | `GraphWindow` | **grafové** okno — živý 2D/3D graf, fyzika, eventy, toky | `examples/quickstart.py` |

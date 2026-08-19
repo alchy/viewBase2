@@ -407,10 +407,15 @@ def verify(code: Any, *, user: str | None = None, now: float | None = None) -> b
 
 
 def reset_state() -> None:
-    """Zapomeň rate limit, použité kódy i uživatele instance (testy, nový
-    běh serveru)."""
-    global _active_user
+    """Zapomeň rate limit, použité kódy, uživatele instance i cestu k souboru
+    politiky (testy, nový běh serveru).
+
+    Cesta sem patří taky: je to globální nastavení a nechat ji za sebou
+    znamená, že další instance (nebo další test) zapisuje jinam, než čeká –
+    nalezeno přesně takhle, po nástroji správce s `--file`."""
+    global _active_user, _store_override
     with _lock:
         _attempts.clear()
         _used.clear()
         _active_user = DEFAULT_USER
+        _store_override = None

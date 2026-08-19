@@ -268,3 +268,17 @@ def test_prava_okna_v_souboru_plati_pro_konkretni_plochu():
             pred, session = _prihlas(ws, "karel", kod())
     assert session["visible"] == 1              # na plochu ano
     assert pred[0]["windows"] == []             # na okno ne
+
+
+def test_allow_anonymous_false_chce_jmeno_i_na_verejne_ploshe():
+    """„Nejdřív se představ", i kdyby bylo všechno veřejné – užitečné, když
+    se instance vystaví do internetu a nemá se ukazovat vůbec nic."""
+    kod = _uzivatel("hana", ["group:users"])
+    _, g = _plocha(access_list=["group:public"])
+    app = create_app(g, allow_anonymous=False)
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as ws:
+            pred, session = _hello(ws)
+            assert pred == [] and session["hidden"] > 0
+            pred, session = _prihlas(ws, "hana", kod())
+    assert session["visible"] == 1 and [m["type"] for m in pred] == ["init"]
