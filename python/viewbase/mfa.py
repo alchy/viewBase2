@@ -1,6 +1,6 @@
-"""Odemykání zabezpečených oken (`secured=True`): TOTP z autentikátoru.
+"""Odemykání zabezpečených oken (`private=True`): TOTP z autentikátoru.
 
-Model (spec 2026-08-18 §Zabezpečená okna): okno s `secured=True` se divákovi
+Model (spec 2026-08-18 §Zabezpečená okna): okno s `private=True` se divákovi
 pošle jen jako prázdný rám s výzvou na kód; obsah (HTML, hodnoty polí,
 scrollback, PTY) dostane až po ověření. Ověřuje se **TOTP** (Google
 Authenticator, 1Password, …) proti tajemství uloženému u uživatele:
@@ -35,7 +35,7 @@ ani ruční kód se netisknou – jsou jedině v souborech v `~/.viewbase/` s pr
 `pyotp`/`qrcode` jsou STANDARDNÍ závislosti (pyproject). Když přesto chybí –
 instance běží v prostředí, kde se nenainstalovaly – knihovna funguje dál a
 použije jednorázový kód uložený do souboru; kód z autentikátoru ale nemá kdo
-ověřit, tak se to hlásí jako varování (`SecuredMixin.announce_lock`).
+ověřit, tak se to hlásí jako varování (`PrivateMixin.announce_lock`).
 
 Proti hrubé síle: 6 číslic = milion možností, proto RATE LIMIT (nejvýš
 `MAX_ATTEMPTS` pokusů v okně `WINDOW_S`) a ochrana proti opakovanému použití
@@ -61,7 +61,7 @@ TOTP_VALID_WINDOW = 1     # ±30 s kvůli rozjetým hodinám
 def system_log(level: str, message: str) -> None:
     """Systémová hláška do log okna i do logu serveru – NIKDY s tajemstvím.
 
-    Veřejná schválně: volá ji i `controls.SecuredMixin` (jedna cesta, jak se
+    Veřejná schválně: volá ji i `controls.PrivateMixin` (jedna cesta, jak se
     o zámcích hlásí, místo dvou různých)."""
     from .log import bus
 
@@ -71,7 +71,7 @@ def system_log(level: str, message: str) -> None:
 def registered(user: str | None = None) -> bool:
     """Má uživatel zapnuté TOTP tajemství? (Nezávisle na tom, jestli ho má
     tenhle proces čím ověřit – právě ten rozdíl je zajímavý, viz
-    `SecuredMixin.announce_lock`.)"""
+    `PrivateMixin.announce_lock`.)"""
     rec = load_users().get(user or active_user()) or {}
     return bool(rec.get("totp_secret")) and bool(rec.get("is_mfa_enabled", True))
 

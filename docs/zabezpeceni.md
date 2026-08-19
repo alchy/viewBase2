@@ -17,7 +17,7 @@ Zabezpečení stojí na vrstvách, které spolu souvisí, ale dají se číst zv
 | [**TLS**](#tls-a-reverzní-proxy) | aby to po cestě nešlo odposlechnout |
 | [**log a audit**](#log-co-se-zaznamená-a-co-uvidíte) | co se z toho dá zpětně dohledat |
 
-- **Zabezpečená okna** — `secured=True` na kterémkoli okně (jako `closable=`):
+- **Zabezpečená okna** — `private=True` na kterémkoli okně (jako `closable=`):
   okno se do prohlížeče pošle jen jako **prázdný rám**, obsah (HTML, hodnoty
   polí, scrollback, shell) po drátě neputuje, dokud divák nezadá kód v zelené
   výzvě ve stylu Guru Meditation. Kód je **TOTP z autentikátoru**, s rate
@@ -30,7 +30,7 @@ Zabezpečení stojí na vrstvách, které spolu souvisí, ale dají se číst zv
   zavře, okno zůstane zamčené). Odemčené zabezpečené okno má naopak
   **`Options → Lock Window`**: obsah se zase schová a příště si okno řekne o kód
   znovu; u shellu proces mezitím běží dál (zámek je jako zamčená obrazovka, ne
-  zabité sezení). Ukázka: `examples/secured_windows.py`.
+  zabité sezení). Ukázka: `examples/private_windows.py`.
 - **Relace a granty** — odemčení nepatří oknu, ale **relaci prohlížeče**.
   Po ověření kódu server zapíše grant dvojice *(relace, okno)*; obsah a vstup
   se pak u **každé zprávy** kontrolují proti němu, `init` snapshot se staví

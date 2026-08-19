@@ -2,7 +2,7 @@
 
 PROČ TENHLE SOUBOR EXISTUJE. Chyby, které v provozu opravdu bolely, prošly
 zelenou sadou 390+ jednotkových testů: Esc ve výzvě nefungoval (vstupní pole
-zastavovalo klávesu dřív, než dorazila k posluchači), `secured` se na okno
+zastavovalo klávesu dřív, než dorazila k posluchači), `private` se na okno
 zapisovalo až po jeho aktivaci (Options nabízel položku cizího okna), maska
 gadgetů se roztahovala, klávesy se logovaly po jednom znaku. Všechno jsou to
 chyby ve SPOJENÍ vrstev – Python, protokol, prohlížeč – a najde je jenom
@@ -44,7 +44,7 @@ def instance(tmp_path, monkeypatch):
     graph.open_html(verejne)
     verejne.label("obsah pro každého")
 
-    tajne = vb.HtmlWindow("tajne", title="Tajné", width=320, height=140, secured=True)
+    tajne = vb.HtmlWindow("tajne", title="Tajné", width=320, height=140, private=True)
     graph.open_html(tajne)
     tajne.label("TAJNY-OBSAH-42")
 

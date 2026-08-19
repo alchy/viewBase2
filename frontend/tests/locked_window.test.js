@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-/** Zamčené okno (`secured=True` na kterémkoli typu): server pošle jen prázdný
+/** Zamčené okno (`private=True` na kterémkoli typu): server pošle jen prázdný
  *  rám, obsah až po odemčení. Kód se zadává v zelené výzvě ve stylu Guru
  *  Meditation (core/unlock_prompt.js) – jádro WM to řeší JEDNÍM typem okna,
  *  pluginy o zámku nevědí. */
@@ -26,7 +26,7 @@ function setup() {
 }
 const open = (wm, spec = {}) => wm.open('locked', {
   window_id: 'panel', title: 'Panel', kind: 'locked', real_kind: 'html',
-  secured: true, state: 'locked', width: 420, height: 260, ...spec,
+  private: true, state: 'locked', width: 420, height: 260, ...spec,
 });
 
 describe('zamčené okno', () => {
@@ -132,7 +132,7 @@ describe('zamčené okno', () => {
         applyTheme() {}, setFocused() {},
       });
     });
-    const win = windowManager.open('html', { window_id: 'panel', secured: true,
+    const win = windowManager.open('html', { window_id: 'panel', private: true,
       state: 'open', html: '<b>obsah</b>' });
     windowManager._setActive(win);
     const items = optionsSeen.at(-1);
@@ -145,7 +145,7 @@ describe('zamčené okno', () => {
   });
 
   it('okno aktivované už ve factory má Lock Window hned (pořadí adopt/aktivace)', () => {
-    // regrese ze živého testu: `secured` se dřív zapsalo až z návratové
+    // regrese ze živého testu: `private` se dřív zapsalo až z návratové
     // hodnoty factory, takže aktivace uvnitř ní viděla okno jako nezamčené
     const { windowManager, optionsSeen, container } = setup();
     windowManager.registerType('html', (spec) => {
@@ -159,7 +159,7 @@ describe('zamčené okno', () => {
       windowManager._setActive(win);          // factory si okno rovnou aktivuje
       return win;
     });
-    windowManager.open('html', { window_id: 'panel', secured: true, state: 'open' });
+    windowManager.open('html', { window_id: 'panel', private: true, state: 'open' });
     expect(optionsSeen.at(-1).map((i) => i.key)).toEqual(['lock-window']);
   });
 

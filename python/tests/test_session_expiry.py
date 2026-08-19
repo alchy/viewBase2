@@ -97,7 +97,7 @@ def test_vstup_do_okna_bez_grantu_se_odmitne_a_zaloguje(zaznamy):
 
 def test_vyprsela_relace_uz_do_okna_nepise(zaznamy):
     c = GraphWindow()
-    w = HtmlWindow("panel", secured=True)
+    w = HtmlWindow("panel", private=True)
     w.label("tajné")
     c.open_html(w)
     sid = sessions.store.touch(None)

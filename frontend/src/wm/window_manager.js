@@ -43,7 +43,7 @@ export class WindowManager {
       return null;
     }
     // Spec otevíraného okna musí být k mání UŽ V adopt(): factory si okno
-    // typicky rovnou aktivuje (bringToFront) a aktivace čte `secured` kvůli
+    // typicky rovnou aktivuje (bringToFront) a aktivace čte `private` kvůli
     // Options. Kdyby se flag nastavil až z návratové hodnoty, měla by lišta
     // po odemčení položku cizího okna (odchyceno živým testem).
     this._openingSpec = spec ?? null;
@@ -53,16 +53,16 @@ export class WindowManager {
     } finally {
       this._openingSpec = null;
     }
-    if (win && spec) win.secured = !!spec.secured;
+    if (win && spec) win.private = !!spec.private;
     return win;
   }
 
-  /** Zaveď okno do evidence (volá factory typu po konstrukci). `secured`
+  /** Zaveď okno do evidence (volá factory typu po konstrukci). `private`
    *  (ze `public_spec()` na serveru) drží JÁDRO, ne plugin: podle něj se do
    *  Options přidá Lock/Unlock Window pro KTERÝKOLI typ okna, takže plugin
    *  o zámku neví nic (viz lockItemFor). */
   adopt(win) {
-    if (this._openingSpec) win.secured = !!this._openingSpec.secured;
+    if (this._openingSpec) win.private = !!this._openingSpec.private;
     this.windows.set(win.id, win);
     return win;
   }
@@ -104,7 +104,7 @@ export class WindowManager {
   }
 
   /** Options aktivního okna VČETNĚ průřezových položek jádra. Dnes jediná:
-   *  zámek okna (`secured=True`). Zamčené („private") okno nabídne `Unlock
+   *  zámek okna (`private=True`). Zamčené („private") okno nabídne `Unlock
    *  Window`, odemčené zabezpečené `Lock Window` – uživatelský požadavek
    *  („označí private window, klikne do Options a je mu nabídnuto Unlock
    *  Window"), takže výzva na kód není závislá jen na kliknutí do okna.
@@ -121,7 +121,7 @@ export class WindowManager {
   /** Položka zámku pro dané okno (příkaz, ne přepínač – jako System → Shell
    *  CLI). Nezabezpečená okna zamknout nejdou: neměl by je co odemknout. */
   lockItemFor(win) {
-    if (!win?.secured) return null;
+    if (!win?.private) return null;
     if (win.kind === 'locked') {
       return {
         key: 'unlock-window',

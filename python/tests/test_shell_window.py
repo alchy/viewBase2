@@ -31,7 +31,7 @@ def _relace():
 @pytest.fixture(autouse=True)
 def bez_totp(monkeypatch):
     """Tyhle testy jedou na jednorázovém kódu z konzole (fallback bez TOTP);
-    TOTP cestu pokrývá tests/test_secured_windows.py."""
+    TOTP cestu pokrývá tests/test_private_windows.py."""
     monkeypatch.setattr(mfa, "available", lambda: False)
     mfa.reset_state()
 
@@ -54,7 +54,7 @@ def test_spec_nese_kind_rozmery_a_zamek():
     # co jde ven, když je okno zamčené: prázdný rám, žádný obsah ani kód
     pub = w.public_spec()
     assert pub["kind"] == "locked" and pub["state"] == "locked"
-    assert pub["secured"] is True
+    assert pub["private"] is True
     assert "scrollback" not in pub and "code" not in repr(pub)
 
 
@@ -168,9 +168,9 @@ def test_konec_procesu_ohlasi_stav_exited():
     c.close()
 
 
-def test_secured_false_spusti_shell_rovnou():
+def test_private_false_spusti_shell_rovnou():
     c = GraphWindow()
-    w = ShellWindow("sh", command=["/bin/sh", "-i"], secured=False)
+    w = ShellWindow("sh", command=["/bin/sh", "-i"], private=False)
     assert w.public_spec()["state"] == "open"
     c.open_shell(w)
     assert _wait(lambda: w.pty is not None and w.pty.alive)

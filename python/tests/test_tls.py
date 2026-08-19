@@ -53,19 +53,19 @@ def test_rozpoznani_loopbacku(host, cekano):
 
 def test_zabezpecene_okno_mimo_loopback_bez_tls_neprojde(cert):
     c, k = cert
-    require_tls("0.0.0.0", None, secured_windows=False)      # bez zámku OK
-    require_tls("127.0.0.1", None, secured_windows=True)     # loopback OK
-    require_tls("0.0.0.0", vb.Tls(c, k), secured_windows=True)   # s TLS OK
+    require_tls("0.0.0.0", None, private_windows=False)      # bez zámku OK
+    require_tls("127.0.0.1", None, private_windows=True)     # loopback OK
+    require_tls("0.0.0.0", vb.Tls(c, k), private_windows=True)   # s TLS OK
     with pytest.raises(ValueError, match="bez TLS"):
-        require_tls("0.0.0.0", None, secured_windows=True)
+        require_tls("0.0.0.0", None, private_windows=True)
 
 
 def test_serve_odmitne_start_misto_tiche_plaintextove_expozice(cert):
-    """Celá cesta: Project(host mimo loopback) + secured okno + bez TLS."""
+    """Celá cesta: Project(host mimo loopback) + private okno + bez TLS."""
     screen = vb.Screen(title="X")
     graph = vb.GraphWindow(screen=screen)
-    graph.open_html(vb.HtmlWindow("tajne", secured=True))
-    assert graph.has_secured_window() is True
+    graph.open_html(vb.HtmlWindow("tajne", private=True))
+    assert graph.has_private_window() is True
     project = vb.Project(host="0.0.0.0", port=0)
     with pytest.raises(ValueError, match="bez TLS"):
         project.serve(screen, block=False)

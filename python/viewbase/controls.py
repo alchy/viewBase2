@@ -27,8 +27,8 @@ def _normalize_options(options: list) -> list[dict]:
     return normalized
 
 
-class SecuredMixin:
-    """Zámek okna (`secured=True`) – JEDEN mechanismus pro všechny typy oken.
+class PrivateMixin:
+    """Zámek okna (`private=True`) – JEDEN mechanismus pro všechny typy oken.
 
     Zamčené okno se klientovi pošle jen jako PRÁZDNÝ RÁM (`kind:"locked"`) s
     výzvou na kód: žádné HTML, hodnoty polí ani scrollback. To je rozdíl
@@ -39,22 +39,22 @@ class SecuredMixin:
     Ověřuje se TOTP z autentikátoru (viewbase.mfa); bez registrace (nebo v
     prostředí, kde chybí `pyotp` – standardní závislost) se použije
     jednorázový kód ze souboru v `~/.viewbase/` (`fallback_code`). Zámek zapíná kterékoli okno stejně:
-    `HtmlWindow("panel", secured=True)` – jako `closable=`."""
+    `HtmlWindow("panel", private=True)` – jako `closable=`."""
 
-    def _init_lock(self, secured: bool) -> None:
-        self.secured = bool(secured)
+    def _init_lock(self, private: bool) -> None:
+        self.private = bool(private)
         # `state` je jen SOUHRN pro logy a introspekci ("odemkl to aspoň
         # někdo?"). O tom, kdo obsah uvidí, rozhoduje grant relace
         # (viewbase/sessions.py) – dřív tenhle atribut rozhodoval sám a byl
         # globální, takže odemčení jedním divákem odhalilo obsah všem.
-        self.state = "locked" if self.secured else "open"
+        self.state = "locked" if self.private else "open"
         # jednorázový kód (fallback bez TOTP) se generuje až při otevření,
         # aby ho konzole vypsala jednou a jen když je opravdu potřeba
         self.fallback_code: str | None = None
 
     @property
     def locked(self) -> bool:
-        return self.secured and self.state != "open"
+        return self.private and self.state != "open"
 
     def lock_spec(self) -> dict[str, Any]:
         """Placeholder pro zamčené okno: rozměry a titulek ano, obsah ne."""
@@ -64,7 +64,7 @@ class SecuredMixin:
             "title": full.get("title", ""),
             "kind": "locked",
             "real_kind": full.get("kind", "control"),
-            "secured": True,
+            "private": True,
             "state": "locked",
             "closable": full.get("closable", True),
             "width": full.get("width"),
@@ -75,10 +75,10 @@ class SecuredMixin:
         """Co se smí poslat KONKRÉTNÍ relaci: bez grantu placeholder, s grantem
         obsah. `unlocked` říká, jestli tahle relace grant má (sessions.store).
         Nezabezpečené okno vidí každý."""
-        if self.secured and not unlocked:
+        if self.private and not unlocked:
             return self.lock_spec()
-        return {**self.spec(), "secured": self.secured,
-                "state": "open" if not self.secured or unlocked else "locked"}
+        return {**self.spec(), "private": self.private,
+                "state": "open" if not self.private or unlocked else "locked"}
 
     def unlocks_with(self, code: Any) -> bool:
         """Ověř kód: TOTP uživatele, jinak jednorázový kód z konzole."""
@@ -131,16 +131,16 @@ class SecuredMixin:
         okno i s historií. Typ okna si to může přepsat."""
 
 
-class ControlWindow(SecuredMixin):
+class ControlWindow(PrivateMixin):
     """Parametrické okno: uspořádaný seznam typovaných polí."""
 
     def __init__(self, window_id: str, *, title: str = "",
-                 closable: bool = True, secured: bool = False) -> None:
+                 closable: bool = True, private: bool = False) -> None:
         self.window_id = window_id
         self.title = title
         self.closable = bool(closable)  # False = bez gadgetu [x] (neobnovitelné)
         self._fields: list[dict[str, Any]] = []
-        self._init_lock(secured)
+        self._init_lock(private)
 
     def integer(self, key: str, label: str, *, min: int, max: int,
                 value: int, step: int = 1) -> "ControlWindow":
@@ -231,7 +231,7 @@ class ControlWindow(SecuredMixin):
                 field["value"] = values[field["key"]]
 
 
-class TerminalWindow(SecuredMixin):
+class TerminalWindow(PrivateMixin):
     """Konzolové okno: prompt + append-only výstup (REPL v prohlížeči).
 
     Na rozdíl od ControlWindow nemá typovaná pole — je to I/O konzole. Server
@@ -242,7 +242,7 @@ class TerminalWindow(SecuredMixin):
     def __init__(self, window_id: str, *, title: str = "",
                  prompt: str = "> ", width: int = 560,
                  closable: bool = True, input: bool = True,  # pylint: disable=redefined-builtin
-                 secured: bool = False) -> None:
+                 private: bool = False) -> None:
         if width <= 0:
             raise ValueError("width musí být kladné")
         self.window_id = window_id
@@ -251,7 +251,7 @@ class TerminalWindow(SecuredMixin):
         self.width = int(width)
         self.closable = bool(closable)  # False = bez gadgetu [x] (neobnovitelné)
         self.input = bool(input)        # False = jen výstup (živý panel bez promptu)
-        self._init_lock(secured)
+        self._init_lock(private)
 
     def spec(self) -> dict[str, Any]:
         """Popis okna pro frontend; `kind:"terminal"` ho odliší od
@@ -267,7 +267,7 @@ class TerminalWindow(SecuredMixin):
         }
 
 
-class HtmlWindow(SecuredMixin):
+class HtmlWindow(PrivateMixin):
     """HTML okno: obsah skládaný z PRVKŮ (heading/label/kv/table/list/bar/
     image/hr, button/input/number/slider/checkbox/radio/select/textarea –
     viz `viewbase.widgets`) na instanci okna, bez psaní HTML.
@@ -298,7 +298,7 @@ class HtmlWindow(SecuredMixin):
 
     def __init__(self, window_id: str, *, title: str = "",
                  width: int = 560, height: int = 320,
-                 closable: bool = True, secured: bool = False) -> None:
+                 closable: bool = True, private: bool = False) -> None:
         if width <= 0 or height <= 0:
             raise ValueError("width i height musí být kladné")
         self.window_id = window_id
@@ -306,7 +306,7 @@ class HtmlWindow(SecuredMixin):
         self.width = int(width)
         self.height = int(height)
         self.closable = bool(closable)
-        self._init_lock(secured)
+        self._init_lock(private)
         self._raw = ""                       # html_set/html_append (pokročilí)
         self._elements: list[Any] = []       # prvky v pořadí přidání
         self._by_id: dict[str, Any] = {}
@@ -489,7 +489,7 @@ class HtmlWindow(SecuredMixin):
             fn(event)
 
 
-class ShellWindow(SecuredMixin):
+class ShellWindow(PrivateMixin):
     """Shell okno: v okně běží SKUTEČNÝ proces na pseudo-terminálu (bash/zsh,
     `htop`, `vim` – frontend je vykreslí přes xterm.js).
 
@@ -515,7 +515,7 @@ class ShellWindow(SecuredMixin):
                  env: dict[str, str] | None = None,
                  cols: int = 80, rows: int = 24,
                  width: int = 720, height: int = 420,
-                 closable: bool = True, secured: bool = True,
+                 closable: bool = True, private: bool = True,
                  audit_commands: bool = True) -> None:
         if width <= 0 or height <= 0:
             raise ValueError("width i height musí být kladné")
@@ -535,7 +535,7 @@ class ShellWindow(SecuredMixin):
         # včetně hesla, které někdo napíše na výzvu `sudo` (viz PtyShell._audit).
         # Na sledovaném stroji se to hodí; kdo to nechce, dá False.
         self.audit_commands = bool(audit_commands)
-        self._init_lock(secured)        # shell je zamčený ve výchozím stavu
+        self._init_lock(private)        # shell je zamčený ve výchozím stavu
         self.scrollback = ""
         self.pty: Any = None          # PtyShell po odemčení
         self._owner: Any = None       # GraphWindow po open_shell

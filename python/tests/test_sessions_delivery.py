@@ -26,8 +26,8 @@ def _hello(ws, sid=None):
     return json.loads(ws.receive_text())
 
 
-def _okno(secured=True):
-    w = HtmlWindow("mzdy", title="Mzdy 2026", secured=secured)
+def _okno(private=True):
+    w = HtmlWindow("mzdy", title="Mzdy 2026", private=private)
     w.label("tajný obsah")
     return w
 
@@ -95,9 +95,9 @@ def test_odemceni_vidi_jen_relace_ktera_zadala_kod(monkeypatch):
 
 
 def test_nezabezpecene_okno_dostanou_oba():
-    """Kontrolní vzorek: bez `secured=True` se nic nefiltruje."""
+    """Kontrolní vzorek: bez `private=True` se nic nefiltruje."""
     graph = GraphWindow()
-    graph.open_html(_okno(secured=False))
+    graph.open_html(_okno(private=False))
     with TestClient(create_app(graph)) as client:
         with client.websocket_connect("/ws") as a, client.websocket_connect("/ws") as b:
             for init in (_hello(a), _hello(b)):

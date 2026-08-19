@@ -42,12 +42,12 @@ týž graf, jen přepnutý přepínač:
 
 ### Zabezpečené okno: obsah až po kódu z autentikátoru
 
-`secured=True` udělá z okna **privátní okno**: server pošle jen prázdný rám,
+`private=True` udělá z okna **privátní okno**: server pošle jen prázdný rám,
 obsah po drátě neputuje. Nic nevyskakuje — o kód si divák řekne sám z lišty:
 
 | Aktivní privátní okno → `Options` | Výzva ve stylu Guru Meditation |
 |---|---|
-| ![Options s položkou Unlock Window](images/secured-options-unlock.png) | ![Zelená výzva na kód](images/secured-unlock-prompt.png) |
+| ![Options s položkou Unlock Window](images/private-options-unlock.png) | ![Zelená výzva na kód](images/private-unlock-prompt.png) |
 
 Odemčené zabezpečené okno má v `Options` symetricky **`Lock Window`** — obsah
 se zase schová a příště si okno řekne o kód znovu.

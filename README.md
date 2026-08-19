@@ -49,7 +49,7 @@ odpovídá na jednu otázku:
 |---|---|
 | **[Instalace a spuštění](docs/instalace.md)** | jak knihovnu přidat do vlastního projektu, jaké má závislosti a co vznikne při prvním spuštění (`~/.viewbase`, uživatel, QR pro autentikátor) |
 | **[Model: projekt → screeny → okna](docs/okna.md)** | hlavní referenční text: `Project`/`Screen` a všechny typy oken (log, konzole, HTML, shell, formulář, graf) i jejich API |
-| **[Zabezpečení: okna, relace, autorizace, TLS](docs/zabezpeceni.md)** | `secured=True` a kód z autentikátoru; relace s expirací; **autorizace jako vlastnost registrace události**; **kontrola `Origin`** (WebSocket neprochází CORS); TLS včetně self-signed certifikátu a reverzní proxy; co se loguje a co se do logu nikdy nedostane |
+| **[Zabezpečení: okna, relace, autorizace, TLS](docs/zabezpeceni.md)** | `private=True` a kód z autentikátoru; relace s expirací; **autorizace jako vlastnost registrace události**; **kontrola `Origin`** (WebSocket neprochází CORS); TLS včetně self-signed certifikátu a reverzní proxy; co se loguje a co se do logu nikdy nedostane |
 | **[Témata a chrome oken](docs/temata.md)** | vestavěná témata, CSS proměnné, gadgety, dok minimalizovaných oken, scrollbary, výběr textu |
 | **[Multi-screen Workbench](docs/multiscreen.md)** | víc screenů na jednom serveru, přepínání, drag-reveal, `ScreenMenu` |
 | **[Ukázky](docs/ukazky.md)** | screenshoty ze živého běhu |

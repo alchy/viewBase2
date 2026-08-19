@@ -1,4 +1,4 @@
-"""`secured=True` na JAKÉMKOLI okně: klient dostane jen prázdný rám s výzvou
+"""`private=True` na JAKÉMKOLI okně: klient dostane jen prázdný rám s výzvou
 na kód, obsah až po ověření (TOTP, jinak jednorázový kód z konzole)."""
 import time
 
@@ -50,19 +50,19 @@ def _wait(fn, timeout=5.0):
 
 
 def _html():
-    w = HtmlWindow("panel", title="Panel", secured=True)
+    w = HtmlWindow("panel", title="Panel", private=True)
     w.label("tajný text")
     return w
 
 
 def _control():
-    w = ControlWindow("form", title="Form", secured=True)
+    w = ControlWindow("form", title="Form", private=True)
     w.string("heslo", "Heslo", value="tajne", maxlength=20)
     return w
 
 
 def _terminal():
-    return TerminalWindow("konzole", title="Konzole", secured=True)
+    return TerminalWindow("konzole", title="Konzole", private=True)
 
 
 @pytest.mark.parametrize("make, otevri, tajemstvi", [
@@ -76,7 +76,7 @@ def test_zamcene_okno_neposle_obsah_dokud_se_neodemkne(make, otevri, tajemstvi):
     getattr(c, otevri)(w)
     (a,) = c.drain_actions()
     assert a["action"] == "open_window"
-    assert a["secured"] is True and a["state"] == "locked"
+    assert a["private"] is True and a["state"] == "locked"
     assert a["kind"] == "locked"                 # placeholder, ne skutečný typ
     text = repr(a)
     if tajemstvi:
@@ -114,21 +114,21 @@ def test_spatny_kod_okno_nechá_zamčené():
 
 def test_nezabezpecene_okno_se_otevre_rovnou():
     c = GraphWindow()
-    w = HtmlWindow("panel")                       # secured=False (výchozí)
+    w = HtmlWindow("panel")                       # private=False (výchozí)
     w.label("běžný obsah")
     c.open_html(w)
     (a,) = c.drain_actions()
     assert a["kind"] == "html" and "běžný obsah" in a["html"]
-    assert a.get("secured") is False
+    assert a.get("private") is False
     c.close()
 
 
-def test_shell_je_secured_ve_vychozim_stavu_a_pty_ceka_na_odemceni():
+def test_shell_je_private_ve_vychozim_stavu_a_pty_ceka_na_odemceni():
     c = GraphWindow()
     w = ShellWindow("sh", command=["/bin/sh", "-i"])
     c.open_shell(w)
     (a,) = c.drain_actions()
-    assert a["kind"] == "locked" and a["secured"] is True
+    assert a["kind"] == "locked" and a["private"] is True
     assert w.pty is None
     c.dispatch_event("window_unlock", {"window_id": "sh", "code": _kod(), "client_id": "x", "sid": SID})
     assert _wait(lambda: w.pty is not None and w.pty.alive)
@@ -199,10 +199,10 @@ def test_lock_window_zamkne_odemcene_okno_zpatky(monkeypatch, capsys):
 
 
 def test_lock_window_nezabezpecene_okno_ignoruje():
-    """Zamknout jde jen okno se `secured=True` – jinak by šlo tichým eventem
+    """Zamknout jde jen okno se `private=True` – jinak by šlo tichým eventem
     znepřístupnit kterékoli okno (a nebylo by čím ho odemknout)."""
     c = GraphWindow()
-    w = HtmlWindow("panel")                       # secured=False
+    w = HtmlWindow("panel")                       # private=False
     w.label("běžný obsah")
     c.open_html(w)
     c.drain_actions()

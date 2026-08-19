@@ -1,7 +1,7 @@
 # Autentizace a autorizace: uživatelé, skupiny, ACL — Design
 
 > Vytažení celého modelu „kdo smí co" z těla programu do vlastního
-> podsystému. Autorizace přestává být vlastností okna (`secured=True`) a
+> podsystému. Autorizace přestává být vlastností okna (`private=True`) a
 > stává se vlastností **objektu** (plocha, okno, log) vůči **principálům**
 > relace. Navazuje na `2026-08-18-multiuser-privatni-okna-design.md`
 > (relace a granty) a na dnešní stav, kde autorizace už má jediné vynucovací
@@ -222,7 +222,7 @@ na jednom místě a hlídá ji test, který registr projde strojově.
 
 ## 8. Co se zachová
 
-`secured=True` = `private=True` se stejným chováním (výzva, grant relace,
+`private=True` = `private=True` se stejným chováním (výzva, grant relace,
 `Options → Unlock/Lock Window`, per-relace doručování). Dnešní aplikace bez
 jediné zmínky o skupinách musí fungovat dál: default `group:users`, jediný
 uživatel `workbench` v `group:administrator`, který je členem všeho, co si

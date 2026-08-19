@@ -168,7 +168,7 @@ class WindowsMixin:
         `grant` doplní drain_actions, filtruje broadcast v server.py). Dřív
         se tady rozhodovalo podle globálního `window.locked`, takže po prvním
         odemčení tekl obsah všem."""
-        if not getattr(window, "secured", False):
+        if not getattr(window, "private", False):
             return False
         return not sessions.store.sids_with(window.window_id)
 
@@ -315,13 +315,13 @@ class WindowsMixin:
         self._actions.append({**window.public_spec(), "action": "open_window",
                               **extra})
 
-    def has_secured_window(self) -> bool:
-        """Je na screenu okno se `secured=True`? (Rozhoduje o povinném TLS
+    def has_private_window(self) -> bool:
+        """Je na screenu okno se `private=True`? (Rozhoduje o povinném TLS
         při poslechu mimo loopback, viz tls.require_tls.)"""
-        return any(getattr(w, "secured", False)
-                   for w in self._secured_windows().values())
+        return any(getattr(w, "private", False)
+                   for w in self._private_windows().values())
 
-    def _secured_windows(self) -> dict[str, Any]:
+    def _private_windows(self) -> dict[str, Any]:
         """Všechna okna se zámkem (jeden mechanismus napříč typy)."""
         with self._lock:
             return self._reg.all()
@@ -331,9 +331,9 @@ class WindowsMixin:
         pošle skutečné `open_window` i s obsahem a zavolá hook okna (shell
         spustí PTY). Nesprávný kód se odmítne – TOTP má rate limit a ochranu
         proti opakovanému použití (viewbase.mfa)."""
-        window = self._secured_windows().get(getattr(event, "window_id", None))
+        window = self._private_windows().get(getattr(event, "window_id", None))
         sid = getattr(event, "sid", None)
-        if window is None or not getattr(window, "secured", False):
+        if window is None or not getattr(window, "private", False):
             return
         if sessions.store.has(sid, window.window_id):
             return                              # tahle relace už grant má
@@ -366,11 +366,11 @@ class WindowsMixin:
         `window_unlock`). Okno se klientům pošle znovu jen jako prázdný rám –
         obsah se přestane posílat a příště si okno zase řekne o kód.
 
-        Zamknout jde JEN okno se `secured=True`: u ostatních není čím odemykat
+        Zamknout jde JEN okno se `private=True`: u ostatních není čím odemykat
         a tichý zámek by je udělal nepřístupnými."""
-        window = self._secured_windows().get(getattr(event, "window_id", None))
+        window = self._private_windows().get(getattr(event, "window_id", None))
         sid = getattr(event, "sid", None)
-        if window is None or not getattr(window, "secured", False):
+        if window is None or not getattr(window, "private", False):
             return
         if not sessions.store.has(sid, window.window_id):
             return                          # tahle relace ho stejně nemá
@@ -409,7 +409,7 @@ class WindowsMixin:
 
         Odmítnutí jde do auditu i s důvodem – vypršelá relace vypadá jinak
         než pokus psát do cizího okna."""
-        if not getattr(window, "secured", False):
+        if not getattr(window, "private", False):
             return True
         sid = getattr(event, "sid", None)
         wid = window.window_id

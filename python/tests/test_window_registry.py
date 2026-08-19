@@ -61,7 +61,7 @@ def test_close_window_umi_i_terminal():
 def test_zavreni_okna_zrusi_granty_relaci():
     """Jinak by se nové okno se stejným `window_id` odemklo samo."""
     c = GraphWindow()
-    w = HtmlWindow("mzdy", secured=True)
+    w = HtmlWindow("mzdy", private=True)
     w.label("tajné")
     c.open_html(w)
     sid = sessions.store.touch(None)
@@ -78,6 +78,6 @@ def test_vsechny_typy_oken_sdileji_jeden_prostor_id():
     c.open_window(ControlWindow("x"))
     c.open_html(HtmlWindow("y"))
     c.open_terminal(TerminalWindow("z"))
-    assert sorted(c._secured_windows()) == ["x", "y", "z"]      # noqa: SLF001
+    assert sorted(c._private_windows()) == ["x", "y", "z"]      # noqa: SLF001
     assert len(c.snapshot()["windows"]) == 3
     c.close()

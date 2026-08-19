@@ -22,7 +22,7 @@
 |---|---|---|
 | `LogWindow` | **systémové** okno — obsah dodává knihovna (proces-wide log, `tail -f`) | `examples/log_window.py` |
 | `TerminalWindow` | **textové/dialogové** okno — píše se do něj a umí poslat string od uživatele | `examples/terminal.py` |
-| `ShellWindow` | **skutečný terminál** — na PTY běží shell systému (vim/htop/barvy), okno zamčené na kód | `examples/secured_windows.py` | **zabezpečená okna**: `secured=True`, TOTP z autentikátoru, zelená výzva ve stylu Guru Meditation |
+| `ShellWindow` | **skutečný terminál** — na PTY běží shell systému (vim/htop/barvy), okno zamčené na kód | `examples/private_windows.py` | **zabezpečená okna**: `private=True`, TOTP z autentikátoru, zelená výzva ve stylu Guru Meditation |
 | `examples/shell.py` |
 | `HtmlWindow` | **panel z prvků** — heading/label/kv/table/list/bar/image/hr, button/input/number/slider/checkbox/radio/select/textarea skládané z Pythonu bez HTML; události s hodnotami se vrací do Pythonu | `examples/html_window.py` |
 | `ControlWindow` | **formulářové** okno — typovaná pole, hodnoty tečou zpět do Pythonu | `examples/prototype.py` |

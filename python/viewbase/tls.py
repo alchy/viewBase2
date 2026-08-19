@@ -94,16 +94,16 @@ def is_loopback(host: str) -> bool:
         return False
 
 
-def require_tls(host: str, tls: Tls | None, *, secured_windows: bool) -> None:
+def require_tls(host: str, tls: Tls | None, *, private_windows: bool) -> None:
     """Zkontroluj, že vzdálený přístup k zabezpečeným oknům jede po TLS.
 
     Vyhodí `ValueError` s návodem – tichý fallback na plaintext by znamenal,
     že kód z autentikátoru i session id jedou po drátě čitelně."""
-    if tls is not None or is_loopback(host) or not secured_windows:
+    if tls is not None or is_loopback(host) or not private_windows:
         return
     raise ValueError(
         f"viewbase: server poslouchá na '{host}' (mimo loopback) a má "
-        "zabezpečené okno (secured=True), ale běží bez TLS – odemykací kód a "
+        "zabezpečené okno (private=True), ale běží bez TLS – odemykací kód a "
         "session id by šly po síti čitelně.\n"
         "Buď přidej certifikát:\n"
         "    vb.Project(host=…, port=8443, tls=vb.Tls('cert.pem', 'key.pem'))\n"

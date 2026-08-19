@@ -82,7 +82,7 @@ Ta třetí vznikla z konkrétní zkušenosti: chyby, které v provozu bolely,
 prošly zelenou sadou 390+ jednotkových testů. Esc ve výzvě nefungoval,
 protože vstupní pole zastavilo klávesu dřív, než dorazila k posluchači —
 jednotkový test si událost posílal rovnou na `window`, takže o problému
-nevěděl. `secured` se na okno zapisovalo až po jeho aktivaci, takže `Options`
+nevěděl. `private` se na okno zapisovalo až po jeho aktivaci, takže `Options`
 nabízel položku cizího okna. Obojí je chyba ve *spojení* vrstev a najde ji
 jenom skutečný prohlížeč.
 

@@ -71,7 +71,7 @@ def test_grant_se_vynucuje_v_dispatchi_ne_v_handleru(zaznamy):
     videno = []
     c = GraphWindow()
     try:
-        w = HtmlWindow("panel", secured=True)
+        w = HtmlWindow("panel", private=True)
         w.label("tajné")
         c.open_html(w)
         c._register("html_event", lambda e: videno.append(e),   # noqa: SLF001

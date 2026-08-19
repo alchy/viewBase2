@@ -21,7 +21,7 @@
 | `examples/terminal.py` | **konzole v prohlížeči**: `TerminalWindow`, `on_input`, `terminal_write`, výstupní panel a REST push (`/api/event`) |
 | `examples/workbench.py` | **Workbench téma**: všechny typy oken (graf, formulář, konzole, panel z prvků, log) v `workbench-amiga` / `workbench-gray` – lišty, rohový sizing gadget, konzole jako jedna plocha (AmigaShell) |
 | `examples/shell.py` | **shell okno**: skutečný terminál na PTY (xterm.js), zámek odemykacím kódem, druhé okno s `command=["top"]` |
-| `examples/secured_windows.py` | **zabezpečená okna**: `secured=True` na HTML/formulářovém/konzolovém okně, `Options → Unlock/Lock Window`, TOTP z autentikátoru |
+| `examples/private_windows.py` | **zabezpečená okna**: `private=True` na HTML/formulářovém/konzolovém okně, `Options → Unlock/Lock Window`, TOTP z autentikátoru |
 | `examples/html_window.py` | **HTML okno z prvků**: `HtmlWindow` + `grid`, `label`/`input`/`slider`/`checkbox`/`button`, `on_click`/`on_change`/`on_submit`, `.text`/`.value` za běhu, `panel.on_event` |
 | `examples/words.py` | mapa slov z Wikipedie (crawl odkazů) |
 | `examples/stress.py` | zátěžový test (tisíce uzlů) |

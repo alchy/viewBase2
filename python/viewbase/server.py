@@ -374,7 +374,7 @@ def first_run_setup() -> None:
         # Kdo má TOTP zaregistrované, ale spustí instanci v prostředí bez
         # `pyotp`, jinak jen kouká, proč mu autentikátor nefunguje.
         _system_log(
-            "pyotp is missing in this environment – secured windows fall back "
+            "pyotp is missing in this environment – private windows fall back "
             "to a one-time code in a file"
             + (f" (user '{user}' HAS TOTP registered, so the authenticator "
                "code will NOT work); "
@@ -689,7 +689,7 @@ def serve(*windows: GraphWindow, host: str = "127.0.0.1", port: int = 8080,
         raise ValueError("serve() vyžaduje aspoň jeden GraphWindow")
     # Zabezpečené okno mimo loopback bez TLS = kód i session id čitelně po
     # drátě; radši nenastartovat než tiše vystavit (viz tls.require_tls).
-    require_tls(host, tls, secured_windows=any(w.has_secured_window()
+    require_tls(host, tls, private_windows=any(w.has_private_window()
                                                for w in windows))
     first_run_setup()                    # ~/.viewbase, uživatel, TOTP + QR
     # ADRESA DO LOGU: s TLS server na `http://` neodpoví vůbec (klient dostane

@@ -2,7 +2,7 @@
  *  (bez blikání): červená znamená „něco se rozbilo", zelená „systém čeká na
  *  tebe" (uživatelské rozhodnutí; sdílený vzhled je v core/overlay.js).
  *
- *  Ukáže se, když divák otevře nebo aktivuje okno se `secured=True`. Kód je
+ *  Ukáže se, když divák otevře nebo aktivuje okno se `private=True`. Kód je
  *  šestimístný TOTP z autentikátoru (nebo jednorázový kód z konzole serveru,
  *  když TOTP není nastavené) – jde ven jedinou cestou: událost
  *  `window_unlock` po WebSocketu. Esc zavře výzvu, okno zůstane zamčené. */

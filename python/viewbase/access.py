@@ -1,6 +1,6 @@
 """Kdo smí co: principálové, ACL a dvě slovesa.
 
-Autorizace byla dosud vlastností okna (`secured=True` = „chce kód") a nic
+Autorizace byla dosud vlastností okna (`private=True` = „chce kód") a nic
 víc; kdo se dostal ke screenu, viděl všechno nezamčené. Tady je model, ve
 kterém je přístup vlastností **objektu** (plocha, okno, log) vůči
 **principálům relace**.

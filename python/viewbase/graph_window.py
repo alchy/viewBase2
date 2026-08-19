@@ -673,11 +673,11 @@ class GraphWindow(EventsMixin, FlowsMixin, WindowsMixin):
             # ve vysílací smyčce, žádné vlastní vlákno ani časovač)
             self._keys.tick()
             actions, self._actions = self._actions, []
-            secured = {wid for wid, w in self._secured_windows().items()
-                       if getattr(w, "secured", False)}
+            private = {wid for wid, w in self._private_windows().items()
+                       if getattr(w, "private", False)}
             for action in actions:
                 wid = action.get("window_id")
-                if (wid in secured and action.get("kind") != "locked"
+                if (wid in private and action.get("kind") != "locked"
                         and "only_sid" not in action):
                     action["grant"] = wid
             return actions

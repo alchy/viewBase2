@@ -1,4 +1,4 @@
-/** Zamčené okno (`secured=True` na kterémkoli typu okna).
+/** Zamčené okno (`private=True` na kterémkoli typu okna).
  *
  *  Server posílá zamčené okno jako PRÁZDNÝ RÁM (`kind:"locked"`): titulek a
  *  rozměry ano, obsah ne – po drátě neputuje ani HTML, ani hodnoty polí, ani
@@ -23,7 +23,7 @@ export class LockedWindow extends BaseWindow {
     this.realKind = realKind ?? 'window';
     this.height = Number(height) > 0 ? Number(height) : 200;
     this.onUnlockRequest = onUnlockRequest;
-    this.secured = true;              // Options → Unlock Window (window_manager)
+    this.private = true;              // Options → Unlock Window (window_manager)
     this._buildBody();
     this._mount();
   }
@@ -52,7 +52,7 @@ export class LockedWindow extends BaseWindow {
   }
 
   /** Zamčené okno vlastní Options nemá (a nesmí nic prozradit) – `Unlock
-   *  Window` do skupiny přidá jádro WM podle `secured`, stejně jako `Lock
+   *  Window` do skupiny přidá jádro WM podle `private`, stejně jako `Lock
    *  Window` u odemčených oken (wm/window_manager.js, DRY). */
   getOptionsItems() {
     return null;
