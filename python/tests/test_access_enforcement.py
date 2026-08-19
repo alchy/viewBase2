@@ -6,6 +6,7 @@ jediná otázka, na které záleží, je „CO SE OPRAVDU ODEŠLE po drátě": s
 v prohlížeči by obešla vývojářská konzole.
 """
 import json
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -282,3 +283,151 @@ def test_allow_anonymous_false_chce_jmeno_i_na_verejne_ploshe():
             assert pred == [] and session["hidden"] > 0
             pred, session = _prihlas(ws, "hana", kod())
     assert session["visible"] == 1 and [m["type"] for m in pred] == ["init"]
+
+
+# ---- brána plochy platí u KAŽDÉ události ----------------------------------
+#
+# Nalezeno po dokončení etapy 3: `Needs.NONE` kontrolu úplně vypínalo, takže
+# `shell_new`, `menu_select` i každá uživatelská událost z `@graph.on(...)`
+# šly zavolat na plochu, kterou relace vůbec neviděla – a přes REST i bez
+# jakékoli identity.
+
+def _plocha_s_handlerem():
+    prislo = []
+    s = Screen(title="Tajná", id="tajna")
+    g = GraphWindow(screen=s)
+    g.on("muj_event", lambda e: prislo.append(e))
+    return s, g, prislo
+
+
+def test_anonym_nespusti_uzivatelskou_udalost_na_skryte_plose():
+    s, g, prislo = _plocha_s_handlerem()
+    with TestClient(create_app(g)) as client:
+        with client.websocket_connect("/ws") as ws:
+            _, session = _hello(ws)
+            assert session["visible"] == 0
+            ws.send_text(json.dumps({"type": "event", "event": "muj_event",
+                                     "screen_id": s.id, "payload": {}}))
+            ws.send_text(json.dumps({"type": "logout"}))
+            _do_session(ws)                      # bariéra: server dozpracoval
+    assert prislo == []
+
+
+def test_anonym_si_neotevre_shell_na_skryte_plose():
+    s = Screen(title="Tajná", id="tajna")
+    g = GraphWindow(screen=s)
+    with TestClient(create_app(g)) as client:
+        with client.websocket_connect("/ws") as ws:
+            _hello(ws)
+            ws.send_text(json.dumps({"type": "event", "event": "shell_new",
+                                     "screen_id": s.id, "payload": {}}))
+            ws.send_text(json.dumps({"type": "logout"}))
+            _do_session(ws)
+    assert g._reg.all() == {}
+
+
+def test_rest_bez_tokenu_je_anonym():
+    """`curl` bez ničeho nesmí spustit autorský handler na zavřené ploše."""
+    s, g, prislo = _plocha_s_handlerem()
+    with TestClient(create_app(g)) as client:
+        r = client.post("/api/event", json={"event": "muj_event",
+                                            "screen_id": s.id, "payload": {}})
+    assert r.json() == {"ok": True}              # endpoint neprozradí, proč ne
+    assert prislo == []
+
+
+def test_rest_s_tokenem_dostane_prava_z_konfigurace():
+    s, g, prislo = _plocha_s_handlerem()
+    app = create_app(g, rest_token="tajny-token", rest_access=["group:users"])
+    with TestClient(app) as client:
+        client.post("/api/event", headers={"Authorization": "Bearer spatny"},
+                    json={"event": "muj_event", "screen_id": s.id, "payload": {}})
+        assert prislo == []
+        client.post("/api/event", headers={"Authorization": "Bearer tajny-token"},
+                    json={"event": "muj_event", "screen_id": s.id, "payload": {}})
+    assert len(prislo) == 1
+
+
+def test_klient_si_principaly_nepodstrci():
+    """Server je dosazuje VŽDYCKY – kdyby jen doplňoval chybějící, poslal by
+    si je klient v payloadu sám a byl by z toho správce."""
+    s, g, prislo = _plocha_s_handlerem()
+    with TestClient(create_app(g)) as client:
+        with client.websocket_connect("/ws") as ws:
+            _hello(ws)
+            ws.send_text(json.dumps({
+                "type": "event", "event": "muj_event", "screen_id": s.id,
+                "payload": {"principals": ["group:administrator"]}}))
+            ws.send_text(json.dumps({"type": "logout"}))
+            _do_session(ws)
+        client.post("/api/event",
+                    json={"event": "muj_event", "screen_id": s.id,
+                          "payload": {"principals": ["group:administrator"]}})
+    assert prislo == []
+
+
+def test_odemykani_okna_mimo_ACL_neprojde():
+    """`window_unlock` je cesta ke kroku navíc, ale okno se přitom musí
+    smět aspoň VIDĚT – jinak jde zkoušet kód na okno, o kterém se relace
+    neměla dozvědět."""
+    kod = _uzivatel("karel", ["group:users"])
+    s = Screen(title="Provoz", id="provoz")
+    g = GraphWindow(screen=s)
+    okno = HtmlWindow("mzdy", title="Mzdy", private=True, access=["group:ucetni"])
+    okno.label("tajný obsah")
+    g.open_html(okno)
+
+    with TestClient(create_app(g)) as client:
+        with client.websocket_connect("/ws") as ws:
+            _hello(ws)
+            _prihlas(ws, "karel", kod())
+            ws.send_text(json.dumps({
+                "type": "event", "event": "window_unlock",
+                "payload": {"window_id": "mzdy", "code": "000000"}}))
+            ws.send_text(json.dumps({"type": "logout"}))
+            _do_session(ws)
+    assert sessions.store.stats()["grants"] == 0
+
+
+# ---- auditní stopa v logu -------------------------------------------------
+
+def _co_prislo_pred_odhlasenim(ws):
+    """Nech proběhnout vysílací smyčku, pak si vyžádej odpověď, o které víš,
+    že přijde (`session` po odhlášení), a vrať všechno, co dorazilo před ní.
+    Kdyby server poslal i záznam z logu, objeví se tady."""
+    time.sleep(0.3)                              # broadcast tiká ~30×/s
+    ws.send_text(json.dumps({"type": "logout"}))
+    pred, _ = _do_session(ws)
+    return json.dumps(pred, ensure_ascii=False)
+
+
+def test_log_se_nededi_z_plochy_na_ktere_okno_lezi():
+    """Nalezeno v provozu: log okno na veřejné ploše rozeslalo auditní stopu
+    CELÉ instance i anonymním divákům. LogBus je jeden pro celý proces – co
+    v něm teče, není vlastnost té plochy."""
+    from viewbase import LogWindow, log
+
+    verejna = Screen(title="Veřejná", id="verejna", access=["group:public"])
+    g = GraphWindow(screen=verejna)
+    LogWindow(screen=verejna)                    # bez `access=` → zavřeno
+
+    with TestClient(create_app(g)) as client:
+        with client.websocket_connect("/ws") as ws:
+            _hello(ws)
+            log("TAJNY-AUDITNI-ZAZNAM", level="warning")
+            assert "TAJNY-AUDITNI-ZAZNAM" not in _co_prislo_pred_odhlasenim(ws)
+
+
+def test_log_lze_zverejnit_vyslovne():
+    """Kdo stopu opravdu chce ukázat, řekne si o to – a je to vidět v kódu."""
+    from viewbase import LogWindow, log
+
+    verejna = Screen(title="Veřejná", id="verejna", access=["group:public"])
+    g = GraphWindow(screen=verejna)
+    LogWindow(screen=verejna, access=["group:public"])
+
+    with TestClient(create_app(g)) as client:
+        with client.websocket_connect("/ws") as ws:
+            _hello(ws)
+            log("VEREJNY-ZAZNAM", level="warning")
+            assert "VEREJNY-ZAZNAM" in _co_prislo_pred_odhlasenim(ws)

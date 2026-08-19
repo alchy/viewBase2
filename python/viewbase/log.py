@@ -141,14 +141,27 @@ class LogWindow:
     Umístění jde přes config grafového okna screenu (init snapshot), ne
     přes jednorázovou akci – přežije reconnect i klienty připojené později.
     Funguje i PŘED přiřazením grafu na screen (stejný vzor jako
-    `Screen.pin_menu`)."""
+    `Screen.pin_menu`).
 
-    def __init__(self, *, screen) -> None:
+    PŘÍSTUP SE NEDĚDÍ Z PLOCHY. Logem teče auditní stopa CELÉ instance –
+    IP adresy, prefixy relací, příkazy ze shellu – a LogBus je jeden pro
+    celý proces: co v něm je, není vlastnost plochy, na které okno leží.
+    Kdyby se ACL dědilo, stačilo by log okno na veřejné ploše a stopa jde
+    světu (nalezeno přesně takhle). Výchozí je proto `default_access`
+    instance; zveřejnit ji jde jen výslovně:
+
+        vb.LogWindow(screen=s, access=["group:public"])"""
+
+    def __init__(self, *, screen, access: "list[str] | None" = None) -> None:
         if not hasattr(screen, "id"):
             raise ValueError("screen musí být instance vb.Screen")
+        from .access import Acl
+
         self.screen = screen
         with screen._lock:
             screen._log_window = True
+            screen._log_access = Acl(access, kde=f"screen:{screen.id}/window:__log",
+                                     sloveso="see")
             graph = screen._graph
         if graph is not None:
             with graph._lock:

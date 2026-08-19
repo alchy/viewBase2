@@ -162,7 +162,14 @@ Nenastavené `write` znamená totéž co „vidět" — aby nešlo omezit čten�
 nechat zápis omylem široký.
 
 **Dědičnost:** okno bez ACL bere ACL plochy, plocha bere výchozí hodnotu
-instance (`vb.Project(default_access=…)`, výchozí `group:users`). Výchozí
+instance (`vb.Project(default_access=…)`, výchozí `group:users`).
+
+**Jedinou výjimkou je log okno: to se z plochy NEDĚDÍ.** Logem teče auditní
+stopa celé instance a LogBus je jeden pro celý proces — co v něm je, není
+vlastnost plochy, na které okno leží. Kdyby se dědilo, stačilo by log okno
+na veřejné ploše a stopa jde světu (nalezeno přesně takhle). Výchozí je
+proto `default_access`; zveřejnit ji jde jen výslovně:
+`vb.LogWindow(screen=s, access=["group:public"])`. Výchozí
 `public` by znamenal, že log okno s auditní stopou — IP adresy, prefixy
 relací, příkazy ze shellu — je veřejné dřív, než si toho kdo všimne. Kdo chce
 jednouživatelské pohodlí na localhostu, řekne si o něj jedním parametrem:
@@ -261,7 +268,9 @@ neukáže.** Přihlášený má v liště nabídku `User: <jméno>` s `Lock All 
 i granty; plochy mimo dosah se zase zavřou).
 
 Skupiny se po přihlášení drží 300 s a pak obnoví ze zdroje — odebrání ze
-skupiny tak zabere i za běhu, ne až po odhlášení.
+skupiny tak zabere i za běhu, ne až po odhlášení. **Smazaný uživatel padá
+na anonymní relaci** hned při první obnově; dřív dostal neznámý uživatel
+výchozí `group:users`, takže mu smazání nic neubralo.
 
 Do auditu jde přihlášení, jeho neúspěch i odhlášení:
 
@@ -399,10 +408,20 @@ self._register("shell_input",   self._on_shell_input,   needs=Needs.USE)
 self._register("window_unlock", self._on_window_unlock, needs=Needs.NONE)
 ```
 
-`needs` je **sloveso**, ne příznak: `USE` = událost do okna zasahuje,
-`SEE` = jen čte, `NONE` = žádného okna se netýká. Vynucení pak projde tři
-brány v tomhle pořadí — **ACL plochy**, **ACL okna** pro dané sloveso,
-**grant relace** u privátního okna.
+**Brána plochy platí u každé události a `needs` ji nevypíná** — říká jen,
+co se žádá navíc o okno:
+
+| `needs` | plocha | okno | krok navíc (kód) |
+|---|---|---|---|
+| `SCREEN` | zasahovat | – | – |
+| `UNLOCK` | vidět | vidět | ne (je to **cesta** ke kódu) |
+| `SEE` | vidět | vidět | ano |
+| `USE` | zasahovat | zasahovat | ano |
+
+Dřív tu byla hodnota `NONE` ve významu „nekontroluj nic" a byla to díra:
+`shell_new`, `menu_select` i **každá** uživatelská událost z `@graph.on(...)`
+se daly zavolat na plochu, kterou relace vůbec neviděla. Hlídá to
+`test_zadna_hodnota_needs_nevypina_branu_plochy`.
 
 Bez `needs` registrace **skončí chybou**, takže se nová událost nedá přidat,
 aniž by autor tu otázku zodpověděl — a celá autorizace se dá přečíst na
@@ -418,12 +437,34 @@ Celá mapa (`graph_window.py`, konstruktor) vypadá takhle:
 | `html_event`, `window_submit` | `USE` | klik, submit a hodnoty polí okna |
 | `terminal_input` | `USE` | řádek do konzole okna |
 | `window_lock` | `USE` | zamknout jde jen to, co mám odemčené |
-| `window_unlock` | `NONE` | **cesta, jak grant získat** — chrání ji kód z autentikátoru a rate limit |
-| `shell_new` | `NONE` | nové okno vzniká zamčené a platí strop `MAX_SHELL_WINDOWS` |
-| `menu_select` | `NONE` | volá autorský callback, nic tajného za tím nestojí |
+| `window_unlock` | `UNLOCK` | **cesta, jak grant získat** — chrání ji kód z autentikátoru a rate limit; okno ale musím aspoň vidět, jinak by šlo zkoušet kód na okno, o kterém se nemám dozvědět |
+| `shell_new` | `SCREEN` | nové okno vzniká zamčené a platí strop `MAX_SHELL_WINDOWS` |
+| `menu_select` | `SCREEN` | volá autorský callback, ale plochou projít musí |
 
-Uživatelské události (`@graph.on(...)`) grant neřeší: autor si je zavádí sám
-a knihovna nemá jak poznat, jestli sahají na okno.
+Uživatelské události (`@graph.on(...)`) dostávají `SCREEN`: grant knihovna
+vyžadovat neumí (nemá jak poznat, jestli událost sahá na okno), ale branou
+plochy projít musí.
+
+### REST `/api/event`: bez tokenu je to anonym
+
+REST nemá relaci prohlížeče. Dřív neměl identitu žádnou, takže `curl` bez
+ničeho spustil autorský handler na ploše, kterou nikdo neměl vidět. Dnes je
+bez tokenu **`group:public`** — na uzavřené instanci tedy neprojde:
+
+```python
+vb.Project(rest_token="…dlouhý náhodný řetězec…",
+           rest_access=["group:roboti"])     # co smí programový klient
+```
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" -X POST https://…/api/event \
+     -d '{"event": "terminal_write", "screen_id": "provoz", "payload": {…}}'
+```
+
+Token se porovnává `compare_digest` a `shell_*`, `window_unlock` i
+`window_lock` zůstávají přes REST zakázané úplně. **Principály dosazuje vždy
+server** — kdyby jen doplňoval chybějící, poslal by si je klient v payloadu
+sám a byl by z toho správce.
 
 Hlídá to `python/tests/test_event_authorization.py` — projde registr strojově,
 takže desátá událost sadu shodí, dokud se u ní autor nerozhodne.

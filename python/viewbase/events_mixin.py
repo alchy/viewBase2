@@ -18,20 +18,46 @@ from .logger import logger
 class Needs:
     """Co událost potřebuje, aby se vůbec dostala k handleru.
 
+    BRÁNA PLOCHY PLATÍ VŽDYCKY – žádná hodnota ji nevypíná. Dřív tu byla
+    `NONE` ve významu „nekontroluj nic" a byla to díra: `shell_new`,
+    `menu_select` i každá uživatelská událost z `@graph.on(...)` se daly
+    zavolat na plochu, kterou relace vůbec neviděla (a přes REST bez
+    jakékoli identity). `needs` proto říká jen to, co se žádá NAVÍC o okno.
+
+    | hodnota | plocha | okno | krok navíc (kód) |
+    |---|---|---|---|
+    | `SCREEN` | zasahovat | – | – |
+    | `UNLOCK` | vidět | vidět | ne (je to CESTA ke kódu) |
+    | `SEE`    | vidět | vidět | ano |
+    | `USE`    | zasahovat | zasahovat | ano |
+
     Není to enum kvůli jedné věci: hodnoty jdou do `_register(needs=…)` a
     v kódu se čtou jako `Needs.USE`, ale v testech a introspekci registru
     jako obyčejné řetězce."""
 
-    #: nic – událost neotevírá okno (menu, klik do grafu, `window_unlock`)
-    NONE = "none"
-    #: relace musí okno VIDĚT (ACL `access`) – čtení obsahu
+    #: událost se netýká konkrétního okna (menu, klik do grafu, `shell_new`,
+    #: uživatelské události) – stačí smět zasahovat do plochy
+    SCREEN = "screen"
+    #: cesta ke kroku navíc: relace musí okno vidět, ale grant mít nemusí
+    #: (`window_unlock` je právě to, čím se grant získává)
+    UNLOCK = "unlock"
+    #: relace musí okno VIDĚT (ACL `access`) a mít grant – čtení obsahu
     SEE = "see"
-    #: relace musí do okna smět ZASAHOVAT (ACL `access_write`) – vstup,
-    #: odeslání formuláře, klávesy do shellu
+    #: relace musí do okna smět ZASAHOVAT (ACL `access_write`) a mít grant –
+    #: vstup, odeslání formuláře, klávesy do shellu
     USE = "use"
 
 
-NEEDS = {Needs.NONE, Needs.SEE, Needs.USE}
+NEEDS = {Needs.SCREEN, Needs.UNLOCK, Needs.SEE, Needs.USE}
+
+#: Co která hodnota znamená: (sloveso na ploše, sloveso na okně, chce grant).
+#: `None` u okna = událost se konkrétního okna netýká.
+PRAVIDLA = {
+    Needs.SCREEN: ("use", None, False),
+    Needs.UNLOCK: ("see", "see", False),
+    Needs.SEE: ("see", "see", True),
+    Needs.USE: ("use", "write", True),
+}
 
 
 class EventsMixin:
@@ -88,29 +114,30 @@ class EventsMixin:
         """Obecná registrace handleru eventu — vlastní eventy zvenčí přes
         REST `/api/event` (např. „terminal_write" pushnutý časovačem).
 
-        Uživatelské události grant nevyžadují: autor si je zavádí sám a ví,
-        co v nich dělá; knihovna nemá jak poznat, jestli sahají na okno."""
-        return self._register(event, func, needs=Needs.NONE)
+        Grant knihovna nevyžaduje – nemá jak poznat, jestli událost sahá na
+        okno. PLOCHOU ale projít musí (`Needs.SCREEN`): jinak by stačilo
+        `curl` bez identity a autorský handler by se spustil komukoli."""
+        return self._register(event, func, needs=Needs.SCREEN)
 
     def on_click(self, func: Callable[[Any], None]) -> Callable[[Any], None]:
         """Dekorátor: klik na uzel. Event nese `.node_id` a `.client_id`;
         handler běží v thread-poolu, takže smí blokovat i mutovat canvas."""
-        return self._register("node_click", func, needs=Needs.NONE)
+        return self._register("node_click", func, needs=Needs.SCREEN)
 
     def on_hover(self, func: Callable[[Any], None]) -> Callable[[Any], None]:
         """Dekorátor: najetí myší na uzel (`.node_id`, throttlováno klientem)."""
-        return self._register("node_hover", func, needs=Needs.NONE)
+        return self._register("node_hover", func, needs=Needs.SCREEN)
 
     def on_background_click(
             self, func: Callable[[Any], None]) -> Callable[[Any], None]:
         """Dekorátor: klik mimo uzly – typicky zrušení výběru/zvýraznění."""
-        return self._register("background_click", func, needs=Needs.NONE)
+        return self._register("background_click", func, needs=Needs.SCREEN)
 
     def on_view_change(
             self, func: Callable[[Any], None]) -> Callable[[Any], None]:
         """Dekorátor: pohyb kamery. Event nese `.position`, `.target`, `.zoom`
         (klient posílá throttlovaně, ~10×/s)."""
-        return self._register("view_change", func, needs=Needs.NONE)
+        return self._register("view_change", func, needs=Needs.SCREEN)
 
     def _register(self, event: str, func: Callable[[Any], None], *,
                   needs: str) -> Callable[[Any], None]:
@@ -124,12 +151,12 @@ class EventsMixin:
         místě místo čtení devíti funkcí.
 
         - `Needs.USE` – událost do okna ZASAHUJE (vstup, odeslání formuláře,
-          klávesy do shellu): musí projít ACL pro zápis a u privátního okna
-          i grant relace,
-        - `Needs.SEE` – událost jen čte obsah okna: stačí ACL pro čtení
-          (a grant u privátního okna),
-        - `Needs.NONE` – událost žádné okno neotevírá (`window_unlock` je
-          naopak CESTA ke grantu, `menu_select` nic tajného nenese).
+          klávesy do shellu): ACL pro zápis na ploše i okně a grant relace,
+        - `Needs.SEE` – událost čte obsah okna: ACL pro čtení a grant,
+        - `Needs.UNLOCK` – ACL pro čtení, ale BEZ grantu: je to ta cesta,
+          kterou se grant získává (chrání ji kód a rate limit v mfa.py),
+        - `Needs.SCREEN` – událost se konkrétního okna netýká, ale plochou
+          projít musí (`menu_select`, `shell_new`, uživatelské události).
         """
         if needs not in NEEDS:
             raise ValueError(
@@ -151,11 +178,11 @@ class EventsMixin:
             if self._closed:
                 return
             handlers = list(self._handlers.get(name, ()))
-            needs = self._event_needs.get(name, Needs.NONE)
+            needs = self._event_needs.get(name, Needs.SCREEN)
         if not handlers:
             return
         event = types.SimpleNamespace(**payload)
-        if needs != Needs.NONE and not self._event_allowed(needs, event):
+        if not self._event_allowed(needs, event):
             return
         for handler in handlers:
             self._executor.submit(self._run_handler, handler, name, event)
@@ -163,8 +190,9 @@ class EventsMixin:
     def _event_allowed(self, needs: str, event: Any) -> bool:
         """Smí tahle událost k handleru? Tři brány v tomhle pořadí:
 
-        1. **ACL plochy** – kdo nevidí plochu, jako by neexistovala,
-        2. **ACL okna** pro dané sloveso (`SEE` → čtení, `USE` → zápis),
+        1. **ACL plochy** – kdo na plochu nesmí, jako by neexistovala.
+           Platí VŽDYCKY, žádné `needs` to nevypíná,
+        2. **ACL okna** pro dané sloveso (viz `PRAVIDLA`),
         3. **step-up** – privátní okno chce navíc grant téhle relace.
 
         Pořadí je záměrné: členství ve skupině říká „tenhle objekt tě smí
@@ -174,12 +202,17 @@ class EventsMixin:
         Okno se hledá podle `window_id` z payloadu; neexistující okno pustíme
         dál – ať si handler sám řekne, že takové okno nezná (chybová hláška
         patří jemu)."""
+        na_ploshe, na_okne, chce_grant = PRAVIDLA[needs]
+        if not self._screen_ok(event, na_ploshe):
+            return False
+        if na_okne is None:
+            return True
         window = self._reg.get(getattr(event, "window_id", None))
         if window is None:
-            return self._can_see_screen(getattr(event, "sid", None))
-        if not self._access_ok(event, window, needs):
+            return True
+        if not self._access_ok(event, window, na_okne):
             return False
-        return self._grant_ok(event, window)
+        return self._grant_ok(event, window) if chce_grant else True
 
     @staticmethod
     def _run_handler(handler: Callable[[Any], None], name: str,

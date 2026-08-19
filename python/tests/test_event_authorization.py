@@ -20,9 +20,9 @@ OCEKAVANE = {
     "shell_input": Needs.USE,
     "shell_resize": Needs.USE,
     "window_lock": Needs.USE,
-    "window_unlock": Needs.NONE,     # cesta, jak grant získat (kód + rate limit)
-    "shell_new": Needs.NONE,         # okno vzniká zamčené, platí strop
-    "menu_select": Needs.NONE,       # autorský callback, žádné tajemství
+    "window_unlock": Needs.UNLOCK,   # cesta, jak grant získat (kód + rate limit)
+    "shell_new": Needs.SCREEN,       # okno vzniká zamčené, platí strop
+    "menu_select": Needs.SCREEN,     # autorský callback, ale plochou projít musí
 }
 
 
@@ -107,14 +107,24 @@ def test_nezabezpecene_okno_grant_nepotrebuje():
         c.close()
 
 
-def test_uzivatelske_udalosti_grant_neresi():
-    """`@graph.on(...)` si zavádí autor sám; knihovna nemá jak poznat, jestli
-    sahají na okno."""
+def test_uzivatelske_udalosti_grant_neresi_ale_plochou_projit_musi():
+    """`@graph.on(...)` si zavádí autor sám a knihovna nemá jak poznat, jestli
+    sahá na okno – branou plochy ale projít musí. Bez toho stačilo `curl`
+    bez identity a autorský handler se spustil komukoli."""
     c = GraphWindow()
     try:
         c.on("moje", lambda e: None)
-        assert c._event_needs["moje"] == Needs.NONE        # noqa: SLF001
+        assert c._event_needs["moje"] == Needs.SCREEN        # noqa: SLF001
         c.on_click(lambda e: None)
-        assert c._event_needs["node_click"] == Needs.NONE  # noqa: SLF001
+        assert c._event_needs["node_click"] == Needs.SCREEN  # noqa: SLF001
     finally:
         c.close()
+
+
+def test_zadna_hodnota_needs_nevypina_branu_plochy():
+    """Kdyby šla brána vypnout, vrátila by se přesně ta díra, kvůli které
+    tenhle test vznikl."""
+    from viewbase.events_mixin import PRAVIDLA
+
+    assert set(PRAVIDLA) == NEEDS
+    assert all(na_ploshe in ("see", "use") for na_ploshe, _, _ in PRAVIDLA.values())

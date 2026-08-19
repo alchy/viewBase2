@@ -94,6 +94,9 @@ class Screen:
         #: nedostane žádné její okno ani zprávu. Nenastavené dědí výchozí
         #: hodnotu instance (`vb.Project(default_access=…)`).
         self.access = Access(see=access, object_id=f"screen:{self.id}")
+        #: ACL log okna, pokud si ho plocha vyžádala (`vb.LogWindow`).
+        #: Nedědí se z plochy – viz log.LogWindow.
+        self._log_access = None
         self.title = title
         self.theme = _validated_theme(theme)
         self.quality = quality

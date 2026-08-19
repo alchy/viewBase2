@@ -420,6 +420,13 @@ class WindowsMixin:
             return set(access_module.DEFAULT_ACCESS)
         return screen.access.effective_see(access_module.DEFAULT_ACCESS)
 
+    def _screen_write_acl(self) -> set[str]:
+        """Kdo smí do plochy zasahovat (nenastavené = totéž co vidět)."""
+        screen = getattr(self, "screen", None)
+        if screen is None:
+            return set(access_module.DEFAULT_ACCESS)
+        return screen.access.effective_write(access_module.DEFAULT_ACCESS)
+
     def acl_for_action(self, action: dict[str, Any]) -> list[str]:
         """Komu se smí tahle akce doručit (principálové, ne relace).
 
@@ -433,56 +440,108 @@ class WindowsMixin:
         return sorted(window.access.effective_see(self._screen_acl()))
 
     def acl_for_log(self) -> list[str]:
-        """Komu se smí doručit záznam logu.
+        """Komu se smí doručit záznam logu z téhle plochy.
 
-        Logem teče auditní stopa – IP adresy, prefixy relací, příkazy ze
-        shellu. Log okno je vlastnost plochy (`vb.LogWindow(screen=…)`),
-        takže platí ACL té plochy, případně vlastní, když si ho log vyžádal."""
+        LOG STREAM SE NEDĚDÍ Z PLOCHY. Nalezeno v provozu: log okno na
+        veřejné ploše rozeslalo auditní stopu CELÉ instance – IP adresy,
+        prefixy relací, příkazy ze shellu – i anonymním divákům, protože se
+        ACL bralo ze screenu, na kterém okno leželo. LogBus je přitom jeden
+        pro celý proces: co v něm teče, není vlastnost té plochy.
+
+        Výchozí je proto `default_access` instance (zavřeno), ne ACL plochy.
+        Kdo chce stopu opravdu zveřejnit, řekne si o to výslovně:
+        `vb.LogWindow(screen=s, access=["group:public"])`."""
         vlastni = getattr(getattr(self, "screen", None), "_log_access", None)
         if vlastni is not None and vlastni.is_set:
             return sorted(vlastni)
-        return sorted(self._screen_acl())
+        return sorted(access_module.DEFAULT_ACCESS)
 
-    def _principals(self, sid: str | None) -> set[str]:
+    def _principals(self, sid: str | None,
+                    primo: "set[str] | None" = None) -> set[str]:
+        """Principálové, proti kterým se rozhoduje.
+
+        `primo` dodává SERVER u vstupu, který nemá relaci prohlížeče (REST –
+        viz server.py). Klient si je nastavit nemůže: server je do payloadu
+        vkládá až po něm, takže případnou vlastní hodnotu přepíše."""
+        if primo is not None:
+            return set(primo)
         return sessions.store.principals(sid)
 
-    def _can_see_screen(self, sid: str | None) -> bool:
-        """Plocha je BRÁNA: kdo se nedostane sem, nedostane nic na ní."""
-        return access_module.allowed(self._principals(sid), self._screen_acl())
+    @staticmethod
+    def _kdo(event: Any) -> "set[str] | None":
+        """Principálové dodané serverem (REST), nebo `None` = jde o relaci."""
+        return getattr(event, "principals", None)
 
-    def _can_see(self, sid: str | None, window: Any) -> bool:
+    def _jmeno_relace(self, event: Any) -> str:
+        """Kdo to zkouší – do auditní hlášky (nikdy celé sid)."""
+        if self._kdo(event) is not None:
+            return "rest"
+        return sessions.store.user(getattr(event, "sid", None)) or "anonymous"
+
+    def _can_see_screen(self, sid: str | None,
+                        primo: "set[str] | None" = None) -> bool:
+        """Plocha je BRÁNA: kdo se nedostane sem, nedostane nic na ní."""
+        return access_module.allowed(self._principals(sid, primo),
+                                     self._screen_acl())
+
+    def _can_use_screen(self, sid: str | None,
+                        primo: "set[str] | None" = None) -> bool:
+        """Smí do plochy zasahovat? Příchozí událost je akce, ne jen čtení."""
+        return access_module.allowed(self._principals(sid, primo),
+                                     self._screen_write_acl())
+
+    def _can_see(self, sid: str | None, window: Any,
+                 primo: "set[str] | None" = None) -> bool:
         """Vidí tahle relace tohle okno? (Plocha i okno musí projít.)"""
-        if not self._can_see_screen(sid):
+        if not self._can_see_screen(sid, primo):
             return False
         acl = getattr(window, "access", None)
         if acl is None:
             return True
-        return acl.can_see(self._principals(sid), self._screen_acl())
+        return acl.can_see(self._principals(sid, primo), self._screen_acl())
 
-    def _can_use(self, sid: str | None, window: Any) -> bool:
+    def _can_use(self, sid: str | None, window: Any,
+                 primo: "set[str] | None" = None) -> bool:
         """Smí tahle relace do okna zasahovat? Nenastavené `write` znamená
         totéž co „vidět" (viz access.Access.effective_write)."""
-        if not self._can_see_screen(sid):
+        if not self._can_use_screen(sid, primo):
             return False
         acl = getattr(window, "access", None)
         if acl is None:
             return True
-        return acl.can_use(self._principals(sid), self._screen_acl())
+        return acl.can_use(self._principals(sid, primo), self._screen_acl())
+
+    def _screen_ok(self, event: Any, verb: str) -> bool:
+        """Brána plochy pro příchozí událost – PLATÍ U KAŽDÉ.
+
+        Dřív se kontrolovalo jen u událostí, které deklarovaly okno, takže
+        `shell_new`, `menu_select` i uživatelské události šly zavolat na
+        plochu, kterou relace vůbec neviděla (a přes REST bez identity)."""
+        sid = getattr(event, "sid", None)
+        primo = self._kdo(event)
+        dovoleno = (self._can_use_screen(sid, primo) if verb == "use"
+                    else self._can_see_screen(sid, primo))
+        if not dovoleno:
+            self._log_auth("warning",
+                           f"event refused – '{self._jmeno_relace(event)}' may "
+                           f"not {verb} screen '{self.screen_id}'",
+                           **self._origin(event))
+        return dovoleno
 
     def _access_ok(self, event: Any, window: Any, verb: str) -> bool:
-        """Kontrola ACL pro událost; odmítnutí jde do auditu.
+        """Kontrola ACL okna pro událost; odmítnutí jde do auditu.
 
         Odmítnutí NENÍ tichý no-op: na vystavené instanci je pokus sáhnout na
         cizí okno přesně to, co chcete vidět v logu."""
         sid = getattr(event, "sid", None)
-        dovoleno = (self._can_use(sid, window) if verb == "use"
-                    else self._can_see(sid, window))
+        primo = self._kdo(event)
+        dovoleno = (self._can_use(sid, window, primo) if verb == "write"
+                    else self._can_see(sid, window, primo))
         if not dovoleno:
-            kdo = sessions.store.user(sid) or "anonymous"
             self._log_auth("warning",
                            f"access to window '{window.window_id}' refused "
-                           f"({verb}) – '{kdo}' is not in its ACL",
-                           **self._origin(event))
+                           f"({verb}) – '{self._jmeno_relace(event)}' is not "
+                           "in its ACL", **self._origin(event))
         return dovoleno
 
     def _grant_ok(self, event: Any, window: Any) -> bool:

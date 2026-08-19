@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import secrets
 import threading
 import time
 import uuid
@@ -46,6 +47,30 @@ def _resolve_window(windows_by_screen: dict, screen_id) -> GraphWindow | None:
     if screen_id is None and len(windows_by_screen) == 1:
         return next(iter(windows_by_screen.values()))
     return None
+
+
+def rest_principals(request, token: str | None,
+                    granted: "list[str] | None") -> set[str]:
+    """Kdo je REST volající. Bez tokenu ANONYM, tedy `group:public`.
+
+    REST nemá relaci prohlížeče, takže dřív neměl identitu žádnou a
+    obcházel tím celý model přístupu (`curl` bez ničeho spustil autorský
+    handler na ploše, kterou nikdo neměl vidět). Programový klient se proto
+    prokazuje tokenem – `Authorization: Bearer …` nebo `X-ViewBase-Token` –
+    a dostane principály z `vb.Project(rest_access=[…])`.
+
+    Porovnání je `compare_digest`: doba odpovědi nesmí prozradit, kolik
+    znaků tokenu sedí."""
+    from .access import PUBLIC, USERS, principal
+
+    if not token:
+        return {PUBLIC}
+    hlavicka = (request.headers.get("x-viewbase-token")
+                or request.headers.get("authorization", ""))
+    predlozeny = hlavicka[7:] if hlavicka[:7].lower() == "bearer " else hlavicka
+    if not predlozeny or not secrets.compare_digest(predlozeny, token):
+        return {PUBLIC}
+    return {principal(g) for g in (granted or [USERS])}
 
 
 def _deliver_to(adresa: dict, sid: str | None) -> bool:
@@ -211,7 +236,9 @@ def _make_log_relay(loop: asyncio.AbstractEventLoop):
 
 def create_app(*windows: GraphWindow,
                allowed_origins: "list[str] | None" = None,
-               allow_anonymous: bool = True) -> FastAPI:
+               allow_anonymous: bool = True,
+               rest_token: str | None = None,
+               rest_access: "list[str] | None" = None) -> FastAPI:
     """Sestav FastAPI aplikaci nad jedním nebo víc GraphWindow: statické assety,
     `/ws` (init + delty + akce + log, multiplexed po screen_id), `/api/event`
     (REST vstřik události). Víc grafových oken vyžaduje, aby mělo každé svůj
@@ -369,10 +396,12 @@ def create_app(*windows: GraphWindow,
                         logger.debug(f"event '{msg['event']}' "
                                      f"(client {client_id}): {redacted(payload)}",
                                      component="server", sid=sid, ip=peer)
+                    # `principals: None` schválně a vždycky: rozhoduje
+                    # relace (`sid`), ne to, co si klient napsal do payloadu.
                     target.dispatch_event(
                         msg["event"],
                         {**payload, "client_id": client_id, "sid": sid,
-                         "remote_ip": peer})
+                         "principals": None, "remote_ip": peer})
                 else:
                     logger.audit(f"unexpected message from client {client_id}: "
                                  f"{raw[:200]!r}", level="warning",
@@ -423,7 +452,13 @@ def create_app(*windows: GraphWindow,
         if target is None:
             return {"ok": False,
                     "error": f"neznámý screen_id {message.get('screen_id')!r}"}
-        target.dispatch_event(event, {**payload, "client_id": "rest"})
+        # `principals` dosazuje SERVER a VŽDYCKY – kdyby se jen doplňovaly,
+        # když v payloadu chybí, poslal by si je klient sám a byl by z toho
+        # správce.
+        kdo = rest_principals(request, rest_token, rest_access)
+        target.dispatch_event(event, {**payload, "client_id": "rest",
+                                      "principals": kdo,
+                                      "remote_ip": peer_of(request)})
         return {"ok": True}
 
     @app.middleware("http")
@@ -566,6 +601,8 @@ class Project:
                  policy: "Any | None" = None,
                  default_access: "list[str] | None" = None,
                  allow_anonymous: bool = True,
+                 rest_token: str | None = None,
+                 rest_access: "list[str] | None" = None,
                  tls: "Tls | bool | None" = None,
                  tls_hosts: "list[str] | tuple[str, ...] | None" = None,
                  http_redirect: "bool | int" = False,
@@ -612,6 +649,10 @@ class Project:
         # ano – veřejné objekty (`group:public`) tak zůstanou veřejné.
         # `False` znamená „nejdřív se představ", i kdyby bylo všechno veřejné.
         self.allow_anonymous = bool(allow_anonymous)
+        # REST je programový vstup bez relace prohlížeče: bez tokenu je to
+        # anonym (`group:public`), s tokenem dostane `rest_access`.
+        self.rest_token = rest_token
+        self.rest_access = rest_access
         mfa.configure_store(users_file)
         identity_module.configure(identity)
         identity_module.configure_policy(policy)
@@ -656,7 +697,9 @@ class Project:
                        http_redirect=self.http_redirect,
                        forwarded_allow_ips=self.forwarded_allow_ips,
                        allowed_origins=self.allowed_origins,
-                       allow_anonymous=self.allow_anonymous, block=block)
+                       allow_anonymous=self.allow_anonymous,
+                       rest_token=self.rest_token,
+                       rest_access=self.rest_access, block=block)
         self._handle = handle
         return handle
 
@@ -764,7 +807,9 @@ def _make_server(windows: tuple[GraphWindow, ...], host: str,
                  port: int, tls: Tls | None = None,
                  forwarded_allow_ips: str | None = None,
                  allowed_origins: "list[str] | None" = None,
-                 allow_anonymous: bool = True) -> uvicorn.Server:
+                 allow_anonymous: bool = True,
+                 rest_token: str | None = None,
+                 rest_access: "list[str] | None" = None) -> uvicorn.Server:
     # ws_ping_interval=None vypíná serverový keepalive ping knihovny
     # websockets: jeho samostatná úloha jinak souběžně "draina" stejné
     # spojení jako náš broadcast a při velkém provozu spadne na interním
@@ -775,7 +820,9 @@ def _make_server(windows: tuple[GraphWindow, ...], host: str,
     # IP místo skutečného zdroje; a naopak — věřit komukoli by znamenalo, že
     # si zdroj v logu přepíše hlavičkou kdokoli. Výchozí (uvicorn) 127.0.0.1.
     config = uvicorn.Config(create_app(*windows, allowed_origins=allowed_origins,
-                                       allow_anonymous=allow_anonymous),
+                                       allow_anonymous=allow_anonymous,
+                                       rest_token=rest_token,
+                                       rest_access=rest_access),
                             host=host, port=port,
                             log_level="warning",
                             ws_ping_interval=None, ws_ping_timeout=None,
@@ -791,6 +838,8 @@ def serve(*windows: GraphWindow, host: str = "127.0.0.1", port: int = 8080,
           forwarded_allow_ips: str | None = None,
           allowed_origins: "list[str] | None" = None,
           allow_anonymous: bool = True,
+          rest_token: str | None = None,
+          rest_access: "list[str] | None" = None,
           block: bool = True) -> ServerHandle | None:
     """Spustí server nad jedním nebo víc GraphWindow (multi-screen – víc
     grafových oken vyžaduje, aby mělo každé svůj `screen=`, viz `create_app`).
@@ -814,7 +863,8 @@ def serve(*windows: GraphWindow, host: str = "127.0.0.1", port: int = 8080,
     else:
         _system_log(f"listening on {adresa}")
     server = _make_server(windows, host, port, tls, forwarded_allow_ips,
-                          allowed_origins, allow_anonymous)
+                          allowed_origins, allow_anonymous,
+                          rest_token, rest_access)
     if forwarded_allow_ips:
         _system_log(f"trusting X-Forwarded-For from {forwarded_allow_ips}")
     if tls is not None and http_redirect:

@@ -175,9 +175,16 @@ class LocalProvider:
 
         Do výchozího bodu patří i `user:<jméno>`: člověk může být vypsaný
         přímo u skupiny (`"group:ucetni": ["user:hana"]`), aniž by se sahalo
-        do jeho záznamu."""
-        zaznam = self._users().get(username) or {}
-        vlastni = list(zaznam.get("groups") or [USERS])
+        do jeho záznamu.
+
+        NEZNÁMÝ UŽIVATEL NEMÁ ŽÁDNÉ SKUPINY. Dřív dostal výchozí
+        `group:users`, takže smazání uživatele jeho živé relaci nic
+        neubralo – a po incidentu je odebrání přístupu přesně ta operace,
+        která musí zabrat hned."""
+        users = self._users()
+        if username not in users:
+            return set()
+        vlastni = list(users[username].get("groups") or [USERS])
         return expand_groups([*vlastni, f"user:{username}"], self._hierarchie())
 
 

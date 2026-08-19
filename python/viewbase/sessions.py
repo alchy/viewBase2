@@ -159,6 +159,17 @@ class SessionStore:
         from . import identity
 
         try:
+            if not identity.provider.exists(jmeno):
+                # Uživatel mezitím zmizel (smazaný, odebraný z adresáře):
+                # relace okamžitě padá na anonymní. Bez tohohle by si držela
+                # skupiny až do vypršení – a to je právě ta operace, která
+                # po incidentu musí zabrat hned.
+                from .logger import logger
+
+                self.logout(sid)
+                logger.audit(f"user '{jmeno}' no longer exists – session "
+                             "dropped to anonymous", level="warning", sid=sid)
+                return {PUBLIC}
             skupiny = identity.provider.groups_of(jmeno)
         except Exception:
             from .logger import logger

@@ -50,6 +50,8 @@ project = vb.Project(port=8080, tls=True, log_level="info")
 | `policy` | sekce `access` téhož souboru | zdroj práv objektů (`load`/`save`) |
 | `default_access` | `["group:users"]` | ACL, které dědí plochy bez vlastního; `["group:public"]` = veřejná instance |
 | `allow_anonymous` | `True` | `False` = nejdřív se představ, i kdyby bylo všechno veřejné |
+| `rest_token` | — | token pro programové klienty na `/api/event`; **bez něj je REST anonym** (`group:public`) |
+| `rest_access` | `["group:users"]` | principály, které dostane REST volající s platným tokenem |
 | `tls` | `None` | `True` = vlastnoručně podepsaný z `~/.viewbase/tls/`, nebo `vb.Tls(cert, key)` |
 | `tls_hosts` | — | další jména/IP do SAN certifikátu |
 | `http_redirect` | `False` | `True` = na portu+1 běží přesměrování plaintextu na TLS |

@@ -250,3 +250,24 @@ def test_neznama_skupina_v_ACL_se_ohlasi_do_logu(_domov):
     assert len(varovani) == 2
     assert any("group:ucetnii" in t for t in varovani)
     assert any("user:jarmila" in t for t in varovani)
+
+
+def test_smazany_uzivatel_prijde_o_pristup_hned(_domov):
+    """Po incidentu je odebrání přístupu přesně ta operace, která musí
+    zabrat hned – ne až vyprší relace. Dřív dostal neznámý uživatel výchozí
+    `group:users`, takže mu smazání nic neubralo."""
+    from viewbase import sessions
+
+    mfa.ensure_user("hana")
+    sid = sessions.store.touch(None)
+    sessions.store.login(sid, "hana", identity.provider.groups_of("hana"))
+    assert "user:hana" in sessions.store.principals(sid)
+
+    users = mfa.load_users()
+    users.pop("hana")
+    mfa.save_users(users)
+    sessions.store._sessions[sid]["groups_at"] = -10_000   # vynuť obnovu
+
+    assert sessions.store.principals(sid) == {"group:public"}
+    assert sessions.store.user(sid) is None
+    assert identity.provider.groups_of("hana") == set()
