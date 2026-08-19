@@ -139,6 +139,15 @@ opravdu ty", takže privátní okno chce kód i po členovi správné skupiny.
 z povolených, ne zákaz. Záporná pravidla by si vynutila precedenci a model
 by přestal být čitelný.
 
+**Dvě implicitní členství.** Každý ověřený člověk je v `group:users` (to je
+význam toho jména — jinak by výchozí hodnota neznamenala „kdokoli
+přihlášený"), a `group:administrator` **projde všude**. To druhé je obdoba
+roota a je vědomé: instance musí mít někoho, kdo se dostane i k objektu se
+špatně nastaveným ACL, jinak by se to nedalo opravit zevnitř. Platí to
+i obráceně — správce se z ničeho vyloučit nedá, takže tu skupinu má dostat
+jen ten, kdo na stroj stejně vidí. **Krok navíc tím dotčený není:** privátní
+okno chce kód i po správci.
+
 **Dvě slovesa**, protože „vidět" a „zasahovat" jsou různé věci:
 
 ```python

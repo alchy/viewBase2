@@ -35,7 +35,8 @@ def test_neplatny_principal_se_odmitne(spatny):
 
 def test_uzivatel_ma_vzdy_vlastni_skupinu():
     p = user_principals("jindrich", ["group:operatori"])
-    assert p == {"user:jindrich", "group:jindrich", "group:operatori", PUBLIC}
+    assert p == {"user:jindrich", "group:jindrich", "group:operatori",
+                 USERS, PUBLIC}
 
 
 def test_anonymni_relace_ma_jen_public():
@@ -200,3 +201,25 @@ def test_zdroj_ktery_neumi_odpovedet_nevaruje(zaznamy):
     finally:
         access.set_validator(None)
     assert not _texty(zaznamy, "warning")
+
+
+# ---- správce -------------------------------------------------------------
+
+def test_kazdy_overeny_clovek_je_v_group_users():
+    """Jinak by `default_access=["group:users"]` neznamenalo „kdokoli
+    přihlášený", ale „kdo to má náhodou vypsané v záznamu"."""
+    assert USERS in user_principals("hana", ["group:mzdy"])
+    assert USERS not in user_principals(None)      # anonymní ne
+
+
+def test_spravce_projde_vsude():
+    """Obdoba roota: špatné ACL nesmí zamknout správce z jeho workbenche."""
+    admin = user_principals("workbench", [ADMINISTRATOR])
+    assert allowed(admin, {"group:ucetni"})
+    assert allowed(admin, set())                   # ani prázdné ACL ho nezastaví
+
+
+def test_spravcovska_vyjimka_neplati_pro_nikoho_jineho():
+    kdokoli = user_principals("karel", ["group:sklad"])
+    assert not allowed(kdokoli, {"group:ucetni"})
+    assert not allowed(kdokoli, set())

@@ -94,18 +94,33 @@ def user_principals(username: str | None, groups: Iterable[str] = ()) -> set[str
     """Principálové relace: `user:<jméno>`, `group:<jméno>`, skupiny, public.
 
     Anonymní relace (bez jména) má jen `group:public` – proto vidí jen to,
-    co je výslovně veřejné."""
+    co je výslovně veřejné.
+
+    KAŽDÝ OVĚŘENÝ ČLOVĚK JE V `group:users`. Je to význam toho jména a bez
+    toho by výchozí `default_access=["group:users"]` neznamenalo „kdokoli
+    přihlášený", ale „kdo to má náhodou vypsané v záznamu" – včetně správce,
+    který by po přihlášení neviděl nic."""
     out = {PUBLIC}
     if username:
         out.add(f"user:{username}")
         out.add(f"group:{username}")        # implicitní vlastní skupina
+        out.add(USERS)                      # ověřený = uživatel instance
         out.update(principal(g) for g in groups)
     return out
 
 
 def allowed(principals: Iterable[str], acl: Iterable[str]) -> bool:
     """Průnik principálů relace s ACL objektu. Celá autorizace je tahle
-    jedna funkce – všechno ostatní je jen otázka, KTERÉ ACL se ptát."""
+    jedna funkce – všechno ostatní je jen otázka, KTERÉ ACL se ptát.
+
+    JEDINÁ VÝJIMKA: `group:administrator` projde vždycky. Je to obdoba roota
+    a je to vědomé – instance musí mít někoho, kdo se dostane všude, jinak by
+    špatně nastavené ACL zamklo správce z jeho vlastního workbenche a nešlo
+    by to opravit zevnitř. Platí to i obráceně: správce se z ničeho vyloučit
+    nedá, takže tu skupinu má dostat jen ten, kdo na stroj stejně vidí.
+    Krok navíc (kód u privátního okna) tím dotčený NENÍ – ten se pořád chce."""
+    if ADMINISTRATOR in principals:
+        return True
     return bool(set(principals) & set(acl))
 
 
