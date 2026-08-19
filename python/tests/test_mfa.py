@@ -43,7 +43,9 @@ def test_ensure_user_vytvori_secret_s_pravy_0600_a_je_idempotentni(domov, capsys
     znovu = mfa.ensure_user()                               # druhý start nic nemění
     assert znovu["totp_secret"] == rec["totp_secret"]
     assert capsys.readouterr().out == ""                    # a nic znovu netiskne
-    assert json.loads(soubor.read_text())["workbench"]["totp_secret"] == rec["totp_secret"]
+    ulozeno = json.loads(soubor.read_text())                # v2 obálka: users + version
+    assert ulozeno["version"] == mfa.USERS_VERSION
+    assert ulozeno["users"]["workbench"]["totp_secret"] == rec["totp_secret"]
 
 
 def test_spravny_kod_projde_spatny_ne(domov):
@@ -109,7 +111,7 @@ def test_uzivatel_instance_ma_vlastni_adresar_i_tajemstvi(domov, capsys):
     assert not (domov / "user-workbench").exists()
     out = capsys.readouterr().out
     assert "jindrich" in out and rec["totp_secret"] not in out
-    assert list(json.loads((domov / "users.json").read_text())) == ["jindrich"]
+    assert list(json.loads((domov / "users.json").read_text())["users"]) == ["jindrich"]
     # ověřuje se proti uživateli instance, bez opakování jména na volajícím
     assert mfa.verify(pyotp.TOTP(rec["totp_secret"]).now()) is True
 

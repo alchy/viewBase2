@@ -106,6 +106,71 @@ Skupiny se resolvují při přihlášení a **cachují s TTL** (výchozí 300 s)
 bez toho by se odebrání ze skupiny projevilo až po odhlášení, a to je právě
 ta operace, kterou po incidentu potřebujete hned.
 
+### 4.1 Rekurzivní skupiny: deklaruje je nadřazená skupina
+
+Členství se píše **strukturovaně** (ne unixovým `passwd` stylem, kde se
+členství věší na uživatele a hierarchie se nedá vyjádřit vůbec) a deklaruje
+ho ta **nadřazená** skupina:
+
+```json
+{"groups": {
+   "group:ucetni": {"members": ["group:fakturace", "group:mzdy"],
+                    "description": "účtárna"},
+   "group:mzdy":   {"members": ["user:hana"]}}}
+```
+
+Kdo je ve `fakturaci`, je tím pádem i `ucetni`: členství se propaguje
+**nahoru**, takže přístup platí **dolů** — co povolím účetním, mají i
+fakturantky, a nikde se to neopakuje. Člověka lze vypsat u skupiny přímo
+(`hana`), aniž by se sahalo do jeho záznamu.
+
+**Rozbaluje to provider, ne jádro.** `groups_of()` vrací hotový tranzitivní
+uzávěr, takže autorizace zůstává jediný průnik množin a jádro nechodí po
+grafu skupin při každé zprávě. Cykly (`a` obsahuje `b`, `b` obsahuje `a`)
+jsou v konfiguraci běžná chyba — rozbalování je hlídá navštívenou množinou.
+
+### 4.2 Dvě nezávislé osy: kdo jsi × co smí naše objekty
+
+`IdentityProvider` a `PolicyStore` jsou **dvě samostatná rozhraní**, ne dvě
+metody jednoho. Důvod je věcný: LDAP ani OIDC nikdy nebude vědět nic
+o oknech téhle instance. Výměnou adresáře se tedy mění jen to, KDO je kdo;
+„co smí `group:ucetni` vidět" zůstává naše doména a přežije to.
+
+| osa | rozhraní | výchozí | vyměnitelné za |
+|---|---|---|---|
+| identity | `exists` / `authenticate` / `groups_of` | `LocalProvider` (sekce `users`, `groups`) | LDAP, OIDC |
+| práva objektů | `load` / `save` | `LocalPolicy` (sekce `access`) | databáze, konfigurační služba |
+
+Že obě výchozí implementace sdílejí jeden soubor je **pohodlí, ne vazba** —
+`vb.Project(identity=…, policy=…)` je nastaví každou zvlášť.
+
+**Soubor politiky má jedinou autoritu.** Sekce mají různé vlastníky, ale
+dokument čte a zapisuje jediné místo (`mfa.load_store` / `save_store` /
+`update_section`), celý a pod zámkem. Naivní „ulož si svoje" by při prvním
+zápisu uživatelů smazalo hierarchii skupin i práva objektů; bez zámku by se
+dva souběžné zápisy přepsaly taky, jen vzácněji a hůř dohledatelně.
+
+### 4.3 Pro aplikační kód je zdroj identit černá skříňka
+
+Aplikace uživatele **nezakládá, nečte ani nevypisuje**. Jediné, co dělá, je
+že na **svých** prvcích jmenuje principály:
+
+```python
+okno.access.add("group:ucetni")
+```
+
+Identity žijí mimo program — v souboru politiky, na který ukazuje
+konfigurace, nebo v adresáři — a spravuje je správce. Kdyby je uměla
+zakládat aplikace, byl by seznam uživatelů funkcí nasazené verze kódu místo
+konfigurace a každá aplikace by si směla vyrobit vlastního správce.
+
+**Všechno kolem práv jde do logu.** Každé nastavení i odebrání v kódu je
+auditní záznam (`access change: window:mzdy see +group:ucetni`), včetně práv
+zadaných při vzniku objektu. Jmenovat principála, který zatím neexistuje,
+není chyba — v adresáři může vzniknout později — ale **vždy** se objeví jako
+varování; tichý překlep by jinak znamenal okno, které nikdo neuvidí. Zdroj,
+který na existenci skupiny odpovědět neumí, se nevaruje.
+
 ## 5. Objekty, kterých se to týká
 
 | objekt | id | ACL |
@@ -167,13 +232,21 @@ založí.
 
 1. **`access.py`** — principálové, ACL, dvě slovesa, dědičnost, výchozí
    hodnoty; čisté funkce a testy bez serveru.
-2. **Identita** — `users.json` v2 + migrace, `IdentityProvider` + `LocalProvider`,
-   principálové v relaci, TTL na skupiny, audit píše skutečného uživatele.
+2. **Identita** — soubor politiky v2 (jediná autorita nad dokumentem),
+   `IdentityProvider` + `LocalProvider` s rekurzivními skupinami, `PolicyStore`
+   + `LocalPolicy` jako druhá osa, principálové v relaci, TTL na skupiny,
+   audit píše skutečného uživatele.
 3. **Vynucení** — `Needs.SEE/USE`, kontrola v `dispatch_event`, filtrování
    `init` snapshotu a akcí podle ACL plochy i okna.
 4. **Identita plochy** — stabilní id, adresování `(screen_id, window_id)`.
 5. **Frontend** — splash (jméno + kód), výzva u privátního okna jen na kód,
    menu `User` s `Logout` a `Lock all windows`.
+
+**Zpětná kompatibilita se nedrží.** Knihovna zatím nemá nasazení, které by
+se muselo šetřit, takže starý formát souboru ani stará jména parametrů
+nepřežívají — čitelnost modelu je víc než plynulý upgrade. Jediná výjimka
+byla jednorázová migrace existujícího `users.json` na v2, aby zapsaný
+autentikátor zůstal platný.
 
 **Mimo rozsah:** role nad rámec skupin, „deny" pravidla, per-uzel ACL
 v grafu, REST tokeny pro programové klienty (dnes REST identitu nemá a

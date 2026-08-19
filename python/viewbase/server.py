@@ -23,6 +23,8 @@ from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+from . import access as access_module
+from . import identity as identity_module
 from . import mfa, protocol, sessions
 from .logger import DEFAULT_LEVEL, logger
 from .tls import Tls, require_tls, scheme_for, self_signed
@@ -464,6 +466,10 @@ class Project:
 
     def __init__(self, *, host: str = "127.0.0.1", port: int = 8080,
                  user: str = mfa.DEFAULT_USER,
+                 users_file: "str | None" = None,
+                 identity: "Any | None" = None,
+                 policy: "Any | None" = None,
+                 default_access: "list[str] | None" = None,
                  tls: "Tls | bool | None" = None,
                  tls_hosts: "list[str] | tuple[str, ...] | None" = None,
                  http_redirect: "bool | int" = False,
@@ -501,6 +507,15 @@ class Project:
         sessions.configure(ttl=session_ttl, max_age=session_max_age)
         # Uživatel TÉTO instance: proti jeho tajemství se ověřují zamčená okna
         # a do jeho adresáře (`~/.viewbase/user-<jméno>/`) jde QR.
+        # POLITIKA INSTANCE – dvě nezávislé zásuvné osy (viz identity.py):
+        # `identity` říká, KDO je kdo (výchozí JSON soubor, může být LDAP),
+        # `policy` říká, co smí naše objekty (výchozí sekce `access` v témže
+        # souboru). Cesta k souboru je z konfigurace, ne z proměnných
+        # prostředí roztroušených po systému.
+        mfa.configure_store(users_file)
+        identity_module.configure(identity)
+        identity_module.configure_policy(policy)
+        access_module.configure_default(default_access)
         self.user = mfa.set_active_user(user)
         self._handle: ServerHandle | None = None
 

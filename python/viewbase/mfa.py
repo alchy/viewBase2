@@ -126,8 +126,26 @@ def home() -> Path:
     return Path(override) if override else Path.home() / ".viewbase"
 
 
+#: Cesta k souboru s politikou (uživatelé, skupiny, práva). `None` = výchozí
+#: `~/.viewbase/users.json`; přepíše `vb.Project(users_file=…)`.
+_store_override: Path | None = None
+
+
+def configure_store(path: "str | Path | None") -> Path:
+    """Nastav, kde leží soubor s politikou instance (volá `Project`).
+
+    Řízení i zápis práv se dějí v JEDNOM souboru, na který ukazuje
+    konfigurace – ne v proměnných prostředí roztroušených po systému.
+    Umožní to držet politiku mimo domovský adresář (`/etc/viewbase/…`,
+    připojený svazek kontejneru) a zálohovat ji jako jeden objekt."""
+    global _store_override
+    if path is not None:
+        _store_override = Path(path).expanduser()
+    return store_path()
+
+
 def store_path() -> Path:
-    return home() / "users.json"
+    return _store_override if _store_override is not None else home() / "users.json"
 
 
 def user_dir(user: str | None = None) -> Path:
@@ -170,25 +188,70 @@ def qr_text_path(user: str | None = None) -> Path:
 _lock = threading.RLock()
 
 
-def load_users() -> dict[str, dict[str, Any]]:
-    """Uživatelé ze souboru; chybí/vadný → prázdno (nikdy nespadne)."""
-    path = store_path()
+#: Verze formátu souboru politiky.
+USERS_VERSION = 2
+
+#: Sekce, ze kterých se soubor politiky skládá. Každou vlastní někdo jiný
+#: (`users` tenhle modul, `groups` identity.LocalProvider, `access`
+#: identity.LocalPolicy), ale SOUBOR JE JEDEN a jeho jediná autorita je
+#: tenhle modul: čte a zapisuje se celý dokument, mění se v něm jen jedna
+#: sekce a celé to drží zámek. Kdyby si soubor přepisoval každý vlastník
+#: sám, poslední zápis by ostatním sekce smazal – a bez zámku by se dva
+#: souběžné zápisy přepsaly i tak, jen vzácněji a hůř dohledatelně.
+SEKCE = ("users", "groups", "access")
+
+
+def load_store() -> dict[str, Any]:
+    """Celý soubor politiky; chybí nebo je vadný → prázdný dokument.
+
+    Nikdy nespadne: bez souboru se instance musí umět rozběhnout a založit
+    prvního uživatele."""
     try:
-        data = json.loads(path.read_text("utf-8"))
+        data = json.loads(store_path().read_text("utf-8"))
     except (OSError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}
 
 
-def save_users(users: dict[str, dict[str, Any]]) -> None:
-    """Ulož s právy 0600 (adresář 0700) – tajemství nemá číst nikdo jiný."""
+def save_store(data: dict[str, Any]) -> None:
+    """Zapiš celý soubor politiky s právy 0600 (adresář 0700).
+
+    Atomicky přes `.tmp` + `replace`, aby přerušený zápis nenechal na disku
+    půlku souboru s uživateli."""
     path = store_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     os.chmod(path.parent, stat.S_IRWXU)
+    data["version"] = USERS_VERSION
     tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(users, indent=2, ensure_ascii=False), "utf-8")
-    os.chmod(tmp, stat.S_IRUSR | stat.S_IWUSR)
-    tmp.replace(path)
+    with _lock:
+        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), "utf-8")
+        os.chmod(tmp, stat.S_IRUSR | stat.S_IWUSR)
+        tmp.replace(path)
+
+
+def update_section(name: str, value: Any) -> None:
+    """Přepiš JEDNU sekci souboru a ostatní nech být.
+
+    Čtení a zápis pod jedním zámkem: mezi „načti" a „ulož" se nesmí vejít
+    cizí zápis, jinak by si dvě souběžné změny sekce navzájem smazaly."""
+    if name not in SEKCE:
+        raise ValueError(f"neznámá sekce souboru politiky: {name!r}")
+    with _lock:
+        data = load_store()
+        data[name] = value
+        save_store(data)
+
+
+def load_users() -> dict[str, dict[str, Any]]:
+    """Uživatelé: mapa jméno → záznam (sekce `users`)."""
+    users = load_store().get("users")
+    return {k: v for k, v in users.items() if isinstance(v, dict)} \
+        if isinstance(users, dict) else {}
+
+
+def save_users(users: dict[str, dict[str, Any]]) -> None:
+    """Ulož uživatele; `groups` ani `access` se přitom nedotkne."""
+    update_section("users", users)
 
 
 def provisioning_uri(user: str, secret: str) -> str:
@@ -215,9 +278,16 @@ def ensure_user(user: str | None = None, *,
         users = load_users()
         rec = users.get(user) or {}
         if not rec.get("totp_secret"):
+            from .access import ADMINISTRATOR, USERS
+
+            # PRVNÍ uživatel je správce (obdoba root); další dostanou
+            # základní skupinu. Vlastní skupinu `group:<jméno>` má každý
+            # implicitně, do souboru se nepíše (viz access.user_principals).
+            prvni = not users
             rec = {
                 "totp_secret": pyotp.random_base32(),
                 "is_mfa_enabled": True,
+                "groups": [ADMINISTRATOR if prvni else USERS],
                 "created": time.strftime("%Y-%m-%dT%H:%M:%S"),
             }
             users[user] = rec

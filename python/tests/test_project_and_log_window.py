@@ -100,7 +100,7 @@ def test_project_zaregistruje_uzivatele_pri_prvnim_startu(tmp_path, monkeypatch,
             project.serve(screen, block=False)
         assert (tmp_path / "user-hana" / "totp-hana.svg").exists()
         out = capsys.readouterr().out
-        tajemstvi = json.loads((tmp_path / "users.json").read_text())["hana"]["totp_secret"]
+        tajemstvi = json.loads((tmp_path / "users.json").read_text())["users"]["hana"]["totp_secret"]
         assert "instance user: hana" in out               # systémový text
         assert "registered: hana (TOTP)" in out
         assert tajemstvi not in out and "otpauth://" not in out   # tajemství ne
