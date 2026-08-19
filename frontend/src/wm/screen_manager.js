@@ -202,7 +202,10 @@ export class ScreenManager {
   _renderTitle(screenId) {
     const instance = this.instances.get(screenId);
     if (!instance) return;
-    instance.bar?.setTitle(instance.store?.config?.title || `Screen ${screenId}`);
+    // fallback jen když aplikace titulek nedala: `screen_id` je od téhle
+    // verze neprůhledná adresa, takže do titulku patří pořadí, ne ona
+    const config = instance.store?.config;
+    instance.bar?.setTitle(config?.title || `Screen ${config?.screen_index ?? ''}`.trim());
   }
 
   /** Zadrátuje screenovu VLASTNÍ lištu (`ScreenBar` – titulek, menu,

@@ -11,7 +11,7 @@ def init_message(*, seq: int, config: dict, node_types: dict,
                  nodes: list, edges: list,
                  flow_types: dict, flows: list,
                  windows: list, menu: dict | None = None,
-                 screen_id: int | None = None,
+                 screen_id: str | None = None,
                  sid: str | None = None) -> dict[str, Any]:
     return {
         "type": "init",
@@ -33,7 +33,7 @@ def init_message(*, seq: int, config: dict, node_types: dict,
 
 
 def patch_message(seq: int, deltas: dict[str, list],
-                  screen_id: int | None = None) -> dict[str, Any]:
+                  screen_id: str | None = None) -> dict[str, Any]:
     message: dict[str, Any] = {
         "type": "patch", "seq": seq, "screen_id": screen_id}
     message.update(deltas)

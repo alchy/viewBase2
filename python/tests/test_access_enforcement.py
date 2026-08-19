@@ -220,3 +220,51 @@ def test_odhlaseni_plochu_zase_zavre():
             pred, session = _do_session(ws)
     assert session["user"] is None and session["visible"] == 0
     assert [m.get("action") for m in pred] == ["screen_remove"]
+
+
+# ---- soubor politiky přebíjí kód -----------------------------------------
+
+def test_spravce_opravi_prava_v_souboru_bez_zasahu_do_aplikace():
+    """Špatné ACL se musí dát opravit bez nasazení nové verze programu.
+
+    Podmínkou je POJMENOVANÁ plocha: adresa je od téhle verze neprůhledná,
+    takže náhodné id by v souboru bylo po restartu k ničemu."""
+    kod = _uzivatel("karel", ["group:sklad"])
+    s = Screen(title="Provoz", id="provoz", access=["group:ucetni"])
+    g = GraphWindow(screen=s)
+    okno = HtmlWindow("mzdy", title="Mzdy")
+    okno.label("tajný obsah")
+    g.open_html(okno)
+
+    # správce přepíše práva plochy v souboru, aplikace o tom neví
+    identity.policy.save({"screen:provoz": {"see": ["group:sklad"]}})
+    identity.configure_policy(None)
+
+    with TestClient(create_app(g)) as client:
+        with client.websocket_connect("/ws") as ws:
+            _hello(ws)
+            pred, session = _prihlas(ws, "karel", kod())
+    assert session["visible"] == 1
+    assert [w["window_id"] for w in pred[0]["windows"]] == ["mzdy"]
+
+
+def test_prava_okna_v_souboru_plati_pro_konkretni_plochu():
+    """Klíč je celá adresa: dvě plochy se stejně pojmenovaným oknem nesdílejí
+    práva."""
+    kod = _uzivatel("karel", ["group:users"])
+    s = Screen(title="Provoz", id="provoz")
+    g = GraphWindow(screen=s)
+    okno = HtmlWindow("mzdy", title="Mzdy")
+    okno.label("tajný obsah")
+    g.open_html(okno)
+
+    identity.policy.save(
+        {"screen:provoz/window:mzdy": {"see": ["group:ucetni"]}})
+    identity.configure_policy(None)
+
+    with TestClient(create_app(g)) as client:
+        with client.websocket_connect("/ws") as ws:
+            _hello(ws)
+            pred, session = _prihlas(ws, "karel", kod())
+    assert session["visible"] == 1              # na plochu ano
+    assert pred[0]["windows"] == []             # na okno ne

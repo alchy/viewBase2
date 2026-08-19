@@ -52,7 +52,7 @@ class GraphWindow(EventsMixin, FlowsMixin, WindowsMixin):
         if screen is not None and not hasattr(screen, "id"):
             raise ValueError("screen musí být instance vb.Screen")
         self.screen = screen
-        self.screen_id: int | None = screen.id if screen is not None else None
+        self.screen_id: str | None = screen.id if screen is not None else None
         self.config = {
             "title": title,
             "dimensions": dimensions,
@@ -129,6 +129,10 @@ class GraphWindow(EventsMixin, FlowsMixin, WindowsMixin):
         akci, kterou `Screen.pin_menu` zařadil, když ještě neměl GraphWindow)."""
         screen._graph = self
         with self._lock:
+            # Pořadí na liště jde klientovi v configu: adresa (`screen_id`)
+            # je od téhle verze neprůhledná, takže „Screen 2" se z ní přečíst
+            # nedá – a číslo v titulku je jediné, k čemu ji klient používal.
+            self.config["screen_index"] = screen.index
             if screen._menu is not None:
                 self._menu = screen._menu
             # Systémové log okno umístěné na screen PŘED grafem

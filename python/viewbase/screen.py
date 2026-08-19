@@ -10,12 +10,20 @@ mechanismus jako GraphWindow (`_actions`/`drain_actions`). Jakmile se GraphWindo
 připojí, EXPLICITNĚ (viditelné volání `GraphWindow._adopt_screen`, ne skrytá
 magie) frontu převezme.
 
-Id se přiděluje automaticky v pořadí vytvoření (1, 2, 3, …) – nezadává se.
-`0` se nikdy nepřidělí (historicky patřilo vestavěnému log screenu; log je
-dnes obyčejné okno na screenu – window-first model, viz handover plán –
-ale id se dál číslují od 1, ať se stará i nová sezení chovají stejně)."""
+IDENTITA PLOCHY JE NEPRŮHLEDNÁ A STABILNÍ, ne procesní čítač. Dřív se
+přidělovalo 1, 2, 3… – pro plán, kde REST obsluhuje víc klientů a část ploch
+může převzít jiný kontejner, je to rozbité: dvě instance vyrobí `screen_id=1`
+pro dvě různé plochy a klient, který ji adresuje, netrefí. Id je proto
+náhodné (`vb.Screen()`), nebo si ho volající pojmenuje sám
+(`vb.Screen(id="provoz")`) – a pod ním plochu zná i soubor politiky, takže
+práva přežijí restart.
+
+Pořadí vzniku zůstává jako `index` (1, 2, 3…): je to POŘADÍ NA LIŠTĚ, ne
+adresa. Tím se ty dvě role, které dřív plnilo jedno číslo, rozdělily."""
 from __future__ import annotations
 
+import re
+import secrets
 import threading
 from typing import TYPE_CHECKING, Any
 
@@ -29,24 +37,40 @@ if TYPE_CHECKING:
 MAX_USER_SCREENS = 8
 
 _lock = threading.Lock()
-_next_id = 1
+_next_index = 1
+
+#: Jak dlouhé je náhodné id plochy (hex znaků). Není to tajemství – jen
+#: nesmí kolidovat mezi procesy.
+ID_CHARS = 12
+_ID_OK = re.compile(r"^[a-zA-Z0-9._-]{1,64}$")
 
 
-def _allocate_id() -> int:
-    global _next_id
+def _allocate_index() -> int:
+    """Pořadí vzniku – POŘADÍ NA LIŠTĚ, ne adresa (viz docstring modulu)."""
+    global _next_index
     with _lock:
-        if _next_id > MAX_USER_SCREENS:
+        if _next_index > MAX_USER_SCREENS:
             raise ValueError(f"Překročen limit {MAX_USER_SCREENS} screenů")
-        allocated = _next_id
-        _next_id += 1
+        allocated = _next_index
+        _next_index += 1
         return allocated
 
 
+def _validated_id(screen_id: Any) -> str:
+    """Vlastní id plochy: musí se dát psát do URL i do souboru politiky."""
+    text = str(screen_id).strip()
+    if not _ID_OK.match(text):
+        raise ValueError(
+            "id screenu smí obsahovat jen písmena, číslice, tečku, "
+            f"pomlčku a podtržítko (dostal jsem {screen_id!r})")
+    return text
+
+
 def reset_allocator() -> None:
-    """Vrať čítač id na 1 – jen pro testy (izolace mezi testovacími případy)."""
-    global _next_id
+    """Vrať pořadí na 1 – jen pro testy (izolace mezi testovacími případy)."""
+    global _next_index
     with _lock:
-        _next_id = 1
+        _next_index = 1
 
 
 class Screen:
@@ -55,11 +79,17 @@ class Screen:
     fungovat i BEZ přiřazeného GraphWindow (viz modul docstring)."""
 
     def __init__(self, *, title: str = "viewbase", theme: Any = "modern",
-                 quality: str = "auto",
+                 quality: str = "auto", id: "str | None" = None,  # pylint: disable=redefined-builtin
                  access: "list[str] | None" = None) -> None:
         if quality not in QUALITIES:
             raise ValueError(f"quality musí být jedno z {QUALITIES}")
-        self.id = _allocate_id()
+        #: Pořadí vzniku – jen pro lištu; adresa je `id`.
+        self.index = _allocate_index()
+        #: Stabilní neprůhledná adresa plochy. Pojmenovaná (`id="provoz"`)
+        #: přežije restart i výměnu procesu – a právě pod ní hledá práva
+        #: soubor politiky.
+        self.id = _validated_id(id) if id is not None \
+            else secrets.token_hex(ID_CHARS // 2)
         #: Kdo plochu vidí. BRÁNA PRO VŠECHNO NA NÍ: kdo se nedostane sem,
         #: nedostane žádné její okno ani zprávu. Nenastavené dědí výchozí
         #: hodnotu instance (`vb.Project(default_access=…)`).

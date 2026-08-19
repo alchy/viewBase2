@@ -10,16 +10,31 @@ def _reset():
     reset_allocator()
 
 
-def test_ids_assigned_in_creation_order():
+def test_poradi_na_liste_jde_podle_vzniku():
+    """`index` je POŘADÍ, ne adresa – lišta podle něj řadí plochy."""
     a = Screen(title="A")
     b = Screen(title="B")
     c = Screen(title="C")
-    assert (a.id, b.id, c.id) == (1, 2, 3)
+    assert (a.index, b.index, c.index) == (1, 2, 3)
 
 
-def test_zero_is_never_assigned():
+def test_adresa_plochy_je_stabilni_a_neprumyslova():
+    """Procesní čítač jako adresa je rozbitý: dva procesy vyrobí `1` pro dvě
+    různé plochy a klient netrefí. Id je proto náhodné a jedinečné."""
     screens = [Screen() for _ in range(MAX_USER_SCREENS)]
-    assert min(s.id for s in screens) == 1
+    ids = [s.id for s in screens]
+    assert len(set(ids)) == MAX_USER_SCREENS
+    assert all(isinstance(i, str) and len(i) >= 8 for i in ids)
+
+
+def test_plochu_lze_pojmenovat_a_jmeno_se_kontroluje():
+    """`vb.Screen(id="provoz")` – pod tímhle jménem ji zná i soubor politiky,
+    takže práva přežijí restart."""
+    assert Screen(id="provoz").id == "provoz"
+    with pytest.raises(ValueError):
+        Screen(id="má mezeru")
+    with pytest.raises(ValueError):
+        Screen(id="screen:provoz")          # dvojtečka patří principálům
 
 
 def test_ninth_screen_raises():
