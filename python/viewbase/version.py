@@ -38,10 +38,10 @@ def package_version() -> str:
 
 def _git_dir() -> Path | None:
     """`.git` nad zdroji (editable instalace z klonu), jinak None."""
-    for rodic in Path(__file__).resolve().parents:
-        kandidat = rodic / ".git"
-        if kandidat.is_dir():
-            return kandidat
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / ".git"
+        if candidate.is_dir():
+            return candidate
     return None
 
 
@@ -60,19 +60,19 @@ def git_revision(short: int = 7) -> str | None:
     if not head.startswith("ref:"):
         return head[:short] or None                      # detached HEAD
     ref = head.split(" ", 1)[1].strip()
-    primy = git / ref
-    if primy.is_file():
+    direct = git / ref
+    if direct.is_file():
         try:
-            return primy.read_text("utf-8").strip()[:short]
+            return direct.read_text("utf-8").strip()[:short]
         except OSError:
             return None
     # ref může být zabalený v packed-refs (po `git gc`)
     try:
-        for radek in (git / "packed-refs").read_text("utf-8").splitlines():
-            if radek.startswith("#") or " " not in radek:
+        for line in (git / "packed-refs").read_text("utf-8").splitlines():
+            if line.startswith("#") or " " not in line:
                 continue
-            hash_, jmeno = radek.split(" ", 1)
-            if jmeno.strip() == ref:
+            hash_, name = line.split(" ", 1)
+            if name.strip() == ref:
                 return hash_[:short]
     except OSError:
         pass
@@ -81,9 +81,9 @@ def git_revision(short: int = 7) -> str | None:
 
 def build_id() -> str:
     """Identita běhu do logu: `0.1.0 (git b44ef34)`, `0.1.0 (build …)`, `0.1.0`."""
-    verze = package_version()
+    version = package_version()
     z_env = os.environ.get(BUILD_ENV, "").strip()
     if z_env:
-        return f"{verze} (build {z_env})"
-    revize = git_revision()
-    return f"{verze} (git {revize})" if revize else verze
+        return f"{version} (build {z_env})"
+    revision = git_revision()
+    return f"{version} (git {revision})" if revision else version

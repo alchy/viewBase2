@@ -223,3 +223,20 @@ def test_spravcovska_vyjimka_neplati_pro_nikoho_jineho():
     kdokoli = user_principals("karel", ["group:sklad"])
     assert not allowed(kdokoli, {"group:ucetni"})
     assert not allowed(kdokoli, set())
+
+
+# ---- API, jak se píše v dokumentaci --------------------------------------
+
+def test_okno_access_se_chova_jako_ACL_pro_videt():
+    """Přesně ten zápis, který je v README, docs i ve specifikaci. Dřív
+    spadl na AttributeError – `Access` ty metody vůbec nemělo."""
+    a = Access(see=["group:ucetni"], object_id="window:mzdy")
+    a.add("user:hana")
+    assert a.list() == ["group:ucetni", "user:hana"]
+    a.remove("group:ucetni")
+    assert a.list() == ["user:hana"] and "user:hana" in a and len(a) == 1
+    a.write.set(["group:ucetni"])                  # druhé sloveso výslovně
+    assert a.effective_write({USERS}) == {"group:ucetni"}
+    assert a.effective_see({USERS}) == {"user:hana"}
+    a.clear()
+    assert a.is_set and a.list() == []             # nikdo, ne „dědí"

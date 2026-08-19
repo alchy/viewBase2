@@ -69,7 +69,7 @@ class PtyShell:
         # Auditní odposlech příkazů (viz write/_audit_line): hlásí jen řádky
         # zadané, když terminál ECHUJE – heslo se tak do logu nedostane.
         self.on_command = on_command
-        self._radek: list[str] = []
+        self._line: list[str] = []
         self._master: int | None = None
         self._proc: subprocess.Popen[Any] | None = None
         self._reader: threading.Thread | None = None
@@ -137,19 +137,19 @@ class PtyShell:
         Skládá se hrubě: Backspace maže poslední znak, Ctrl-C zahodí rozepsané,
         ostatní řídicí sekvence (šipky, historie, doplňování) se ignorují –
         výsledek proto nemusí přesně odpovídat tomu, co shell nakonec spustil."""
-        for znak in data:
-            if znak in "\r\n":
-                radek = "".join(self._radek).strip()
-                self._radek.clear()
-                if radek:
-                    self.on_command(radek[:500])
-            elif znak in "\x7f\b":                    # Backspace / DEL
-                if self._radek:
-                    self._radek.pop()
-            elif znak == "\x03":                       # Ctrl-C zahodí rozepsané
-                self._radek.clear()
-            elif znak >= " ":                          # tisknutelné, bez ESC sekvencí
-                self._radek.append(znak)
+        for char in data:
+            if char in "\r\n":
+                line = "".join(self._line).strip()
+                self._line.clear()
+                if line:
+                    self.on_command(line[:500])
+            elif char in "\x7f\b":                    # Backspace / DEL
+                if self._line:
+                    self._line.pop()
+            elif char == "\x03":                       # Ctrl-C zahodí rozepsané
+                self._line.clear()
+            elif char >= " ":                          # tisknutelné, bez ESC sekvencí
+                self._line.append(char)
 
     def resize(self, cols: int, rows: int) -> None:
         """Nové rozměry okna → SIGWINCH procesu (celoobrazovkové programy
@@ -167,8 +167,8 @@ class PtyShell:
             os.killpg(os.getpgid(proc.pid), signal.SIGHUP)
         except (ProcessLookupError, PermissionError):
             return
-        konec = time.time() + KILL_AFTER_S
-        while time.time() < konec and proc.poll() is None:
+        deadline = time.time() + KILL_AFTER_S
+        while time.time() < deadline and proc.poll() is None:
             time.sleep(0.05)
         if proc.poll() is None:
             try:

@@ -88,14 +88,19 @@ class PrivateMixin:
         return {**self.spec(), "private": self.private,
                 "state": "open" if not self.private or unlocked else "locked"}
 
-    def unlocks_with(self, code: Any) -> bool:
-        """Ověř kód: TOTP uživatele, jinak jednorázový kód z konzole."""
+    def unlocks_with(self, code: Any) -> str:
+        """Ověř kód a vrať DŮVOD (`mfa.OK`, `mfa.BAD_CODE`, `mfa.REPLAY`, …).
+
+        Účel ověření je TOHLE okno: kód spotřebovaný přihlášením tak jde
+        použít i na krok navíc, protože autentikátor mezitím žádný nový
+        nevydá (viz mfa.check). Podruhé na totéž okno už neprojde."""
         from . import mfa
 
         if mfa.available() and mfa.load_users().get(mfa.active_user()):
-            return mfa.verify(code)
-        return (isinstance(code, str) and self.fallback_code is not None
-                and secrets.compare_digest(code.strip(), self.fallback_code))
+            return mfa.check(code, purpose=f"window:{self.window_id}")
+        ok = (isinstance(code, str) and self.fallback_code is not None
+              and secrets.compare_digest(code.strip(), self.fallback_code))
+        return mfa.OK if ok else mfa.BAD_CODE
 
     def announce_lock(self) -> None:
         """Zavolá se při otevření zamčeného okna: zajistí TOTP registraci, a

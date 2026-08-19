@@ -54,15 +54,15 @@ class Tls:
     ca: str | Path | None = None
 
     def __post_init__(self) -> None:
-        for popis, cesta in (("cert", self.cert), ("key", self.key),
+        for description, path in (("cert", self.cert), ("key", self.key),
                              ("ca", self.ca)):
-            if cesta is None:
+            if path is None:
                 continue
-            path = Path(cesta)
+            path = Path(path)
             if not path.is_file():
-                raise ValueError(f"Tls: {popis} soubor neexistuje: {path}")
+                raise ValueError(f"Tls: {description} soubor neexistuje: {path}")
             if not path.stat().st_size:
-                raise ValueError(f"Tls: {popis} soubor je prázdný: {path}")
+                raise ValueError(f"Tls: {description} soubor je prázdný: {path}")
         key_mode = stat.S_IMODE(Path(self.key).stat().st_mode)
         if key_mode & (stat.S_IRWXG | stat.S_IRWXO):
             # Privátní klíč čitelný pro skupinu/ostatní je klasická chyba při
@@ -149,14 +149,14 @@ def _hosts(host: str, extra: "list[str] | tuple[str, ...] | None" = None) -> lis
     Bez SAN dnešní prohlížeče certifikát neuznají ani po potvrzení, a co v SAN
     není, to nepokrývá – proto jde seznam rozšířit: `vb.Project(host="0.0.0.0",
     tls=True, tls_hosts=["vb.firma.cz", "10.0.0.5"])`."""
-    jmena = ["localhost", "127.0.0.1", "::1", socket.gethostname()]
+    names = ["localhost", "127.0.0.1", "::1", socket.gethostname()]
     if host and host not in {"0.0.0.0", "::"}:
-        jmena.append(host)
-    jmena.extend(str(h).strip() for h in (extra or ()))
-    videno, out = set(), []
-    for j in jmena:
-        if j and j not in videno:
-            videno.add(j)
+        names.append(host)
+    names.extend(str(h).strip() for h in (extra or ()))
+    visited, out = set(), []
+    for j in names:
+        if j and j not in visited:
+            visited.add(j)
             out.append(j)
     return out
 
@@ -181,11 +181,11 @@ def san_names(cert: Path) -> set[str]:
         [openssl, "x509", "-in", str(cert), "-noout", "-ext", "subjectAltName"],
         capture_output=True, check=False, text=True)
     out: set[str] = set()
-    for kus in done.stdout.replace("\n", ",").split(","):
-        kus = kus.strip()
+    for chunk in done.stdout.replace("\n", ",").split(","):
+        chunk = chunk.strip()
         for prefix in ("DNS:", "IP Address:", "IP:"):
-            if kus.startswith(prefix):
-                out.add(_normalize_host(kus[len(prefix):].strip()))
+            if chunk.startswith(prefix):
+                out.add(_normalize_host(chunk[len(prefix):].strip()))
     return out
 
 
@@ -208,20 +208,20 @@ def self_signed(host: str = "127.0.0.1", *,
     v domově, 0600) a podruhé se jen použije."""
     folder = tls_dir()
     cert, key = folder / "cert.pem", folder / "key.pem"
-    chtene = _hosts(host, hosts)
+    wanted = _hosts(host, hosts)
     if not force and cert.is_file() and key.is_file() and not _expires_soon(cert):
-        pokryte = san_names(cert)
+        covered = san_names(cert)
         # Prázdný výsledek = neumíme přečíst (chybí openssl) → nepřegenerovávej
         # funkční certifikát jen proto, že o něm nic nevíme.
-        if not pokryte or {_normalize_host(h) for h in chtene} <= pokryte:
+        if not covered or {_normalize_host(h) for h in wanted} <= covered:
             return Tls(cert, key)
-    _generate(cert, key, chtene)
+    _generate(cert, key, wanted)
     from .log import bus
 
-    zprava = (f"self-signed TLS certificate generated: {cert} "
-              f"(SHA-256 {fingerprint(cert)}; covers {', '.join(chtene)})")
-    print(f"viewbase: {zprava}", flush=True)
-    bus.publish("info", "backend_program", zprava, component="server")
+    message = (f"self-signed TLS certificate generated: {cert} "
+              f"(SHA-256 {fingerprint(cert)}; covers {', '.join(wanted)})")
+    print(f"viewbase: {message}", flush=True)
+    bus.publish("info", "backend_program", message, component="server")
     return Tls(cert, key)
 
 
@@ -248,26 +248,26 @@ def _generate_cryptography(cert: Path, key: Path, hosts: list[str]) -> None:
     from cryptography.hazmat.primitives.asymmetric import rsa
     from cryptography.x509.oid import NameOID
 
-    klic = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    jmeno = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, hosts[0])])
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, hosts[0])])
     san = []
     for h in hosts:
         try:
             san.append(x509.IPAddress(ipaddress.ip_address(h)))
         except ValueError:
             san.append(x509.DNSName(h))
-    ted = time.time()
+    moment = time.time()
     crt = (x509.CertificateBuilder()
-           .subject_name(jmeno).issuer_name(jmeno)
-           .public_key(klic.public_key())
+           .subject_name(name).issuer_name(name)
+           .public_key(key.public_key())
            .serial_number(x509.random_serial_number())
-           .not_valid_before(_utc(ted - 300))
-           .not_valid_after(_utc(ted + CERT_DAYS * 86400))
+           .not_valid_before(_utc(moment - 300))
+           .not_valid_after(_utc(moment + CERT_DAYS * 86400))
            .add_extension(x509.SubjectAlternativeName(san), critical=False)
            .add_extension(x509.BasicConstraints(ca=False, path_length=None),
                           critical=True)
-           .sign(klic, hashes.SHA256()))
-    key.write_bytes(klic.private_bytes(
+           .sign(key, hashes.SHA256()))
+    key.write_bytes(key.private_bytes(
         encoding=serialization.Encoding.PEM,
         format=serialization.PrivateFormat.PKCS8,
         encryption_algorithm=serialization.NoEncryption()))

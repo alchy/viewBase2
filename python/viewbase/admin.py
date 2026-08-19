@@ -30,7 +30,7 @@ from . import identity, mfa
 from .access import USERS, principal
 
 
-def _politika() -> dict[str, Any]:
+def _policy_document() -> dict[str, Any]:
     return mfa.load_store()
 
 
@@ -44,10 +44,10 @@ def cmd_users(args: argparse.Namespace) -> int:
               f"{sys.argv[0]} adduser <jméno>")
         return 0
     provider = identity.LocalProvider()
-    for jmeno in sorted(users):
-        skupiny = sorted(provider.groups_of(jmeno))
-        totp = "TOTP" if users[jmeno].get("totp_secret") else "bez TOTP"
-        print(f"{jmeno:<20} {totp:<10} {', '.join(skupiny)}")
+    for name in sorted(users):
+        groups = sorted(provider.groups_of(name))
+        totp = "TOTP" if users[name].get("totp_secret") else "bez TOTP"
+        print(f"{name:<20} {totp:<10} {', '.join(groups)}")
     return 0
 
 
@@ -57,21 +57,21 @@ def cmd_adduser(args: argparse.Namespace) -> int:
         print("chybí pyotp – bez něj nejde TOTP registrovat "
               "(pip install pyotp qrcode)", file=sys.stderr)
         return 2
-    jmeno = args.user
+    name = args.user
     users = mfa.load_users()
-    novy = jmeno not in users
-    mfa.ensure_user(jmeno)
-    skupiny = [principal(g) for g in (args.groups or "").split(",") if g.strip()]
+    fresh = name not in users
+    mfa.ensure_user(name)
+    groups = [principal(g) for g in (args.groups or "").split(",") if g.strip()]
     users = mfa.load_users()
-    users[jmeno]["groups"] = skupiny or users[jmeno].get("groups") or [USERS]
+    users[name]["groups"] = groups or users[name].get("groups") or [USERS]
     mfa.save_users(users)
-    stav = "založen" if novy else "aktualizován"
-    print(f"uživatel '{jmeno}' {stav}; skupiny: "
-          f"{', '.join(users[jmeno]['groups'])}")
-    if novy:
-        adresar = mfa.user_dir(jmeno)
-        print(f"autentikátor: cat {adresar / f'totp-{jmeno}.txt'}  "
-              f"(nebo otevři {adresar / f'totp-{jmeno}.svg'})")
+    state = "založen" if fresh else "aktualizován"
+    print(f"uživatel '{name}' {state}; skupiny: "
+          f"{', '.join(users[name]['groups'])}")
+    if fresh:
+        directory = mfa.user_dir(name)
+        print(f"autentikátor: cat {directory / f'totp-{name}.txt'}  "
+              f"(nebo otevři {directory / f'totp-{name}.svg'})")
     return 0
 
 
@@ -92,14 +92,14 @@ def cmd_deluser(args: argparse.Namespace) -> int:
 
 def cmd_groups(args: argparse.Namespace) -> int:
     """Hierarchie skupin: co která obsahuje."""
-    skupiny = _politika().get("groups") or {}
-    if not skupiny:
+    groups = _policy_document().get("groups") or {}
+    if not groups:
         print("hierarchie je prázdná (skupiny jsou ploché)")
         return 0
-    for jmeno in sorted(skupiny):
-        zaznam = skupiny[jmeno]
-        obsah = zaznam.get("members", []) if isinstance(zaznam, dict) else zaznam
-        print(f"{jmeno:<24} obsahuje: {', '.join(obsah) or '—'}")
+    for name in sorted(groups):
+        record = groups[name]
+        members = record.get("members", []) if isinstance(record, dict) else record
+        print(f"{name:<24} obsahuje: {', '.join(members) or '—'}")
     return 0
 
 
@@ -107,25 +107,25 @@ def cmd_group(args: argparse.Namespace) -> int:
     """Uprav, co skupina obsahuje (podskupiny i konkrétní lidi).
 
     Členství deklaruje NADŘAZENÁ skupina: kdo je v podskupině, je i v ní."""
-    skupiny = dict(_politika().get("groups") or {})
-    klic = principal(args.group)
-    zaznam = skupiny.get(klic)
-    obsah = list(zaznam.get("members", []) if isinstance(zaznam, dict)
-                 else (zaznam or []))
-    for clen in args.add or ():
-        jmeno = principal(clen)
-        if jmeno not in obsah:
-            obsah.append(jmeno)
-    for clen in args.remove or ():
-        jmeno = principal(clen)
-        if jmeno in obsah:
-            obsah.remove(jmeno)
-    if not obsah and not args.add:
-        skupiny.pop(klic, None)
+    groups = dict(_policy_document().get("groups") or {})
+    key = principal(args.group)
+    record = groups.get(key)
+    members = list(record.get("members", []) if isinstance(record, dict)
+                 else (record or []))
+    for member in args.add or ():
+        name = principal(member)
+        if name not in members:
+            members.append(name)
+    for member in args.remove or ():
+        name = principal(member)
+        if name in members:
+            members.remove(name)
+    if not members and not args.add:
+        groups.pop(key, None)
     else:
-        skupiny[klic] = {"members": obsah}
-    mfa.update_section("groups", skupiny)
-    print(f"{klic} obsahuje: {', '.join(obsah) or '—'}")
+        groups[key] = {"members": members}
+    mfa.update_section("groups", groups)
+    print(f"{key} obsahuje: {', '.join(members) or '—'}")
     return 0
 
 
@@ -136,30 +136,30 @@ def cmd_access(args: argparse.Namespace) -> int:
 
     Objekt se adresuje `screen:<id>` nebo `screen:<id>/window:<id>` –
     předpokládá to pojmenovanou plochu (`vb.Screen(id="provoz")`)."""
-    prava = dict(identity.policy.load())
+    rights = dict(identity.policy.load())
     if args.clear:
-        prava.pop(args.object, None)
-        identity.policy.save(prava)
+        rights.pop(args.object, None)
+        identity.policy.save(rights)
         print(f"{args.object}: práva ze souboru odebrána (platí kód aplikace)")
         return 0
-    zaznam = dict(prava.get(args.object) or {})
+    record = dict(rights.get(args.object) or {})
     if args.see is not None:
-        zaznam["see"] = [principal(g) for g in args.see.split(",") if g.strip()]
+        record["see"] = [principal(g) for g in args.see.split(",") if g.strip()]
     if args.write is not None:
-        zaznam["write"] = [principal(g) for g in args.write.split(",") if g.strip()]
-    if not zaznam:
-        print(json.dumps(prava.get(args.object) or {}, ensure_ascii=False))
+        record["write"] = [principal(g) for g in args.write.split(",") if g.strip()]
+    if not record:
+        print(json.dumps(rights.get(args.object) or {}, ensure_ascii=False))
         return 0
-    prava[args.object] = zaznam
-    identity.policy.save(prava)
-    print(f"{args.object}: vidí {zaznam.get('see') or '(dědí)'}, "
-          f"zasahuje {zaznam.get('write') or '(stejně jako vidí)'}")
+    rights[args.object] = record
+    identity.policy.save(rights)
+    print(f"{args.object}: vidí {record.get('see') or '(dědí)'}, "
+          f"zasahuje {record.get('write') or '(stejně jako vidí)'}")
     return 0
 
 
 def cmd_show(args: argparse.Namespace) -> int:
     """Celý soubor politiky bez tajemství – na kontrolu a do issue."""
-    data = _politika()
+    data = _policy_document()
     users = {j: {k: v for k, v in z.items() if k != "totp_secret"}
              for j, z in (data.get("users") or {}).items()}
     print(json.dumps({**data, "users": users}, indent=2, ensure_ascii=False))

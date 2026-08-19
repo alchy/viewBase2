@@ -124,7 +124,8 @@ def test_uzivatelske_udalosti_grant_neresi_ale_plochou_projit_musi():
 def test_zadna_hodnota_needs_nevypina_branu_plochy():
     """Kdyby šla brána vypnout, vrátila by se přesně ta díra, kvůli které
     tenhle test vznikl."""
-    from viewbase.events_mixin import PRAVIDLA
+    from viewbase.events_mixin import RULES
 
-    assert set(PRAVIDLA) == NEEDS
-    assert all(na_ploshe in ("see", "use") for na_ploshe, _, _ in PRAVIDLA.values())
+    assert set(RULES) == NEEDS
+    assert all(on_screen in ("see", "use")
+               for on_screen, _, _ in RULES.values())

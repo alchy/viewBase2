@@ -2,6 +2,7 @@
 import json
 import os
 import stat
+import time
 
 import pytest
 
@@ -170,3 +171,47 @@ def test_chybejici_qr_se_obnovi_ze_stavajiciho_tajemstvi(domov, capsys):
     znovu = mfa.ensure_user()
     assert znovu["totp_secret"] == rec["totp_secret"]     # tajemství se NEMĚNÍ
     assert txt.exists() and rec["totp_secret"] in txt.read_text()
+
+
+# ---- anti-replay podle účelu ----------------------------------------------
+
+def test_tyz_kod_projde_na_prihlaseni_i_na_odemceni_okna(domov):
+    """Nalezeno v provozu: přihlášení kód spotřebovalo a krok navíc u okna
+    hned nato selhal jako „invalid code" – autentikátor přitom dalších 30 s
+    žádný nový nevydá."""
+    rec = mfa.ensure_user("workbench")
+    kod = pyotp.TOTP(rec["totp_secret"]).now()
+
+    assert mfa.check(kod, purpose="login") == mfa.OK
+    assert mfa.check(kod, purpose="window:sh") == mfa.OK      # jiný účel
+    assert mfa.check(kod, purpose="window:sh") == mfa.REPLAY  # totéž podruhé
+    assert mfa.check(kod, purpose="login") == mfa.REPLAY
+
+
+def test_duvod_odmitnuti_se_da_rozlisit(domov):
+    """Tři různé příčiny se dřív hlásily stejně, takže se hledalo naslepo."""
+    rec = mfa.ensure_user("workbench")
+    kod = pyotp.TOTP(rec["totp_secret"]).now()
+
+    assert mfa.check("000000", purpose="x") == mfa.BAD_CODE
+    assert mfa.check(kod, purpose="x") == mfa.OK
+    assert mfa.check(kod, purpose="x") == mfa.REPLAY
+    for _ in range(mfa.MAX_ATTEMPTS):
+        mfa.check("000000", purpose="y")
+    assert mfa.check(kod, purpose="z") == mfa.THROTTLED    # i správný kód
+    assert all(mfa.REASONS[d] for d in
+               (mfa.BAD_CODE, mfa.REPLAY, mfa.THROTTLED, mfa.NO_SECRET))
+
+
+def test_pouzity_kod_se_pamatuje_jen_po_dobu_platnosti(domov):
+    """Šestimístná hodnota se časem vrátí – kdyby se seznam nikdy nečistil,
+    zablokoval by legitimní budoucí kód (a rostl by donekonečna)."""
+    rec = mfa.ensure_user("workbench")
+    totp = pyotp.TOTP(rec["totp_secret"])
+    start = time.time()
+    kod = totp.at(start)
+    assert mfa.check(kod, purpose="x", now=start) == mfa.OK
+    assert mfa.check(kod, purpose="x", now=start) == mfa.REPLAY
+    later = start + mfa._REPLAY_MEMORY + 1
+    assert mfa.check(totp.at(later), purpose="x", now=later) == mfa.OK
+    assert len(mfa._used[("workbench", "x")]) == 1        # staré se prořezalo

@@ -52,7 +52,7 @@ def _wait(fn, timeout=6.0):
 def test_radek_se_sklada_az_do_enteru():
     videno = []
     sh = PtyShell.__new__(PtyShell)          # bez startu procesu
-    sh.on_command, sh._radek = videno.append, []
+    sh.on_command, sh._line = videno.append, []
     sh._audit("ls -la")
     assert videno == []                       # bez Enteru se nehlásí nic
     sh._audit("\n")
@@ -62,7 +62,7 @@ def test_radek_se_sklada_az_do_enteru():
 def test_backspace_maze_a_ctrl_c_zahodi():
     videno = []
     sh = PtyShell.__new__(PtyShell)
-    sh.on_command, sh._radek = videno.append, []
+    sh.on_command, sh._line = videno.append, []
     sh._audit("rm -rf /tmpX\x7f\n")           # překlep smazaný Backspacem
     sh._audit("tajny zacatek\x03echo ok\n")   # Ctrl-C zahodí rozepsané
     assert videno == ["rm -rf /tmp", "echo ok"]
@@ -71,7 +71,7 @@ def test_backspace_maze_a_ctrl_c_zahodi():
 def test_ridici_sekvence_se_do_prikazu_nedostanou():
     videno = []
     sh = PtyShell.__new__(PtyShell)
-    sh.on_command, sh._radek = videno.append, []
+    sh.on_command, sh._line = videno.append, []
     sh._audit("echo \x1b[2J utok\n")          # ESC by přepsal terminál čtenáře
     assert videno == ["echo [2J utok"]
     assert "\x1b" not in videno[0]

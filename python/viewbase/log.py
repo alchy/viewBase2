@@ -24,7 +24,7 @@ from typing import Any, Callable
 MAX_MESSAGE = 2000
 #: Řídicí znaky, které se do logu nesmí dostat syrové: ESC (přebarví a přepíše
 #: terminál toho, kdo čte `docker logs`), CR (přepíše řádek), NUL a spol.
-_RIDICI = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+_CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 LOG_LEVELS = ("debug", "info", "warning", "error")
 LOG_SOURCES = ("frontend", "backend_api", "backend_program", "backend_user")
@@ -53,7 +53,7 @@ def sanitize(message: object, limit: int = MAX_MESSAGE) -> str:
       se, kolik znaků chybí.
     """
     text = str(message)
-    text = _RIDICI.sub(lambda m: f"\\x{ord(m.group()):02x}", text)
+    text = _CONTROL_CHARS.sub(lambda m: f"\\x{ord(m.group()):02x}", text)
     text = text.replace("\r\n", "\\n").replace("\n", "\\n")
     if len(text) > limit:
         text = f"{text[:limit]}…(+{len(text) - limit} znaků)"
@@ -160,8 +160,8 @@ class LogWindow:
         self.screen = screen
         with screen._lock:
             screen._log_window = True
-            screen._log_access = Acl(access, kde=f"screen:{screen.id}/window:__log",
-                                     sloveso="see")
+            screen._log_access = Acl(access, where=f"screen:{screen.id}/window:__log",
+                                     verb="see")
             graph = screen._graph
         if graph is not None:
             with graph._lock:

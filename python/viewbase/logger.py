@@ -32,7 +32,7 @@ from .log import LOG_LEVELS, bus
 #: `docker logs`. Log okno v prohlížeči čte sběrnici (`log.bus`); tenhle
 #: logger posílá TOTÉŽ i tam, aby se kontejner dal vyhodnocovat bez GUI.
 _stdlib = logging.getLogger("viewbase")
-_UROVNE_STDLIB = {"debug": logging.DEBUG, "info": logging.INFO,
+_STDLIB_LEVELS = {"debug": logging.DEBUG, "info": logging.INFO,
                   "warning": logging.WARNING, "error": logging.ERROR}
 
 
@@ -67,7 +67,7 @@ def _ensure_handler() -> None:
 DEFAULT_LEVEL = "warning"
 
 #: Pořadí pro porovnání (index = závažnost).
-_PORADI = {uroven: i for i, uroven in enumerate(LOG_LEVELS)}
+_ORDER = {level: i for i, level in enumerate(LOG_LEVELS)}
 
 
 class Logger:
@@ -89,14 +89,14 @@ class Logger:
 
     @level.setter
     def level(self, value: str) -> None:
-        if value not in _PORADI:
+        if value not in _ORDER:
             raise ValueError(
                 f"neznámá úroveň logu '{value}' – povolené: {', '.join(LOG_LEVELS)}")
         self._level = value
 
     def enabled(self, level: str) -> bool:
         """Projde záznam téhle závažnosti prahem?"""
-        return _PORADI.get(level, 99) >= _PORADI[self._level]
+        return _ORDER.get(level, 99) >= _ORDER[self._level]
 
     # -- diagnostika (podléhá prahu) ---------------------------------------
 
@@ -109,11 +109,11 @@ class Logger:
         „odkud" mají v každém řádku stejné místo (viz `_radek`)."""
         if not self.enabled(level):
             return
-        relace = _prefix_sid(sid)
+        session = _prefix_sid(sid)
         bus.publish(level, source, message, component=component,
-                    session=relace, ip=ip)
-        _stdlib.log(_UROVNE_STDLIB[level], "%s",
-                    _radek(relace, ip, component, message))
+                    session=session, ip=ip)
+        _stdlib.log(_STDLIB_LEVELS[level], "%s",
+                    _line(session, ip, component, message))
 
     def exception(self, message: str, *, component: str = "server") -> None:
         """Chyba i s tracebackem: traceback do stderr (patří do kontejnerového
@@ -148,11 +148,11 @@ class Logger:
         klienta (odkud), odemčení a zamčení okna (kým a odkud), odmítnutý
         kód, odmítnutý REST pokus. Nikdy sem nepatří tajemství – kód, QR,
         session id celé (jen prefix), obsah okna."""
-        relace = _prefix_sid(sid)
+        session = _prefix_sid(sid)
         bus.publish(level, "backend_program", message, component="security",
-                    session=relace, ip=ip)
-        _stdlib.log(_UROVNE_STDLIB[level], "%s",
-                    _radek(relace, ip, "security", message))
+                    session=session, ip=ip)
+        _stdlib.log(_STDLIB_LEVELS[level], "%s",
+                    _line(session, ip, "security", message))
 
     # -- systémové hlášky při startu ---------------------------------------
 
@@ -164,26 +164,26 @@ class Logger:
         prahem neprochází: kdo spustil instanci, má vidět, s čím naběhla.
         Razítko je i tady celé, ať jde startovní řádek srovnat s auditem."""
         print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} "
-              f"{level.upper():<7} {_radek(None, None, 'server', message)}",
+              f"{level.upper():<7} {_line(None, None, 'server', message)}",
               flush=True)
         bus.publish(level, "backend_program", message, component="server")
 
 
 #: Šířky sloupců „kdo" a „odkud" – pevné, ať jdou řádky číst po pozicích.
-SID_SIRKA = 8
-IP_SIRKA = 15
+SID_WIDTH = 8
+IP_WIDTH = 15
 
 
 def _prefix_sid(sid: str | None) -> str | None:
     """Do logu jde jen PREFIX session id – celé je přihlašovací údaj."""
-    return str(sid)[:SID_SIRKA] if sid else None
+    return str(sid)[:SID_WIDTH] if sid else None
 
 
-def _radek(sid: str | None, ip: str | None, component: str | None,
+def _line(sid: str | None, ip: str | None, component: str | None,
            message: str) -> str:
     """Sloupce v pořadí kdo → odkud → co → detail (kdy a severity přidá
     formatter/print). Chybějící hodnota drží místo pomlčkou."""
-    return (f"{(sid or '-'):<{SID_SIRKA}} {(ip or '-'):<{IP_SIRKA}} "
+    return (f"{(sid or '-'):<{SID_WIDTH}} {(ip or '-'):<{IP_WIDTH}} "
             f"{('[' + component + ']') if component else '-':<10} {message}")
 
 

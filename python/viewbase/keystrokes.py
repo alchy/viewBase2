@@ -38,7 +38,7 @@ FLUSH_AFTER = 60.0
 #: Víceznakové sekvence, které posílá terminál (šipky, Home/End, Delete…).
 #: Zapisují se POPISEM, ne stříškou: `[arrow-up]` řekne, co se stalo,
 #: `^[[A` chce znalost ANSI a hvězdička neřekne nic.
-SEKVENCE = {
+SEQUENCES = {
     "\x1b[A": "[arrow-up]", "\x1bOA": "[arrow-up]",
     "\x1b[B": "[arrow-down]", "\x1bOB": "[arrow-down]",
     "\x1b[C": "[arrow-right]", "\x1bOC": "[arrow-right]",
@@ -53,7 +53,7 @@ SEKVENCE = {
 }
 
 #: Jednotlivé řídicí znaky s vlastním jménem (zbytek dostane `[ctrl-x]`).
-ZNAKY = {
+CHARS = {
     "\r": "[enter]", "\n": "[enter]", "\t": "[tab]",
     "\x7f": "[backspace]", "\x08": "[backspace]",
     "\x1b": "[esc]", "\x00": "[nul]",
@@ -81,20 +81,20 @@ def describe(text: str) -> str:
     out = []
     i = 0
     while i < len(text):
-        for delka in (4, 3):                    # nejdřív delší sekvence
-            usek = text[i:i + delka]
-            if usek in SEKVENCE:
-                out.append(SEKVENCE[usek])
-                i += delka
+        for length in (4, 3):                    # nejdřív delší sekvence
+            segment = text[i:i + length]
+            if segment in SEQUENCES:
+                out.append(SEQUENCES[segment])
+                i += length
                 break
         else:
-            znak = text[i]
-            if znak in ZNAKY:
-                out.append(ZNAKY[znak])
-            elif ord(znak) < 0x20:              # 0x03 → [ctrl-c]
-                out.append(f"[ctrl-{chr(ord(znak) + 0x60)}]")
+            char = text[i]
+            if char in CHARS:
+                out.append(CHARS[char])
+            elif ord(char) < 0x20:              # 0x03 → [ctrl-c]
+                out.append(f"[ctrl-{chr(ord(char) + 0x60)}]")
             else:
-                out.append(znak)
+                out.append(char)
             i += 1
     return "".join(out)
 
@@ -129,21 +129,21 @@ class KeystrokeLog:
 
     def tick(self) -> None:
         """Uzavři dávky, které čekají dost dlouho (volá vysílací smyčka)."""
-        ted = self._clock()
+        moment = self._clock()
         for window_id in [w for w, t in self._zacatek.items()
-                          if ted - t >= self.flush_after]:
+                          if moment - t >= self.flush_after]:
             self.flush(window_id)
 
     def flush(self, window_id: str | None = None) -> None:
         """Uzavři dávku okna, nebo (bez argumentu) všechny."""
         for wid in ([window_id] if window_id is not None else list(self._buffer)):
             buf = self._buffer.pop(wid, None)
-            zacatek = self._zacatek.pop(wid, None)
+            start = self._zacatek.pop(wid, None)
             if not buf:
                 continue
             text = "".join(buf)
             self._emit(wid, describe(text),
-                       (self._clock() - zacatek) if zacatek else 0.0, len(text))
+                       (self._clock() - start) if start else 0.0, len(text))
 
     def __len__(self) -> int:
         return len(self._buffer)

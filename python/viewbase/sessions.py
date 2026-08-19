@@ -150,16 +150,16 @@ class SessionStore:
             rel = self._sessions.get(sid or "")
             if rel is None or not rel.get("user"):
                 return {PUBLIC}
-            stare = self._clock() - rel.get("groups_at", 0.0) > self.groups_ttl
-            if not stare:
+            stale = self._clock() - rel.get("groups_at", 0.0) > self.groups_ttl
+            if not stale:
                 return set(rel["principals"])
-            jmeno = rel["user"]
+            name = rel["user"]
         # Dotaz do zdroje identit MIMO zámek: LDAP může být pomalý a držet
         # kvůli němu tabulku relací by zastavilo i broadcast.
         from . import identity
 
         try:
-            if not identity.provider.exists(jmeno):
+            if not identity.provider.exists(name):
                 # Uživatel mezitím zmizel (smazaný, odebraný z adresáře):
                 # relace okamžitě padá na anonymní. Bez tohohle by si držela
                 # skupiny až do vypršení – a to je právě ta operace, která
@@ -167,14 +167,14 @@ class SessionStore:
                 from .logger import logger
 
                 self.logout(sid)
-                logger.audit(f"user '{jmeno}' no longer exists – session "
+                logger.audit(f"user '{name}' no longer exists – session "
                              "dropped to anonymous", level="warning", sid=sid)
                 return {PUBLIC}
-            skupiny = identity.provider.groups_of(jmeno)
+            groups = identity.provider.groups_of(name)
         except Exception:
             from .logger import logger
 
-            logger.exception(f"identity source failed for '{jmeno}' – "
+            logger.exception(f"identity source failed for '{name}' – "
                              "keeping the previously resolved groups",
                              component="server")
             with self._lock:
@@ -185,12 +185,12 @@ class SessionStore:
             rel = self._sessions.get(sid or "")
             if rel is None or not rel.get("user"):
                 return {PUBLIC}
-            if skupiny != rel.get("groups"):
-                self._ohlas(f"groups of '{jmeno}' changed: "
-                            f"{sorted(skupiny)}", sid)
-            rel["groups"] = set(skupiny)
+            if groups != rel.get("groups"):
+                self._note(f"groups of '{name}' changed: "
+                            f"{sorted(groups)}", sid)
+            rel["groups"] = set(groups)
             rel["groups_at"] = self._clock()
-            rel["principals"] = user_principals(jmeno, skupiny)
+            rel["principals"] = user_principals(name, groups)
             return set(rel["principals"])
 
     def known(self, sid: str | None) -> bool:
@@ -239,9 +239,9 @@ class SessionStore:
             rel = self._sessions.get(sid or "")
             if rel is None:
                 return 0
-            kolik = len(rel["grants"])
+            count = len(rel["grants"])
             rel["grants"] = {}
-            return kolik
+            return count
 
     def revoke_window(self, window_id: str) -> None:
         """Okno se zamklo pro všechny (zavření okna, `Lock all windows`)."""
@@ -264,18 +264,18 @@ class SessionStore:
         Vypršení se ZAZNAMENÁVÁ (debug): jinak se z logu nedá poznat rozdíl
         mezi „divák odešel" a „relace mu vypršela pod rukama", a přitom to
         vysvětluje, proč si okno najednou zase řeklo o kód."""
-        mrtve = [(sid, rel) for sid, rel in self._sessions.items()
+        dead = [(sid, rel) for sid, rel in self._sessions.items()
                  if now - rel["seen"] > self.ttl
                  or now - rel["born"] > self.max_age]
-        for sid, rel in mrtve:
+        for sid, rel in dead:
             del self._sessions[sid]
-            duvod = ("idle" if now - rel["seen"] > self.ttl else "max age")
-            self._ohlas(f"session expired ({duvod} after "
+            reason = ("idle" if now - rel["seen"] > self.ttl else "max age")
+            self._note(f"session expired ({reason} after "
                         f"{now - rel['born']:.0f} s, {len(rel['grants'])} grants "
                         "revoked)", sid)
 
     @staticmethod
-    def _ohlas(message: str, sid: str | None = None) -> None:
+    def _note(message: str, sid: str | None = None) -> None:
         """Zpráva o životním cyklu relace do ladicího logu (`log_level=debug`)."""
         from .logger import logger
 

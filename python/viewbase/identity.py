@@ -71,20 +71,20 @@ def expand_groups(seed: Iterable[str],
 
     Vrací jen `group:` principály – `user:` se do skupin nepočítá, slouží jen
     jako vstupní bod, když je člověk vypsaný přímo u skupiny."""
-    rodice: dict[str, list[str]] = {}
-    for nadrazena, obsah in members.items():
-        for clen in obsah:
-            rodice.setdefault(principal(clen), []).append(principal(nadrazena))
+    parents: dict[str, list[str]] = {}
+    for parent, members in members.items():
+        for member in members:
+            parents.setdefault(principal(member), []).append(principal(parent))
 
-    fronta = [principal(g) for g in seed]
-    videno: set[str] = set()
-    while fronta:
-        uzel = fronta.pop()
-        if uzel in videno:
+    queue = [principal(g) for g in seed]
+    visited: set[str] = set()
+    while queue:
+        node = queue.pop()
+        if node in visited:
             continue
-        videno.add(uzel)
-        fronta.extend(rodice.get(uzel, ()))
-    return {g for g in videno if g.startswith("group:")}
+        visited.add(node)
+        queue.extend(parents.get(node, ()))
+    return {g for g in visited if g.startswith("group:")}
 
 
 class LocalProvider:
@@ -128,20 +128,20 @@ class LocalProvider:
     def _users(self) -> dict:
         return self._mfa.load_users()
 
-    def _hierarchie(self) -> dict[str, list[str]]:
+    def _hierarchy(self) -> dict[str, list[str]]:
         """Mapa nadřazená skupina → co obsahuje (podskupiny a přímí členové).
 
         Přijímá dva zápisy, protože oba se v souborech přirozeně objeví:
         `{"group:ucetni": ["group:mzdy"]}` i
         `{"group:ucetni": {"members": ["group:mzdy"]}}`."""
-        skupiny = self._mfa.load_store().get("groups")
-        if not isinstance(skupiny, dict):
+        groups = self._mfa.load_store().get("groups")
+        if not isinstance(groups, dict):
             return {}
         out: dict[str, list[str]] = {}
-        for jmeno, zaznam in skupiny.items():
-            obsah = zaznam.get("members", ()) if isinstance(zaznam, dict) else zaznam
-            if isinstance(obsah, (list, tuple)):
-                out[principal(jmeno)] = list(obsah)
+        for name, record in groups.items():
+            members = record.get("members", ()) if isinstance(record, dict) else record
+            if isinstance(members, (list, tuple)):
+                out[principal(name)] = list(members)
         return out
 
     # -- IdentityProvider ---------------------------------------------------
@@ -151,10 +151,11 @@ class LocalProvider:
 
     def authenticate(self, username: str, secret: str) -> bool:
         """Kód z autentikátoru daného uživatele (rate limit a anti-replay
-        řeší mfa.verify)."""
+        řeší mfa.check). Účel `login` odděluje spotřebované kódy od kroku
+        navíc u oken – tentýž kód je potřeba obojí během jednoho okna."""
         if not self.exists(username):
             return False
-        return self._mfa.verify(secret, user=username)
+        return self._mfa.verify(secret, user=username, purpose="login")
 
     def known_groups(self) -> set[str]:
         """Všechny skupiny, o kterých soubor ví (u uživatelů i v hierarchii).
@@ -162,12 +163,12 @@ class LocalProvider:
         Nepovinná metoda rozhraní: slouží jen k varování „takovou skupinu
         neznám" (viz access._zkontroluj). Zdroj, který ji nemá, se nevaruje."""
         out: set[str] = set()
-        for zaznam in self._users().values():
-            out.update(principal(g) for g in (zaznam.get("groups") or ()))
-        hierarchie = self._hierarchie()
+        for record in self._users().values():
+            out.update(principal(g) for g in (record.get("groups") or ()))
+        hierarchie = self._hierarchy()
         out.update(hierarchie)
-        for obsah in hierarchie.values():
-            out.update(principal(c) for c in obsah if str(c).startswith("group:"))
+        for members in hierarchie.values():
+            out.update(principal(c) for c in members if str(c).startswith("group:"))
         return out
 
     def groups_of(self, username: str) -> set[str]:
@@ -184,8 +185,8 @@ class LocalProvider:
         users = self._users()
         if username not in users:
             return set()
-        vlastni = list(users[username].get("groups") or [USERS])
-        return expand_groups([*vlastni, f"user:{username}"], self._hierarchie())
+        own = list(users[username].get("groups") or [USERS])
+        return expand_groups([*own, f"user:{username}"], self._hierarchy())
 
 
 class PolicyStore(Protocol):
@@ -213,8 +214,8 @@ class LocalPolicy:
     def load(self) -> dict[str, dict]:
         from . import mfa
 
-        prava = mfa.load_store().get("access")
-        return prava if isinstance(prava, dict) else {}
+        rights = mfa.load_store().get("access")
+        return rights if isinstance(rights, dict) else {}
 
     def save(self, access: dict[str, dict]) -> None:
         from . import mfa
@@ -228,7 +229,7 @@ provider: IdentityProvider = LocalProvider()
 policy: PolicyStore = LocalPolicy()
 
 
-def known_principal(jmeno: str) -> bool | None:
+def known_principal(name: str) -> bool | None:
     """Zná zdroj identit tohohle principála? `None` = neumí odpovědět.
 
     `user:` se ptá providera; `group:` se hledá mezi skupinami, které zdroj
@@ -236,35 +237,35 @@ def known_principal(jmeno: str) -> bool | None:
     a implicitní vlastní skupina uživatele taky."""
     from .access import ADMINISTRATOR, PUBLIC, USERS
 
-    if jmeno in {PUBLIC, USERS, ADMINISTRATOR}:
+    if name in {PUBLIC, USERS, ADMINISTRATOR}:
         return True
-    druh, _, hodnota = jmeno.partition(":")
-    if druh == "user":
-        return provider.exists(hodnota)
-    znam = getattr(provider, "known_groups", None)
-    if znam is None:
+    kind, _, value = name.partition(":")
+    if kind == "user":
+        return provider.exists(value)
+    knows = getattr(provider, "known_groups", None)
+    if knows is None:
         return None                       # LDAP nemusí umět vypsat skupiny
-    return jmeno in znam()
+    return name in knows()
 
 
-def configure(zdroj: IdentityProvider | None) -> IdentityProvider:
+def configure(source: IdentityProvider | None) -> IdentityProvider:
     """Nastav zdroj identit (volá `Project.__init__`)."""
     global provider
-    if zdroj is not None:
-        provider = zdroj
-        logger.system(f"identity provider: {type(zdroj).__name__}")
+    if source is not None:
+        provider = source
+        logger.system(f"identity provider: {type(source).__name__}")
     from . import access
 
     access.set_validator(known_principal)
     return provider
 
 
-def configure_policy(zdroj: "PolicyStore | None") -> PolicyStore:
+def configure_policy(source: "PolicyStore | None") -> PolicyStore:
     """Nastav zdroj práv a načti je do modelu (volá `Project.__init__`)."""
     global policy
-    if zdroj is not None:
-        policy = zdroj
-        logger.system(f"policy store: {type(zdroj).__name__}")
+    if source is not None:
+        policy = source
+        logger.system(f"policy store: {type(source).__name__}")
     from . import access
 
     access.configure_overrides(policy.load())
@@ -283,11 +284,11 @@ def login(username: str, secret: str) -> set[str] | None:
 
     Jediná cesta, jak se relace dostane od anonymní k ověřené – proto se
     tady i loguje (audit; nikdy ne tajemství)."""
-    jmeno = str(username or "").strip()
-    if not jmeno or not provider.authenticate(jmeno, secret or ""):
+    name = str(username or "").strip()
+    if not name or not provider.authenticate(name, secret or ""):
         return None
-    skupiny = provider.groups_of(jmeno)
-    return skupiny or {USERS}
+    groups = provider.groups_of(name)
+    return groups or {USERS}
 
 
 def bootstrap_admin(username: str) -> None:
@@ -298,7 +299,7 @@ def bootstrap_admin(username: str) -> None:
     from . import mfa
 
     users = mfa.load_users()
-    zaznam = users.get(username)
-    if zaznam is not None and not zaznam.get("groups"):
-        zaznam["groups"] = [ADMINISTRATOR]
+    record = users.get(username)
+    if record is not None and not record.get("groups"):
+        record["groups"] = [ADMINISTRATOR]
         mfa.save_users(users)

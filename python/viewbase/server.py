@@ -65,15 +65,15 @@ def rest_principals(request, token: str | None,
 
     if not token:
         return {PUBLIC}
-    hlavicka = (request.headers.get("x-viewbase-token")
+    header = (request.headers.get("x-viewbase-token")
                 or request.headers.get("authorization", ""))
-    predlozeny = hlavicka[7:] if hlavicka[:7].lower() == "bearer " else hlavicka
-    if not predlozeny or not secrets.compare_digest(predlozeny, token):
+    presented = header[7:] if header[:7].lower() == "bearer " else header
+    if not presented or not secrets.compare_digest(presented, token):
         return {PUBLIC}
     return {principal(g) for g in (granted or [USERS])}
 
 
-def _deliver_to(adresa: dict, sid: str | None) -> bool:
+def _deliver_to(address: dict, sid: str | None) -> bool:
     """Smí tahle zpráva k téhle relaci? Tři nezávislé značky:
 
     - `acl` – principálové, kteří objekt VIDÍ (plocha, okno, log). Tohle je
@@ -83,13 +83,13 @@ def _deliver_to(adresa: dict, sid: str | None) -> bool:
     - `grant` – kdokoli, kdo má grant k danému privátnímu oknu.
 
     Musí projít VŠECHNY, které jsou uvedené."""
-    acl = adresa.get("acl")
+    acl = address.get("acl")
     if acl is not None and not access.allowed(sessions.store.principals(sid), acl):
         return False
-    only = adresa.get("only_sid")
+    only = address.get("only_sid")
     if only is not None and sid != only:
         return False
-    grant = adresa.get("grant")
+    grant = address.get("grant")
     if grant is not None and not sessions.store.has(sid, grant):
         return False
     return True
@@ -135,10 +135,10 @@ async def _broadcast_step(windows: list[GraphWindow], windows_by_screen: dict,
         for action in actions:
             raw = protocol.encode({"type": "action", "screen_id": window.screen_id,
                                    **_wire_action(action)})
-            adresa = {k: v for k, v in action.items()
+            address = {k: v for k, v in action.items()
                       if k in ("only_sid", "grant")}
-            adresa["acl"] = window.acl_for_action(action)
-            messages.append((raw, adresa))
+            address["acl"] = window.acl_for_action(action)
+            messages.append((raw, address))
         if window._closed:
             closed.append(window)
     for window in closed:
@@ -147,16 +147,16 @@ async def _broadcast_step(windows: list[GraphWindow], windows_by_screen: dict,
     if pending_logs:
         # Logem teče auditní stopa (IP, prefixy relací, příkazy ze shellu) –
         # nesmí odejít nikomu, kdo by log okno vůbec neviděl.
-        adresa_logu = {"acl": sorted(log_acl)}
+        log_address = {"acl": sorted(log_acl)}
         messages.extend((protocol.encode(protocol.log_message(record)),
-                         adresa_logu) for record in pending_logs)
+                         log_address) for record in pending_logs)
         pending_logs.clear()
     if not messages or not clients:
         return
     for ws, sid in list(clients.items()):
         try:
-            for raw, adresa in messages:
-                if adresa is not None and not _deliver_to(adresa, sid):
+            for raw, address in messages:
+                if address is not None and not _deliver_to(address, sid):
                     continue
                 await ws.send_text(raw)
         except Exception:
@@ -177,7 +177,7 @@ async def _broadcast_loop(windows: list[GraphWindow], windows_by_screen: dict,
 
 
 async def _send_screens(ws: WebSocket, sid: str, windows: list,
-                        videne: set, allow_anonymous: bool = True) -> None:
+                        seen: set, allow_anonymous: bool = True) -> None:
     """Pošli init ploch, které tahle relace VIDÍ a ještě nedostala.
 
     Volá se při připojení i po přihlášení – přihlášením se rozsah viditelného
@@ -188,12 +188,12 @@ async def _send_screens(ws: WebSocket, sid: str, windows: list,
         await ws.send_text(protocol.encode(protocol.session_message(
             user=None, visible=0, hidden=max(len(windows), 1))))
         return
-    viditelnych = 0
+    visible_count = 0
     for window in windows:
         if not window._can_see_screen(sid):
             continue
-        viditelnych += 1
-        if window.screen_id in videne:
+        visible_count += 1
+        if window.screen_id in seen:
             continue
         # snapshot PER RELACI: privátní okna bez grantu jdou jen jako
         # prázdný rám, okna mimo ACL vůbec
@@ -201,21 +201,21 @@ async def _send_screens(ws: WebSocket, sid: str, windows: list,
         await ws.send_text(protocol.encode(
             protocol.init_message(**snap, sid=sid,
                                   screen_id=window.screen_id)))
-        videne.add(window.screen_id)
+        seen.add(window.screen_id)
     await ws.send_text(protocol.encode(protocol.session_message(
-        user=sessions.store.user(sid), visible=viditelnych,
-        hidden=len(windows) - viditelnych)))
+        user=sessions.store.user(sid), visible=visible_count,
+        hidden=len(windows) - visible_count)))
 
 
-async def _zavri_neviditelne(ws: WebSocket, sid: str, windows: list,
-                             videne: set) -> None:
+async def _close_hidden(ws: WebSocket, sid: str, windows: list,
+                             seen: set) -> None:
     """Po odhlášení: plochy mimo dosah relace zmizí z klienta."""
     for window in windows:
-        if window.screen_id in videne and not window._can_see_screen(sid):
+        if window.screen_id in seen and not window._can_see_screen(sid):
             await ws.send_text(protocol.encode(
                 {"type": "action", "screen_id": window.screen_id,
                  "action": "screen_remove"}))
-            videne.discard(window.screen_id)
+            seen.discard(window.screen_id)
     await ws.send_text(protocol.encode(protocol.session_message(
         user=sessions.store.user(sid),
         visible=sum(1 for w in windows if w._can_see_screen(sid)),
@@ -318,9 +318,9 @@ def create_app(*windows: GraphWindow,
             # AUDIT: kdo se odkud připojil. Jde do logu vždycky, i když je
             # `log_level` nastavená nahoru – jinak by šlo zamést za sebou.
             logger.audit(f"client {client_id} connected", sid=sid, ip=peer)
-            videne: set[int | None] = set()
+            seen: set[int | None] = set()
             async with state_lock:
-                await _send_screens(ws, sid, windows_list, videne,
+                await _send_screens(ws, sid, windows_list, seen,
                                         allow_anonymous)
                 clients[ws] = sid
         except WebSocketDisconnect:
@@ -338,30 +338,30 @@ def create_app(*windows: GraphWindow,
                                  sid=sid, ip=peer)
                     continue
                 if msg.get("type") == "login":
-                    jmeno = str(msg.get("user") or "").strip()
-                    skupiny = identity_module.login(jmeno, msg.get("code") or "")
-                    if skupiny is None:
+                    name = str(msg.get("user") or "").strip()
+                    groups = identity_module.login(name, msg.get("code") or "")
+                    if groups is None:
                         # Neúspěch jde do auditu VŽDYCKY: zkoušení jmen a kódů
                         # je přesně to, co je na vystavené instanci vidět.
-                        logger.audit(f"login failed for user '{jmeno}'",
+                        logger.audit(f"login failed for user '{name}'",
                                      level="warning", sid=sid, ip=peer)
                         await ws.send_text(protocol.encode(
                             {"type": "login_failed"}))
                         continue
-                    sessions.store.login(sid, jmeno, skupiny)
-                    logger.audit(f"login: '{jmeno}' in "
-                                 f"{sorted(skupiny)}", sid=sid, ip=peer)
+                    sessions.store.login(sid, name, groups)
+                    logger.audit(f"login: '{name}' in "
+                                 f"{sorted(groups)}", sid=sid, ip=peer)
                     async with state_lock:
-                        await _send_screens(ws, sid, windows_list, videne,
+                        await _send_screens(ws, sid, windows_list, seen,
                                         allow_anonymous)
                     continue
                 if msg.get("type") == "lock_all":
-                    kolik = sessions.store.revoke_all(sid)
+                    count = sessions.store.revoke_all(sid)
                     logger.audit(f"all windows locked on request "
-                                 f"({kolik} grants revoked)", sid=sid, ip=peer)
+                                 f"({count} grants revoked)", sid=sid, ip=peer)
                     async with state_lock:
-                        videne.clear()      # ať init dorazí znovu, už zamčený
-                        await _send_screens(ws, sid, windows_list, videne,
+                        seen.clear()      # ať init dorazí znovu, už zamčený
+                        await _send_screens(ws, sid, windows_list, seen,
                                         allow_anonymous)
                     continue
                 if msg.get("type") == "logout":
@@ -371,7 +371,7 @@ def create_app(*windows: GraphWindow,
                     # Plochy, které relace po odhlášení nevidí, klient zavře
                     # sám na `screen_remove`; init už mu je znovu neposíláme.
                     async with state_lock:
-                        await _zavri_neviditelne(ws, sid, windows_list, videne)
+                        await _close_hidden(ws, sid, windows_list, seen)
                     continue
                 if msg.get("type") == "event" and isinstance(msg.get("event"), str):
                     payload = msg.get("payload")
@@ -515,7 +515,7 @@ def first_run_setup() -> None:
 #: Klíče, jejichž HODNOTA se do logu nikdy nesmí dostat. `code` je odemykací
 #: kód, `data` jsou klávesy do shellu (tedy i hesla, která tam někdo píše),
 #: `sid` je přihlašovací údaj relace. Zbytek payloadu je pro ladění potřeba.
-CITLIVE_KLICE = ("code", "data", "sid", "password", "secret", "token")
+SENSITIVE_KEYS = ("code", "data", "sid", "password", "secret", "token")
 
 
 def redacted(payload: dict) -> str:
@@ -524,11 +524,11 @@ def redacted(payload: dict) -> str:
     Ladicí záznam každé události je na vystavené instanci k nezaplacení, ale
     payload nese i tajemství – bez tohohle by odemykací kód i klávesy ze
     shellu skončily v `docker logs` (nalezeno při živém testu)."""
-    bezpecny = {
-        klic: (f"<{len(str(hodnota))} znaků>" if klic in CITLIVE_KLICE
-               else str(hodnota)[:80])
-        for klic, hodnota in (payload or {}).items()}
-    return str(bezpecny)[:300]
+    safe = {
+        key: (f"<{len(str(value))} znaků>" if key in SENSITIVE_KEYS
+               else str(value)[:80])
+        for key, value in (payload or {}).items()}
+    return str(safe)[:300]
 
 
 def origin_allowed(ws: WebSocket, allowed: "list[str] | None") -> bool:
@@ -566,8 +566,8 @@ def peer_of(scope_owner: Any) -> str:
     Za reverzní proxy je protistranou proxy; uvicorn respektuje
     `X-Forwarded-For` jen od důvěryhodných adres (`forwarded_allow_ips`,
     výchozí 127.0.0.1) – bez toho by si zdroj mohl kdokoli přepsat hlavičkou."""
-    klient = getattr(scope_owner, "client", None)
-    return getattr(klient, "host", None) or "?"
+    client = getattr(scope_owner, "client", None)
+    return getattr(client, "host", None) or "?"
 
 
 def _system_log(message: str, level: str = "info") -> None:
@@ -662,11 +662,11 @@ class Project:
         # při `serve()`. Vývojář tak dostane QR do konzole hned, jak si
         # instanci vyrobí, a může je rozdat dřív, než službu spustí.
         # Existující se nepřepisují (tajemství přežije restart aplikace).
-        zalozeni = mfa.provision(users, self.user)
-        if zalozeni:
-            _system_log("new users provisioned: " + ", ".join(zalozeni)
+        created = mfa.provision(users, self.user)
+        if created:
+            _system_log("new users provisioned: " + ", ".join(created)
                         + f" (authenticator label '{mfa.ISSUER}:"
-                        + mfa.account_label(zalozeni[0]) + "' etc.)")
+                        + mfa.account_label(created[0]) + "' etc.)")
         self._handle: ServerHandle | None = None
 
     def serve(self, *surfaces, open_browser: bool = False,
@@ -781,13 +781,13 @@ def _redirect_app(target: Callable[[], str]) -> FastAPI:
     to dělá dvojice :80 → :443."""
     app = FastAPI()
 
-    @app.get("/{cesta:path}")
-    def redirect(cesta: str, request: Request):     # noqa: ARG001
-        dotaz = request.url.query
+    @app.get("/{path:path}")
+    def redirect(path: str, request: Request):     # noqa: ARG001
+        query = request.url.query
         # cíl se zjišťuje AŽ PŘI POŽADAVKU: u `port=0` přiděluje port OS a
         # v době startu přesměrovače ho ještě nikdo nezná
         return RedirectResponse(
-            f"{target()}{cesta}" + (f"?{dotaz}" if dotaz else ""), status_code=308)
+            f"{target()}{path}" + (f"?{query}" if query else ""), status_code=308)
 
     return app
 
@@ -856,12 +856,12 @@ def serve(*windows: GraphWindow, host: str = "127.0.0.1", port: int = 8080,
     first_run_setup()                    # ~/.viewbase, uživatel, TOTP + QR
     # ADRESA DO LOGU: s TLS server na `http://` neodpoví vůbec (klient dostane
     # prázdnou odpověď) – bez vypsané adresy se na to dá snadno naletět.
-    adresa = f"{scheme_for(tls)}://{host or '127.0.0.1'}:{port}/"
+    address = f"{scheme_for(tls)}://{host or '127.0.0.1'}:{port}/"
     if tls is not None:
-        _system_log(f"listening on {adresa} (TLS, cert {tls.cert}; "
+        _system_log(f"listening on {address} (TLS, cert {tls.cert}; "
                     "plain http:// will NOT answer on this port)")
     else:
-        _system_log(f"listening on {adresa}")
+        _system_log(f"listening on {address}")
     server = _make_server(windows, host, port, tls, forwarded_allow_ips,
                           allowed_origins, allow_anonymous,
                           rest_token, rest_access)
@@ -874,7 +874,7 @@ def serve(*windows: GraphWindow, host: str = "127.0.0.1", port: int = 8080,
             host, rport,
             lambda: (f"{scheme_for(tls)}://{host or '127.0.0.1'}:"
                      f"{_bound_port(server, port)}/"))
-        _system_log(f"plain http on port {rport} redirects to {adresa}")
+        _system_log(f"plain http on port {rport} redirects to {address}")
     if open_browser:
         url = f"{scheme_for(tls)}://{host}:{port}/"
         threading.Timer(0.7, webbrowser.open, args=(url,)).start()

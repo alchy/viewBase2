@@ -201,7 +201,7 @@ USERS_VERSION = 2
 #: sekce a celé to drží zámek. Kdyby si soubor přepisoval každý vlastník
 #: sám, poslední zápis by ostatním sekce smazal – a bez zámku by se dva
 #: souběžné zápisy přepsaly i tak, jen vzácněji a hůř dohledatelně.
-SEKCE = ("users", "groups", "access")
+SECTIONS = ("users", "groups", "access")
 
 
 def load_store() -> dict[str, Any]:
@@ -237,7 +237,7 @@ def update_section(name: str, value: Any) -> None:
 
     Čtení a zápis pod jedním zámkem: mezi „načti" a „ulož" se nesmí vejít
     cizí zápis, jinak by si dvě souběžné změny sekce navzájem smazaly."""
-    if name not in SEKCE:
+    if name not in SECTIONS:
         raise ValueError(f"neznámá sekce souboru politiky: {name!r}")
     with _lock:
         data = load_store()
@@ -297,14 +297,14 @@ def ensure_user(user: str | None = None, *,
             # PRVNÍ uživatel je správce (obdoba root); další dostanou
             # základní skupinu. Vlastní skupinu `group:<jméno>` má každý
             # implicitně, do souboru se nepíše (viz access.user_principals).
-            prvni = not users
+            first = not users
             rec = {
                 "totp_secret": pyotp.random_base32(),
                 "is_mfa_enabled": True,
                 # čím je účet podepsaný v autentikátoru; podle toho se pozná,
                 # že se štítek změnil a QR se má vyrobit znovu
                 "label": account_label(user),
-                "groups": [ADMINISTRATOR if prvni else USERS],
+                "groups": [ADMINISTRATOR if first else USERS],
                 "created": time.strftime("%Y-%m-%dT%H:%M:%S"),
             }
             users[user] = rec
@@ -342,27 +342,27 @@ def provision(spec: "list | tuple | dict | None",
     kdo teď vzniká – kdo je jednou založený, ten patří konfiguraci
     (`python -m viewbase.admin`), ne kódu aplikace."""
     if isinstance(spec, dict):
-        pozadavky: dict[str, Any] = dict(spec)
+        wanted: dict[str, Any] = dict(spec)
     else:
-        pozadavky = {str(j): None for j in (spec or ())}
+        wanted = {str(j): None for j in (spec or ())}
     if instance_user:
-        pozadavky = {instance_user: pozadavky.pop(instance_user, None),
-                     **pozadavky}
+        wanted = {instance_user: wanted.pop(instance_user, None),
+                     **wanted}
 
-    zalozeni: list[str] = []
-    for jmeno, skupiny in pozadavky.items():
-        jmeno = _safe_user(jmeno)
-        nove = jmeno not in load_users()
-        ensure_user(jmeno)
-        if nove:
-            zalozeni.append(jmeno)
-            if skupiny:
+    created: list[str] = []
+    for name, groups in wanted.items():
+        name = _safe_user(name)
+        is_new = name not in load_users()
+        ensure_user(name)
+        if is_new:
+            created.append(name)
+            if groups:
                 from .access import principal
 
                 users = load_users()
-                users[jmeno]["groups"] = [principal(g) for g in skupiny]
+                users[name]["groups"] = [principal(g) for g in groups]
                 save_users(users)
-    return zalozeni
+    return created
 
 
 def _migrate_legacy_qr(user: str) -> None:
@@ -426,7 +426,30 @@ def _svg_factory():
 # ---- ověření -------------------------------------------------------------
 
 _attempts: dict[str, list[float]] = {}
-_used: dict[str, set[str]] = {}
+#: Použité kódy: (uživatel, účel) → {kód: kdy}. Účel je tam schválně, viz
+#: `check()`; časy proto, aby se dalo prořezávat – bez toho by kód zůstal
+#: „použitý" navždycky a šestimístná hodnota se časem vrátí.
+_used: dict[tuple[str, str], dict[str, float]] = {}
+
+#: Jak dlouho se použitý kód pamatuje: celé okno platnosti i s tolerancí.
+_REPLAY_MEMORY = 30.0 * (2 * TOTP_VALID_WINDOW + 1)
+
+#: Výsledky ověření – do logu i do hlášky v prohlížeči. Dřív bylo všechno
+#: „invalid code", takže se nedalo poznat spotřebovaný kód od zahlcení
+#: pokusy a hledalo se to podle logu naslepo (nalezeno v provozu).
+OK = "ok"
+BAD_CODE = "bad_code"
+REPLAY = "replay"
+THROTTLED = "throttled"
+NO_SECRET = "no_secret"
+
+#: Co se o tom řekne divákovi (anglicky, jako zbytek hlášek v GUI).
+REASONS = {
+    BAD_CODE: "Invalid code",
+    REPLAY: "That code was already used – wait for the next one",
+    THROTTLED: "Too many attempts – wait a moment and try again",
+    NO_SECRET: "No authenticator is registered for this user",
+}
 
 
 def _throttled(user: str, now: float) -> bool:
@@ -439,33 +462,55 @@ def _throttled(user: str, now: float) -> bool:
     return False
 
 
-def verify(code: Any, *, user: str | None = None, now: float | None = None) -> bool:
-    """Ověř TOTP kód uživatele. False i při zahlcení pokusy nebo když je kód
-    použitý podruhé (jinak by šel v rámci platnosti přehrát)."""
+def check(code: Any, *, user: str | None = None, purpose: str = "login",
+          now: float | None = None) -> str:
+    """Ověř TOTP kód a vrať DŮVOD (`OK`, `BAD_CODE`, `REPLAY`, …).
+
+    ÚČEL (`purpose`) rozděluje anti-replay. Jeden a tentýž kód je dnes
+    potřeba dvakrát během třiceti sekund – jednou na přihlášení a hned nato
+    jako krok navíc u privátního okna – a autentikátor mezitím žádný nový
+    nevydá. S jedním společným seznamem použitých kódů druhé ověření vždycky
+    selhalo a vypadalo to jako špatný kód (nalezeno v provozu na shell
+    okně). Ochrana zůstává tam, kde na ní záleží: TÝŽ kód nejde použít
+    dvakrát na TOTÉŽ – přihlásit se dvakrát ani odemknout dvakrát totéž okno.
+
+    Rate limit je naopak společný pro uživatele: je to obrana proti hádání
+    šesti číslic a rozdělit ho po účelech by ji zředilo."""
     if not isinstance(code, str) or not code.strip():
-        return False
+        return BAD_CODE
     code = code.strip().replace(" ", "")
     if not available():
-        return False
+        return NO_SECRET
     import pyotp
 
     user = user or active_user()
     rec = load_users().get(user) or {}
     secret = rec.get("totp_secret")
     if not secret or not rec.get("is_mfa_enabled", True):
-        return False
+        return NO_SECRET
     moment = time.time() if now is None else now
+    key = (user, str(purpose))
     with _lock:
         if _throttled(user, moment):
-            return False
-        if code in _used.get(user, set()):              # anti-replay
-            return False
+            return THROTTLED
+        used_now = {c: t for c, t in _used.get(key, {}).items()
+                   if moment - t < _REPLAY_MEMORY}       # prořež, ať neroste
+        _used[key] = used_now
+        if code in used_now:
+            return REPLAY
         ok = pyotp.TOTP(secret).verify(code, for_time=moment,
                                        valid_window=TOTP_VALID_WINDOW)
-        if ok:
-            _used.setdefault(user, set()).add(code)
-            _attempts[user] = []                        # úspěch limit resetuje
-        return ok
+        if not ok:
+            return BAD_CODE
+        used_now[code] = moment
+        _attempts[user] = []                            # úspěch limit resetuje
+        return OK
+
+
+def verify(code: Any, *, user: str | None = None, purpose: str = "login",
+           now: float | None = None) -> bool:
+    """Prošel kód? (Zkratka nad `check()`, když důvod nikoho nezajímá.)"""
+    return check(code, user=user, purpose=purpose, now=now) == OK
 
 
 def reset_state() -> None:

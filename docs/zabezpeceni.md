@@ -2,7 +2,8 @@
 
 *Zámek okna, kód z autentikátoru, relace prohlížeče a šifrované spojení.*
 
-[← zpět na přehled](../README.md)
+[← zpět na přehled](../README.md) ·
+[jak je to postavené uvnitř →](bezpecnostni-architektura.md)
 
 ---
 

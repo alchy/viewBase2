@@ -52,7 +52,7 @@ NEEDS = {Needs.SCREEN, Needs.UNLOCK, Needs.SEE, Needs.USE}
 
 #: Co která hodnota znamená: (sloveso na ploše, sloveso na okně, chce grant).
 #: `None` u okna = událost se konkrétního okna netýká.
-PRAVIDLA = {
+RULES = {
     Needs.SCREEN: ("use", None, False),
     Needs.UNLOCK: ("see", "see", False),
     Needs.SEE: ("see", "see", True),
@@ -202,17 +202,17 @@ class EventsMixin:
         Okno se hledá podle `window_id` z payloadu; neexistující okno pustíme
         dál – ať si handler sám řekne, že takové okno nezná (chybová hláška
         patří jemu)."""
-        na_ploshe, na_okne, chce_grant = PRAVIDLA[needs]
-        if not self._screen_ok(event, na_ploshe):
+        on_screen, on_window, needs_grant = RULES[needs]
+        if not self._screen_ok(event, on_screen):
             return False
-        if na_okne is None:
+        if on_window is None:
             return True
         window = self._reg.get(getattr(event, "window_id", None))
         if window is None:
             return True
-        if not self._access_ok(event, window, na_okne):
+        if not self._access_ok(event, window, on_window):
             return False
-        return self._grant_ok(event, window) if chce_grant else True
+        return self._grant_ok(event, window) if needs_grant else True
 
     @staticmethod
     def _run_handler(handler: Callable[[Any], None], name: str,

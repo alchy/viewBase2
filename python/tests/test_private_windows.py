@@ -247,7 +247,7 @@ def test_audit_stopa_zamku_je_bez_tajemstvi():
         kod = _kod()
         c.dispatch_event("window_unlock", {"window_id": "panel", "code": "000000",
                                            "client_id": "x", "sid": SID})
-        assert _wait(lambda: any("invalid code" in z.message for z in zaznamy))
+        assert _wait(lambda: any("code refused" in z.message for z in zaznamy))
         c.dispatch_event("window_unlock", {"window_id": "panel", "code": kod,
                                            "client_id": "x", "sid": SID})
         assert _wait(lambda: w.state == "open")
@@ -258,7 +258,9 @@ def test_audit_stopa_zamku_je_bez_tajemstvi():
         c.close()
     texty = "\n".join(z.message for z in zaznamy)
     # hlášky v logu jsou ANGLICKY (uživatelský požadavek, jako texty v UI)
-    assert "invalid code for window 'panel'" in texty      # odmítnutý pokus
+    # DŮVOD je součástí hlášky: „invalid code" u všech příčin znamenalo, že
+    # se spotřebovaný kód nedal odlišit od zahlcení pokusy
+    assert "code refused for window 'panel': bad_code" in texty
     assert "window 'panel' unlocked – token of user 'workbench'" in texty
     assert "window 'panel' locked by the user" in texty
     assert kod not in texty and "tajný text" not in texty  # nic tajného

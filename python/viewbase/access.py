@@ -42,7 +42,7 @@ def set_validator(fn: "Callable[[str], bool | None] | None") -> None:
     _validator = fn
 
 
-def _zkontroluj(jmeno: str, kde: str) -> None:
+def _check_principal(name: str, where: str) -> None:
     """Neexistující uživatel nebo skupina v ACL je skoro vždycky překlep –
     a tichý překlep znamená okno, které nikdo neuvidí, nebo naopak pravidlo,
     které nikdy nezabere. Do logu proto jde varování; zápis se NEODMÍTNE
@@ -51,17 +51,17 @@ def _zkontroluj(jmeno: str, kde: str) -> None:
         return
     from .logger import logger
 
-    if _validator(jmeno) is False:
-        logger.warning(f"access: principál '{jmeno}' na {kde} není znám zdroji "
+    if _validator(name) is False:
+        logger.warning(f"access: principál '{name}' na {where} není znám zdroji "
                        "identit – překlep?", component="server")
 
 
-def _zaznamenej(kde: str, zmena: str) -> None:
+def _record_change(where: str, change: str) -> None:
     """Každá změna práv v kódu je auditní událost: kdo co komu otevřel je
     přesně to, co se zpětně dohledává."""
     from .logger import logger
 
-    logger.audit(f"access change: {kde} {zmena}")
+    logger.audit(f"access change: {where} {change}")
 
 #: Skupina, kterou má každá relace včetně anonymní.
 PUBLIC = "group:public"
@@ -70,7 +70,7 @@ USERS = "group:users"
 #: Skupina, kterou dostane uživatel založený jako první (obdoba root).
 ADMINISTRATOR = "group:administrator"
 
-_PREFIXY = ("user:", "group:")
+_PREFIXES = ("user:", "group:")
 
 
 def principal(name: str) -> str:
@@ -82,10 +82,10 @@ def principal(name: str) -> str:
     text = str(name).strip()
     if not text:
         raise ValueError("principál nesmí být prázdný")
-    if not text.startswith(_PREFIXY):
+    if not text.startswith(_PREFIXES):
         text = f"group:{text}"
-    jmeno = text.split(":", 1)[1]
-    if not jmeno or ":" in jmeno:
+    name = text.split(":", 1)[1]
+    if not name or ":" in name:
         raise ValueError(f"neplatný principál: {name!r}")
     return text
 
@@ -131,12 +131,12 @@ class Acl:
     `Access.effective`). Prázdná množina je něco jiného: NIKDO, a to je
     platné nastavení (okno viditelné jen po step-up autentizaci)."""
 
-    def __init__(self, hodnoty: Iterable[str] | None = None, *,
-                 kde: str = "?", sloveso: str = "see") -> None:
+    def __init__(self, values: Iterable[str] | None = None, *,
+                 where: str = "?", verb: str = "see") -> None:
         self._set: set[str] | None = (
-            {principal(h) for h in hodnoty} if hodnoty is not None else None)
+            {principal(h) for h in values} if values is not None else None)
         #: popis pro log a varování („window:mzdy see")
-        self._kde = f"{kde} {sloveso}"
+        self._kde = f"{where} {verb}"
 
     # -- zápis -------------------------------------------------------------
 
@@ -144,41 +144,41 @@ class Acl:
         if self._set is None:
             self._set = set()
         for n in names:
-            jmeno = principal(n)
-            _zkontroluj(jmeno, self._kde)
-            self._set.add(jmeno)
-            _zaznamenej(self._kde, f"+{jmeno}")
+            name = principal(n)
+            _check_principal(name, self._kde)
+            self._set.add(name)
+            _record_change(self._kde, f"+{name}")
         return self
 
     def remove(self, *names: str) -> "Acl":
         if self._set is None:
             return self                      # nenastavené se nedá odebírat
         for n in names:
-            jmeno = principal(n)
-            if jmeno in self._set:
-                self._set.discard(jmeno)
-                _zaznamenej(self._kde, f"-{jmeno}")
+            name = principal(n)
+            if name in self._set:
+                self._set.discard(name)
+                _record_change(self._kde, f"-{name}")
         return self
 
     def set(self, names: Iterable[str] | None) -> "Acl":
         """Přepiš celé ACL (`None` = zpátky na dědění)."""
         if names is None:
             self._set = None
-            _zaznamenej(self._kde, "= <dědí>")
+            _record_change(self._kde, "= <dědí>")
             return self
-        nove = set()
+        is_new = set()
         for n in names:
-            jmeno = principal(n)
-            _zkontroluj(jmeno, self._kde)
-            nove.add(jmeno)
-        self._set = nove
-        _zaznamenej(self._kde, f"= {sorted(nove) or '<nikdo>'}")
+            name = principal(n)
+            _check_principal(name, self._kde)
+            is_new.add(name)
+        self._set = is_new
+        _record_change(self._kde, f"= {sorted(is_new) or '<nikdo>'}")
         return self
 
     def clear(self) -> "Acl":
         """Nikdo – platné nastavení, ne návrat k dědění (to je `set(None)`)."""
         self._set = set()
-        _zaznamenej(self._kde, "= <nikdo>")
+        _record_change(self._kde, "= <nikdo>")
         return self
 
     # -- čtení -------------------------------------------------------------
@@ -213,19 +213,58 @@ class Access:
     def __init__(self, see: Iterable[str] | None = None,
                  write: Iterable[str] | None = None,
                  object_id: str | None = None) -> None:
-        self.see = Acl(see, kde=object_id or "?", sloveso="see")
-        self.write = Acl(write, kde=object_id or "?", sloveso="write")
+        self.see = Acl(see, where=object_id or "?", verb="see")
+        self.write = Acl(write, where=object_id or "?", verb="write")
         # Práva zadaná při vzniku objektu jsou taky „nastavení v kódu" –
         # ať se v auditu objeví i okno, které se rovnou narodí otevřené.
-        for jmeno, acl in (("see", self.see), ("write", self.write)):
+        for name, acl in (("see", self.see), ("write", self.write)):
             if acl.is_set:
                 for kdo in acl:
-                    _zkontroluj(kdo, acl._kde)
-                _zaznamenej(f"{object_id or '?'} {jmeno}",
+                    _check_principal(kdo, acl._kde)
+                _record_change(f"{object_id or '?'} {name}",
                             f"= {acl.list() or '<nikdo>'}")
         #: id objektu (`screen:provoz`, `screen:provoz/window:mzdy`) – podle
         #: něj se hledají práva v souboru politiky
         self.object_id = object_id
+
+    # -- zkratky: `okno.access` se chová jako ACL pro „vidět" --------------
+    #
+    # `okno.access.add("group:ucetni")` je to, co se píše ručně a co je
+    # v dokumentaci; druhé sloveso zůstává výslovné (`okno.access.write`).
+    # Bez těchhle delegací by dokumentované API spadlo na AttributeError –
+    # a přesně tak to bylo, než si toho někdo všiml.
+
+    def add(self, *names: str) -> "Access":
+        self.see.add(*names)
+        return self
+
+    def remove(self, *names: str) -> "Access":
+        self.see.remove(*names)
+        return self
+
+    def set(self, names: Iterable[str] | None) -> "Access":
+        self.see.set(names)
+        return self
+
+    def clear(self) -> "Access":
+        self.see.clear()
+        return self
+
+    def list(self) -> list[str]:
+        return self.see.list()
+
+    @property
+    def is_set(self) -> bool:
+        return self.see.is_set
+
+    def __contains__(self, name: object) -> bool:
+        return name in self.see
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self.see)
+
+    def __len__(self) -> int:
+        return len(self.see)
 
     def rename(self, object_id: str) -> None:
         """Dej objektu jeho konečnou adresu (`screen:provoz/window:mzdy`).
@@ -239,9 +278,9 @@ class Access:
 
     def effective_see(self, fallback: Iterable[str]) -> set[str]:
         """Kdo vidí: soubor politiky, jinak vlastní ACL, jinak zděděné."""
-        ze_souboru = override_for(self.object_id)
-        if ze_souboru and ze_souboru["see"]:
-            return set(ze_souboru["see"])
+        from_file = override_for(self.object_id)
+        if from_file and from_file["see"]:
+            return set(from_file["see"])
         return set(self.see) if self.see.is_set else set(fallback)
 
     def effective_write(self, fallback: Iterable[str]) -> set[str]:
@@ -250,10 +289,10 @@ class Access:
         Ne fallback rodiče: kdyby se `write` dědil zvlášť, dalo by se
         omezit „vidět" a přitom nechat „psát" široké – tichý rozpor, který
         by nikdo nečekal."""
-        ze_souboru = override_for(self.object_id)
-        if ze_souboru and ze_souboru["write"]:
-            return set(ze_souboru["write"])
-        if self.write.is_set and not (ze_souboru and ze_souboru["see"]):
+        from_file = override_for(self.object_id)
+        if from_file and from_file["write"]:
+            return set(from_file["write"])
+        if self.write.is_set and not (from_file and from_file["see"]):
             return set(self.write)
         return self.effective_see(fallback)
 

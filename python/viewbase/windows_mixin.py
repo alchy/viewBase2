@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import Any
 
 from . import access as access_module
+from . import mfa
 from . import sessions
 from .controls import (ControlWindow, HtmlWindow, ShellWindow, TerminalWindow,
                        validate_values)
@@ -96,9 +97,9 @@ class WindowsMixin:
             window = self._reg.remove(window_id)
             if window is None:
                 raise ValueError(f"Okno '{window_id}' neexistuje")
-            for mapa in (self._window_callbacks, self._window_live,
+            for mapping in (self._window_callbacks, self._window_live,
                          self._terminal_callbacks, self._html_callbacks):
-                mapa.pop(window_id, None)
+                mapping.pop(window_id, None)
             sessions.store.revoke_window(window_id)
             self._actions.append(
                 {"action": "close_window", "window_id": window_id})
@@ -252,8 +253,8 @@ class WindowsMixin:
             window.append_scrollback(text)
             self._emit_html("shell_data", wid, data=text)   # sdílená cesta akcí
 
-        def on_command(prikaz: str) -> None:
-            self._log_shell_command(wid, prikaz)
+        def on_command(command: str) -> None:
+            self._log_shell_command(wid, command)
 
         def on_exit(code: int | None) -> None:
             self._emit_html("shell_state", wid, state="exited", code=code)
@@ -265,9 +266,9 @@ class WindowsMixin:
                                   on_command=(on_command
                                               if window.audit_commands else None))
             window.pty.start()
-        except Exception as chyba:                       # noqa: BLE001
+        except Exception as error:                       # noqa: BLE001
             window.pty = None
-            self._emit_html("shell_state", wid, state="failed", error=str(chyba))
+            self._emit_html("shell_state", wid, state="failed", error=str(error))
             logger.exception(f"shell window '{wid}' failed to start",
                              component="windows")
             return
@@ -291,10 +292,10 @@ class WindowsMixin:
         a jednorázový kód), proto strop a záznam do auditu."""
         if not self.config.get("shell_cli", True):
             return
-        bezici = len(self._reg.of_kind(ShellWindow))
-        if bezici >= self.MAX_SHELL_WINDOWS:
+        running = len(self._reg.of_kind(ShellWindow))
+        if running >= self.MAX_SHELL_WINDOWS:
             self._log_auth("warning",
-                           f"shell_new refused – {bezici} shell windows already "
+                           f"shell_new refused – {running} shell windows already "
                            f"open (limit {self.MAX_SHELL_WINDOWS})",
                            **self._origin(event))
             return
@@ -338,13 +339,17 @@ class WindowsMixin:
             return
         if sessions.store.has(sid, window.window_id):
             return                              # tahle relace už grant má
-        if not window.unlocks_with(getattr(event, "code", None)):
-            # AUDIT: co se stalo, ne čím se to zkoušelo – kód do logu nepatří
+        reason = window.unlocks_with(getattr(event, "code", None))
+        if reason != mfa.OK:
+            # AUDIT: co se stalo, ne čím se to zkoušelo – kód do logu nepatří.
+            # DŮVOD je tam schválně: „invalid code" u všech tří příčin
+            # znamenalo, že se spotřebovaný kód nedal odlišit od zahlcení
+            # pokusy a hledalo se to naslepo.
             self._log_auth("warning",
-                           f"invalid code for window '{window.window_id}'",
-                           **self._origin(event))
+                           f"code refused for window '{window.window_id}': "
+                           f"{reason}", **self._origin(event))
             self._emit_html("window_state", window.window_id, state="locked",
-                            error="Invalid code")
+                            error=mfa.REASONS.get(reason, "Invalid code"))
             return
         # GRANT PRO TUHLE RELACI, ne globální přepnutí okna: obsah dostane
         # jen ten, kdo kód zadal, a jen do vypršení relace (sessions.py).
@@ -451,65 +456,65 @@ class WindowsMixin:
         Výchozí je proto `default_access` instance (zavřeno), ne ACL plochy.
         Kdo chce stopu opravdu zveřejnit, řekne si o to výslovně:
         `vb.LogWindow(screen=s, access=["group:public"])`."""
-        vlastni = getattr(getattr(self, "screen", None), "_log_access", None)
-        if vlastni is not None and vlastni.is_set:
-            return sorted(vlastni)
+        own = getattr(getattr(self, "screen", None), "_log_access", None)
+        if own is not None and own.is_set:
+            return sorted(own)
         return sorted(access_module.DEFAULT_ACCESS)
 
     def _principals(self, sid: str | None,
-                    primo: "set[str] | None" = None) -> set[str]:
+                    explicit: "set[str] | None" = None) -> set[str]:
         """Principálové, proti kterým se rozhoduje.
 
         `primo` dodává SERVER u vstupu, který nemá relaci prohlížeče (REST –
         viz server.py). Klient si je nastavit nemůže: server je do payloadu
         vkládá až po něm, takže případnou vlastní hodnotu přepíše."""
-        if primo is not None:
-            return set(primo)
+        if explicit is not None:
+            return set(explicit)
         return sessions.store.principals(sid)
 
     @staticmethod
-    def _kdo(event: Any) -> "set[str] | None":
+    def _explicit_principals(event: Any) -> "set[str] | None":
         """Principálové dodané serverem (REST), nebo `None` = jde o relaci."""
         return getattr(event, "principals", None)
 
-    def _jmeno_relace(self, event: Any) -> str:
+    def _who(self, event: Any) -> str:
         """Kdo to zkouší – do auditní hlášky (nikdy celé sid)."""
-        if self._kdo(event) is not None:
+        if self._explicit_principals(event) is not None:
             return "rest"
         return sessions.store.user(getattr(event, "sid", None)) or "anonymous"
 
     def _can_see_screen(self, sid: str | None,
-                        primo: "set[str] | None" = None) -> bool:
+                        explicit: "set[str] | None" = None) -> bool:
         """Plocha je BRÁNA: kdo se nedostane sem, nedostane nic na ní."""
-        return access_module.allowed(self._principals(sid, primo),
+        return access_module.allowed(self._principals(sid, explicit),
                                      self._screen_acl())
 
     def _can_use_screen(self, sid: str | None,
-                        primo: "set[str] | None" = None) -> bool:
+                        explicit: "set[str] | None" = None) -> bool:
         """Smí do plochy zasahovat? Příchozí událost je akce, ne jen čtení."""
-        return access_module.allowed(self._principals(sid, primo),
+        return access_module.allowed(self._principals(sid, explicit),
                                      self._screen_write_acl())
 
     def _can_see(self, sid: str | None, window: Any,
-                 primo: "set[str] | None" = None) -> bool:
+                 explicit: "set[str] | None" = None) -> bool:
         """Vidí tahle relace tohle okno? (Plocha i okno musí projít.)"""
-        if not self._can_see_screen(sid, primo):
+        if not self._can_see_screen(sid, explicit):
             return False
         acl = getattr(window, "access", None)
         if acl is None:
             return True
-        return acl.can_see(self._principals(sid, primo), self._screen_acl())
+        return acl.can_see(self._principals(sid, explicit), self._screen_acl())
 
     def _can_use(self, sid: str | None, window: Any,
-                 primo: "set[str] | None" = None) -> bool:
+                 explicit: "set[str] | None" = None) -> bool:
         """Smí tahle relace do okna zasahovat? Nenastavené `write` znamená
         totéž co „vidět" (viz access.Access.effective_write)."""
-        if not self._can_use_screen(sid, primo):
+        if not self._can_use_screen(sid, explicit):
             return False
         acl = getattr(window, "access", None)
         if acl is None:
             return True
-        return acl.can_use(self._principals(sid, primo), self._screen_acl())
+        return acl.can_use(self._principals(sid, explicit), self._screen_acl())
 
     def _screen_ok(self, event: Any, verb: str) -> bool:
         """Brána plochy pro příchozí událost – PLATÍ U KAŽDÉ.
@@ -518,15 +523,15 @@ class WindowsMixin:
         `shell_new`, `menu_select` i uživatelské události šly zavolat na
         plochu, kterou relace vůbec neviděla (a přes REST bez identity)."""
         sid = getattr(event, "sid", None)
-        primo = self._kdo(event)
-        dovoleno = (self._can_use_screen(sid, primo) if verb == "use"
-                    else self._can_see_screen(sid, primo))
-        if not dovoleno:
+        explicit = self._explicit_principals(event)
+        permitted = (self._can_use_screen(sid, explicit) if verb == "use"
+                    else self._can_see_screen(sid, explicit))
+        if not permitted:
             self._log_auth("warning",
-                           f"event refused – '{self._jmeno_relace(event)}' may "
+                           f"event refused – '{self._who(event)}' may "
                            f"not {verb} screen '{self.screen_id}'",
                            **self._origin(event))
-        return dovoleno
+        return permitted
 
     def _access_ok(self, event: Any, window: Any, verb: str) -> bool:
         """Kontrola ACL okna pro událost; odmítnutí jde do auditu.
@@ -534,15 +539,15 @@ class WindowsMixin:
         Odmítnutí NENÍ tichý no-op: na vystavené instanci je pokus sáhnout na
         cizí okno přesně to, co chcete vidět v logu."""
         sid = getattr(event, "sid", None)
-        primo = self._kdo(event)
-        dovoleno = (self._can_use(sid, window, primo) if verb == "write"
-                    else self._can_see(sid, window, primo))
-        if not dovoleno:
+        explicit = self._explicit_principals(event)
+        permitted = (self._can_use(sid, window, explicit) if verb == "write"
+                    else self._can_see(sid, window, explicit))
+        if not permitted:
             self._log_auth("warning",
                            f"access to window '{window.window_id}' refused "
-                           f"({verb}) – '{self._jmeno_relace(event)}' is not "
+                           f"({verb}) – '{self._who(event)}' is not "
                            "in its ACL", **self._origin(event))
-        return dovoleno
+        return permitted
 
     def _grant_ok(self, event: Any, window: Any) -> bool:
         """Smí tahle relace do okna psát?
@@ -564,9 +569,9 @@ class WindowsMixin:
         wid = window.window_id
         if sessions.store.has(sid, wid):
             return True
-        duvod = ("expired or unknown session" if not sessions.store.known(sid)
+        reason = ("expired or unknown session" if not sessions.store.known(sid)
                  else "session has no grant for this window")
-        self._log_auth("warning", f"input to window '{wid}' refused – {duvod}",
+        self._log_auth("warning", f"input to window '{wid}' refused – {reason}",
                        **self._origin(event))
         return False
 
@@ -600,15 +605,15 @@ class WindowsMixin:
         self._keys.add(window.window_id, data)
         window.pty.write(data)
 
-    def _log_keystrokes(self, window_id: str, text: str, sekundy: float,
-                        znaku: int) -> None:
+    def _log_keystrokes(self, window_id: str, text: str, seconds: float,
+                        chars: int) -> None:
         """Hotová dávka kláves do ladicího logu (`log_level="debug"`)."""
         # `data='…'` – bez ohraničení nepozná parser, kde sekvence končí
         logger.debug(f"shell '{window_id}' keys "
-                     f"({sekundy:.0f} s, {znaku} znaků): data={quoted(text)}",
+                     f"({seconds:.0f} s, {chars} znaků): data={quoted(text)}",
                      component="windows", **self._shell_origin.get(window_id, {}))
 
-    def _log_shell_command(self, window_id: str, prikaz: str) -> None:
+    def _log_shell_command(self, window_id: str, command: str) -> None:
         """Auditní stopa příkazu v shell okně.
 
         DVĚ IDENTITY, které se nesmí plést (uživatelský požadavek):
@@ -630,7 +635,7 @@ class WindowsMixin:
         except Exception:                                    # noqa: BLE001
             os_user = "?"
         logger.audit(f"shell '{window_id}' command by '{mfa.active_user()}' "
-                     f"(os user '{os_user}'): command={quoted(prikaz)}",
+                     f"(os user '{os_user}'): command={quoted(command)}",
                      **self._shell_origin.get(window_id, {}))
 
     def _on_shell_resize(self, event) -> None:
