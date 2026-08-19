@@ -109,10 +109,11 @@ předem, a co je tajné, nikdy neopustí disk:
 
 ```
 ~/.viewbase/                                  adresář 0700
-├── users.json                                (0600) uživatelé a jejich tajemství
+├── users.json                                (0600) uživatelé, skupiny, práva
 ├── user-workbench/                           adresář 0700
 │   ├── totp-workbench.svg                    (0600) QR jako obrázek
 │   └── totp-workbench.txt                    (0600) tentýž QR v ASCII + ruční kód
+├── user-jindra/                              …a stejně tak každý další uživatel
 └── tls/                                      jen při `tls=True`
     ├── cert.pem                              (0600) vlastnoručně podepsaný certifikát
     └── key.pem                               (0600) privátní klíč
@@ -130,9 +131,27 @@ viewbase: uživatel instance: workbench; registrovaní: workbench (TOTP)
 `cat` toho souboru vysype QR rovnou do terminálu (funguje i přes SSH, kde
 obrázek neotevřete) — naskenujte ho do autentikátoru (MS Authenticator, Google
 Authenticator, 1Password, Bitwarden…) a máte kód pro
-[zabezpečená okna](zabezpeceni.md). Uživatele instance zvolíte
-`vb.Project(port=8080, user="jindrich")`, jinak je to `workbench`. Další start
-už mlčí; když soubory smažete, vyrobí se znovu ze stávajícího tajemství
+[zabezpečená okna](zabezpeceni.md).
+
+V autentikátoru se účet jmenuje **`viewBase:user:<jméno>`** — stejná syntaxe
+jako principál v ACL, takže se v seznamu na telefonu pozná na první pohled
+(i od registrací ze starších verzí, které měly jen holé jméno).
+
+**Víc uživatelů rovnou při vzniku instance:**
+
+```python
+project = vb.Project(port=8080, user="workbench",     # správce (první = root)
+                     users=["jindra", "demo"])        # …a další dva
+# nebo rovnou do skupin:
+project = vb.Project(port=8080, users={"jindra": ["ucetni"], "demo": []})
+```
+
+Zakládá se to **při vytvoření instance**, ne až při `serve()` — QR tak máte
+v konzoli dřív, než službu spustíte, a můžete je rozdat. Je to idempotentní:
+druhý start nikomu **nezmění tajemství ani skupiny**, takže restart aplikace
+nikoho neodregistruje z autentikátoru a nepřebije to, co mezitím nastavil
+správce ([`python -m viewbase.admin`](zabezpeceni.md#přístup-uživatelé-skupiny-a-acl)).
+Když soubory s QR smažete, vyrobí se znovu ze stávajícího tajemství
 (registrovat se podruhé nemusíte).
 
 ---

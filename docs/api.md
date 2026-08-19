@@ -43,7 +43,8 @@ project = vb.Project(port=8080, tls=True, log_level="info")
 | parametr | výchozí | k čemu |
 |---|---|---|
 | `host`, `port` | `127.0.0.1`, `8080` | kde služba poslouchá |
-| `user` | `workbench` | uživatel instance (TOTP, QR do `~/.viewbase/`) |
+| `user` | `workbench` | uživatel instance; na čisté instalaci je to **první uživatel**, takže dostane `group:administrator` |
+| `users` | — | další uživatelé, které má instance založit: `["jindra", "demo"]` nebo `{"jindra": ["ucetni"]}`. Zakládá se při **vzniku instance**, idempotentně (tajemství ani skupiny existujícím nemění) |
 | `users_file` | `~/.viewbase/users.json` | **soubor politiky**: uživatelé, skupiny i práva objektů |
 | `identity` | JSON soubor | zdroj identit (`exists`/`authenticate`/`groups_of`) — sem přijde LDAP |
 | `policy` | sekce `access` téhož souboru | zdroj práv objektů (`load`/`save`) |

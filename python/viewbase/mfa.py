@@ -52,7 +52,10 @@ from pathlib import Path
 from typing import Any, Callable
 
 DEFAULT_USER = "workbench"
-ISSUER = "viewbase"
+#: Vydavatel v `otpauth://` URI – to, co autentikátor ukáže jako název
+#: služby. Velké B schválně: v seznamu na telefonu se „viewBase" pozná na
+#: první pohled od čehokoli staršího.
+ISSUER = "viewBase"
 MAX_ATTEMPTS = 5          # pokusů…
 WINDOW_S = 30.0           # …za tolik sekund (pak se čeká)
 TOTP_VALID_WINDOW = 1     # ±30 s kvůli rozjetým hodinám
@@ -254,11 +257,22 @@ def save_users(users: dict[str, dict[str, Any]]) -> None:
     update_section("users", users)
 
 
+def account_label(user: str) -> str:
+    """Jak se účet jmenuje v autentikátoru: `user:<jméno>`.
+
+    Celý štítek pak vyjde `viewBase:user:jindra` – stejná syntaxe jako
+    principál v ACL (`user:jindra`), takže se v telefonu i v konfiguraci
+    čte totéž. Odlišuje to taky nové registrace od starších, které měly
+    v seznamu jen holé jméno."""
+    return f"user:{user}"
+
+
 def provisioning_uri(user: str, secret: str) -> str:
     """`otpauth://` URI pro autentikátor (QR i ruční zadání)."""
     import pyotp
 
-    return pyotp.TOTP(secret).provisioning_uri(name=user, issuer_name=ISSUER)
+    return pyotp.TOTP(secret).provisioning_uri(name=account_label(user),
+                                               issuer_name=ISSUER)
 
 
 def ensure_user(user: str | None = None, *,
@@ -287,20 +301,68 @@ def ensure_user(user: str | None = None, *,
             rec = {
                 "totp_secret": pyotp.random_base32(),
                 "is_mfa_enabled": True,
+                # čím je účet podepsaný v autentikátoru; podle toho se pozná,
+                # že se štítek změnil a QR se má vyrobit znovu
+                "label": account_label(user),
                 "groups": [ADMINISTRATOR if prvni else USERS],
                 "created": time.strftime("%Y-%m-%dT%H:%M:%S"),
             }
             users[user] = rec
             save_users(users)
             _announce_enrollment(user, rec["totp_secret"], announce)
-        elif not qr_text_path(user).exists():
+        elif (not qr_text_path(user).exists()
+                or rec.get("label") != account_label(user)):
             # Uživatel z dřívější verze (nebo si soubory smazal): tajemství se
             # NEMĚNÍ, jen se z něj znovu vyrobí QR – jinak by si ho nešlo
             # naskenovat na druhé zařízení, aniž by se musel registrovat znovu.
+            # Totéž při ZMĚNĚ ŠTÍTKU: naskenováním nového QR vznikne v
+            # autentikátoru další položka se stejnými kódy, takže se stará dá
+            # v klidu smazat a nic se přitom nezneplatní.
             _write_artifacts(user, rec["totp_secret"])
+            rec["label"] = account_label(user)
+            users[user] = rec
+            save_users(users)
             system_log("info", f"QR for user '{user}' regenerated from the existing "
-                         f"secret: cat {qr_text_path(user)}")
+                         f"secret as '{ISSUER}:{account_label(user)}': "
+                         f"cat {qr_text_path(user)}")
         return rec
+
+
+def provision(spec: "list | tuple | dict | None",
+              instance_user: str | None = None) -> list[str]:
+    """Založ uživatele instance a vyrob jim TOTP + QR. Idempotentní.
+
+    `spec` je seznam jmen (`["jindra", "demo"]`) nebo mapa jméno → skupiny
+    (`{"jindra": ["ucetni"], "demo": []}`). Uživatel instance jde na řadu
+    PRVNÍ, aby na čisté instalaci dostal `group:administrator` (obdoba
+    roota – viz ensure_user).
+
+    Existující uživatel se NEPŘEPISUJE: tajemství zůstane, takže restart
+    aplikace nikomu nezneplatní autentikátor. Skupiny se doplní jen tomu,
+    kdo teď vzniká – kdo je jednou založený, ten patří konfiguraci
+    (`python -m viewbase.admin`), ne kódu aplikace."""
+    if isinstance(spec, dict):
+        pozadavky: dict[str, Any] = dict(spec)
+    else:
+        pozadavky = {str(j): None for j in (spec or ())}
+    if instance_user:
+        pozadavky = {instance_user: pozadavky.pop(instance_user, None),
+                     **pozadavky}
+
+    zalozeni: list[str] = []
+    for jmeno, skupiny in pozadavky.items():
+        jmeno = _safe_user(jmeno)
+        nove = jmeno not in load_users()
+        ensure_user(jmeno)
+        if nove:
+            zalozeni.append(jmeno)
+            if skupiny:
+                from .access import principal
+
+                users = load_users()
+                users[jmeno]["groups"] = [principal(g) for g in skupiny]
+                save_users(users)
+    return zalozeni
 
 
 def _migrate_legacy_qr(user: str) -> None:

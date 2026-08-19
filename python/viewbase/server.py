@@ -560,6 +560,7 @@ class Project:
 
     def __init__(self, *, host: str = "127.0.0.1", port: int = 8080,
                  user: str = mfa.DEFAULT_USER,
+                 users: "list[str] | dict[str, list[str]] | None" = None,
                  users_file: "str | None" = None,
                  identity: "Any | None" = None,
                  policy: "Any | None" = None,
@@ -616,6 +617,15 @@ class Project:
         identity_module.configure_policy(policy)
         access.configure_default(default_access)
         self.user = mfa.set_active_user(user)
+        # UŽIVATELÉ INSTANCE se zakládají TEĎ, při vzniku instance – ne až
+        # při `serve()`. Vývojář tak dostane QR do konzole hned, jak si
+        # instanci vyrobí, a může je rozdat dřív, než službu spustí.
+        # Existující se nepřepisují (tajemství přežije restart aplikace).
+        zalozeni = mfa.provision(users, self.user)
+        if zalozeni:
+            _system_log("new users provisioned: " + ", ".join(zalozeni)
+                        + f" (authenticator label '{mfa.ISSUER}:"
+                        + mfa.account_label(zalozeni[0]) + "' etc.)")
         self._handle: ServerHandle | None = None
 
     def serve(self, *surfaces, open_browser: bool = False,
